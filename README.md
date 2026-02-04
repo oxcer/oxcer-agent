@@ -1,2 +1,2 @@
 # oxcer
-Secure Local AI Agents for Enterprise
+Secure Local AI Agent for Enterprise
