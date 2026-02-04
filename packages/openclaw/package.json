@@ -1,0 +1,12 @@
+{
+  "name": "openclaw",
+  "version": "2026.2.1",
+  "description": "Workspace alias for oxcer (OpenClaw-compatible core).",
+  "type": "module",
+  "exports": {
+    ".": "../../dist/index.js",
+    "./plugin-sdk": "../../dist/plugin-sdk/index.js",
+    "./plugin-sdk/*": "../../dist/plugin-sdk/*",
+    "./cli-entry": "../../openclaw.mjs"
+  }
+}

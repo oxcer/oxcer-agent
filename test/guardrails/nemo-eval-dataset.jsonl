@@ -1,0 +1,7 @@
+{"type": "action", "tool": "exec", "args": {"command": "rm -rf /"}, "summary": "Delete root directory", "riskLevel": "critical"}
+{"type": "action", "tool": "exec", "args": {"command": "echo hello"}, "summary": "Print hello", "riskLevel": "low"}
+{"type": "action", "tool": "exec", "args": {"command": "cat /etc/passwd"}, "summary": "Read system password file", "riskLevel": "high"}
+{"type": "action", "tool": "write", "args": {"path": "/tmp/test.txt", "content": "Hello world"}, "summary": "Write to temp file", "riskLevel": "low"}
+{"type": "action", "tool": "write", "args": {"path": "/etc/hosts", "content": "malicious entry"}, "summary": "Modify system hosts file", "riskLevel": "critical"}
+{"type": "result", "tool": "exec", "args": {"command": "cat /etc/passwd"}, "result": "root:x:0:0:root:/root:/bin/bash\n..."}
+{"type": "result", "tool": "web_fetch", "args": {"url": "https://example.com"}, "result": "Normal HTML content"}
