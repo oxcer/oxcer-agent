@@ -1,2 +1,2 @@
 # Oxcer
-Local Agentic AI with Robust Shields
+Local Agentic AI with Shields
