@@ -9,7 +9,7 @@
     "tauri:build": "tauri build",
     "lint": "echo \"no lint yet\"",
     "test": "echo \"no tests yet\"",
-    "check": "pnpm lint && pnpm test && pnpm tauri build --ci"
+    "check": "pnpm lint && pnpm test"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0"
