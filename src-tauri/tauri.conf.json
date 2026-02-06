@@ -1,0 +1,28 @@
+{
+  "build": {
+    "frontendDist": "../src",
+    "devUrl": "tauri://localhost"
+  },
+  "productName": "Oxcer",
+  "version": "0.1.0",
+  "identifier": "ai.oxcer.app",
+  "app": {
+    "windows": [
+      {
+        "title": "Oxcer",
+        "width": 900,
+        "height": 600,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["dmg", "app"],
+    "macOS": {
+      "entitlements": null
+    }
+  }
+}
+

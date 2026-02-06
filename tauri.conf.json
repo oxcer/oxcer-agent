@@ -1,0 +1,5 @@
+{
+  "$schema": "../src-tauri/tauri.conf.json",
+  "note": "Root-level file kept for convenience; Tauri uses src-tauri/tauri.conf.json."
+}
+
