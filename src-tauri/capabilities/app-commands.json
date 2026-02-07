@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "app-commands",
+  "description": "Oxcer custom commands (FS, shell, settings, models). Path restrictions enforced in Rust by the policy engine.",
+  "windows": ["main"],
+  "permissions": ["allow-oxcer-commands"]
+}

@@ -235,9 +235,12 @@ fn log_fs_event<'a>(
 /// This rejects:
 /// - Any attempt to escape the base via `..` segments.
 /// - Symlinks that resolve outside the selected base directory.
+///
+/// Takes `base` by reference so callers can resolve multiple paths against
+/// the same base without cloning or moving.
 pub fn normalize_and_resolve(
     ctx: &AppFsContext,
-    base: BaseDirKind,
+    base: &BaseDirKind,
     rel_path: &str,
 ) -> Result<NormalizedPath, FsError> {
     if rel_path.is_empty() {
@@ -261,7 +264,7 @@ pub fn normalize_and_resolve(
         }
     }
 
-    let (base_dir, base_clone) = match &base {
+    let (base_dir, base_clone) = match base {
         BaseDirKind::AppConfig => (&ctx.app_config_dir, BaseDirKind::AppConfig),
         BaseDirKind::Workspace { id } => {
             let root = ctx
@@ -337,7 +340,7 @@ pub fn fs_list_dir(
     base: BaseDirKind,
     rel_path: &str,
 ) -> Result<Vec<DirEntryMetadata>, FsError> {
-    let normalized = normalize_and_resolve(ctx, base, rel_path)?;
+    let normalized = normalize_and_resolve(ctx, &base, rel_path)?;
     let decision = evaluate_path_policy(&normalized);
 
     if matches!(decision.decision, SecurityDecisionKind::Deny) {
@@ -412,7 +415,7 @@ pub fn fs_read_file(
     base: BaseDirKind,
     rel_path: &str,
 ) -> Result<FsReadResult, FsError> {
-    let normalized = normalize_and_resolve(ctx, base, rel_path)?;
+    let normalized = normalize_and_resolve(ctx, &base, rel_path)?;
     let decision = evaluate_path_policy(&normalized);
 
     if matches!(decision.decision, SecurityDecisionKind::Deny) {
@@ -496,7 +499,7 @@ pub fn fs_write_file(
         ));
     }
 
-    let normalized = normalize_and_resolve(ctx, base, rel_path)?;
+    let normalized = normalize_and_resolve(ctx, &base, rel_path)?;
     let decision = evaluate_path_policy(&normalized);
 
     if matches!(decision.decision, SecurityDecisionKind::Deny) {
@@ -530,6 +533,119 @@ pub fn fs_write_file(
         None,
     );
 
+    Ok(())
+}
+
+/// Remove a file under a logical path. Destructive operation.
+pub fn fs_remove_file(
+    caller: FsCaller,
+    ctx: &AppFsContext,
+    base: BaseDirKind,
+    rel_path: &str,
+) -> Result<(), FsError> {
+    if matches!(base, BaseDirKind::AppConfig) {
+        return Err(FsError::forbidden(
+            "Deletes in the app config directory are disabled",
+        ));
+    }
+
+    let normalized = normalize_and_resolve(ctx, &base, rel_path)?;
+    let decision = evaluate_path_policy(&normalized);
+
+    if matches!(decision.decision, SecurityDecisionKind::Deny) {
+        let err = FsError::forbidden("Delete of this path is forbidden by policy");
+        log_fs_event(caller, "delete", &normalized, &decision, None, Some(&err));
+        return Err(err);
+    }
+
+    let meta = fs::metadata(&normalized.abs_path).map_err(FsError::io)?;
+    if !meta.is_file() {
+        let err = FsError::invalid_path("Path is not a regular file (use remove_dir for directories)");
+        log_fs_event(caller, "delete", &normalized, &decision, None, Some(&err));
+        return Err(err);
+    }
+
+    fs::remove_file(&normalized.abs_path).map_err(FsError::io)?;
+    log_fs_event(caller, "delete", &normalized, &decision, None, None);
+    Ok(())
+}
+
+/// Rename/move a file or directory under a logical path. Destructive operation.
+pub fn fs_rename(
+    caller: FsCaller,
+    ctx: &AppFsContext,
+    base: BaseDirKind,
+    rel_path: &str,
+    new_rel_path: &str,
+) -> Result<(), FsError> {
+    if matches!(base, BaseDirKind::AppConfig) {
+        return Err(FsError::forbidden(
+            "Renames in the app config directory are disabled",
+        ));
+    }
+
+    let normalized = normalize_and_resolve(ctx, &base, rel_path)?;
+    let decision = evaluate_path_policy(&normalized);
+
+    if matches!(decision.decision, SecurityDecisionKind::Deny) {
+        let err = FsError::forbidden("Rename of this path is forbidden by policy");
+        log_fs_event(caller, "rename", &normalized, &decision, None, Some(&err));
+        return Err(err);
+    }
+
+    let dest_normalized = normalize_and_resolve(ctx, &base, new_rel_path)?;
+    let dest_decision = evaluate_path_policy(&dest_normalized);
+
+    if matches!(dest_decision.decision, SecurityDecisionKind::Deny) {
+        let err = FsError::forbidden("Rename destination is forbidden by policy");
+        log_fs_event(caller, "rename", &normalized, &dest_decision, None, Some(&err));
+        return Err(err);
+    }
+
+    fs::rename(&normalized.abs_path, &dest_normalized.abs_path).map_err(FsError::io)?;
+    log_fs_event(caller, "rename", &normalized, &decision, None, None);
+    Ok(())
+}
+
+/// Move a file across workspaces. Copy then remove. Destructive operation.
+pub fn fs_move(
+    caller: FsCaller,
+    ctx: &AppFsContext,
+    src_base: BaseDirKind,
+    src_rel_path: &str,
+    dest_base: BaseDirKind,
+    dest_rel_path: &str,
+) -> Result<(), FsError> {
+    let src_normalized = normalize_and_resolve(ctx, &src_base, src_rel_path)?;
+    let dest_normalized = normalize_and_resolve(ctx, &dest_base, dest_rel_path)?;
+
+    let src_decision = evaluate_path_policy(&src_normalized);
+    if matches!(src_decision.decision, SecurityDecisionKind::Deny) {
+        let err = FsError::forbidden("Move source is forbidden by policy");
+        log_fs_event(caller, "move", &src_normalized, &src_decision, None, Some(&err));
+        return Err(err);
+    }
+
+    let dest_decision = evaluate_path_policy(&dest_normalized);
+    if matches!(dest_decision.decision, SecurityDecisionKind::Deny) {
+        let err = FsError::forbidden("Move destination is forbidden by policy");
+        log_fs_event(caller, "move", &src_normalized, &dest_decision, None, Some(&err));
+        return Err(err);
+    }
+
+    let src_meta = fs::metadata(&src_normalized.abs_path).map_err(FsError::io)?;
+    if !src_meta.is_file() {
+        let err = FsError::invalid_path("Move source must be a regular file");
+        log_fs_event(caller, "move", &src_normalized, &src_decision, None, Some(&err));
+        return Err(err);
+    }
+
+    if let Some(parent) = dest_normalized.abs_path.parent() {
+        fs::create_dir_all(parent).map_err(FsError::io)?;
+    }
+    fs::copy(&src_normalized.abs_path, &dest_normalized.abs_path).map_err(FsError::io)?;
+    fs::remove_file(&src_normalized.abs_path).map_err(FsError::io)?;
+    log_fs_event(caller, "move", &src_normalized, &src_decision, None, None);
     Ok(())
 }
 
@@ -582,12 +698,8 @@ mod tests {
         let root = dir.path();
         let ctx = make_workspace_ctx(root);
 
-        let err = normalize_and_resolve(
-            &ctx,
-            BaseDirKind::Workspace { id: "ws".to_string() },
-            "../outside.txt",
-        )
-        .unwrap_err();
+        let base = BaseDirKind::Workspace { id: "ws".to_string() };
+        let err = normalize_and_resolve(&ctx, &base, "../outside.txt").unwrap_err();
 
         assert_eq!(matches!(err.kind, FsErrorKind::InvalidPath), true);
     }

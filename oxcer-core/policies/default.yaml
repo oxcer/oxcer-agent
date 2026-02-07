@@ -1,0 +1,123 @@
+# Oxcer default security policy.
+# Policies are evaluated in order; first matching rule wins.
+# Invalid policy → secure default (default-deny).
+#
+# Schema: match (caller, tool_type, operation, path_patterns, command_patterns),
+#         action (allow | deny | require_approval),
+#         optional: reason_code, notes, risk_level
+
+version: 1
+default_action: deny
+
+rules:
+  # Path blocklist — sensitive credential paths, deny read and write
+  - match:
+      tool_type: [fs]
+      path_patterns:  # home-relative patterns; ~ expands to $HOME
+        - "~/.ssh"
+        - "~/.aws"
+        - "~/.gnupg"
+        - "~/Library/Keychains"
+        - "~/Library/Passwords"
+        - "~/.env"
+        - "~/.env.local"
+        - "~/.env.production"
+        - "~/.env.development"
+        - "~/.netrc"
+        - "~/.git-credentials"
+        - "~/.docker/config.json"
+        - "~/.kube/config"
+        - "~/.terraform"
+        - "~/.config/gcloud"
+        - "~/.azure"
+    action: deny
+    reason_code: FS_PATH_IN_BLOCKLIST
+    notes: "Sensitive credential paths"
+    risk_level: high
+
+  # Command blacklist — destructive / privilege escalation
+  - match:
+      tool_type: [shell]
+      command_patterns:
+        - "rm"
+        - "sudo"
+        - "su"
+        - "doas"
+        - "dd"
+        - "mkfs"
+        - "fdisk"
+        - "parted"
+        - "shred"
+        - "wipefs"
+        - "rm -rf"
+        - " sudo "
+        - " su "
+    action: deny
+    reason_code: SHELL_COMMAND_BLACKLISTED
+    notes: "Destructive or privilege-escalation commands"
+    risk_level: high
+
+  # Risk-based: destructive FS operations
+  - match:
+      tool_type: [fs]
+      operation: [delete, rename, move, chmod]
+    action: require_approval
+    reason_code: DESTRUCTIVE_FS_REQUIRES_APPROVAL
+    risk_level: high
+
+  # Risk-based: deploy / push / migrate-like shell commands
+  - match:
+      tool_type: [shell]
+      operation: [exec]
+      command_patterns: [deploy, push, migrate, release, publish]
+    action: require_approval
+    reason_code: HIGH_RISK_TOOL_REQUIRES_APPROVAL
+    risk_level: high
+
+  # Internal system — allow (limited use)
+  - match:
+      caller: [internal_system, internal]
+    action: allow
+    reason_code: INTERNAL_SYSTEM
+
+  # Agent: read allowed
+  - match:
+      caller: [agent_orchestrator, agent]
+      tool_type: [fs]
+      operation: [read]
+    action: allow
+    reason_code: EXPLICIT_ALLOW
+
+  # Agent: write requires approval
+  - match:
+      caller: [agent_orchestrator, agent]
+      tool_type: [fs]
+      operation: [write]
+    action: require_approval
+    reason_code: AGENT_WRITE_REQUIRES_APPROVAL
+    risk_level: high
+
+  # Agent: exec requires approval
+  - match:
+      caller: [agent_orchestrator, agent]
+      tool_type: [shell]
+      operation: [exec]
+    action: require_approval
+    reason_code: AGENT_EXEC_REQUIRES_APPROVAL
+    risk_level: high
+
+  # UI: low-risk FS read/write allowed
+  - match:
+      caller: [ui]
+      tool_type: [fs]
+      operation: [read, write]
+    action: allow
+    reason_code: EXPLICIT_ALLOW
+
+  # UI: shell exec allowed (catalog-based)
+  - match:
+      caller: [ui]
+      tool_type: [shell]
+      operation: [exec]
+    action: allow
+    reason_code: EXPLICIT_ALLOW

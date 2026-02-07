@@ -1,0 +1,23 @@
+# Oxcer custom commands: FS, shell, settings, models, config.
+# Path restrictions enforced in Rust by the policy engine.
+[[permission]]
+identifier = "allow-oxcer-commands"
+description = "Allows Oxcer's custom FS, shell, settings, and model commands. Path access is enforced by the policy engine in Rust."
+commands.allow = [
+  "cmd_fs_list_dir",
+  "cmd_fs_read_file",
+  "cmd_fs_write_file",
+  "cmd_fs_delete",
+  "cmd_fs_rename",
+  "cmd_fs_move",
+  "cmd_shell_run",
+  "cmd_approve_and_execute",
+  "cmd_settings_get",
+  "cmd_settings_save",
+  "cmd_dialog_open_directory",
+  "cmd_workspace_add",
+  "cmd_workspace_remove",
+  "cmd_models_list",
+  "get_config",
+  "get_effective_fs_policy",
+]

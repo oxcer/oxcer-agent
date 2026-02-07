@@ -377,12 +377,8 @@ pub fn validate_and_bind_params(
                     .get("workspace_id")
                     .and_then(|v| v.as_str())
                     .unwrap_or(&ctx.default_workspace_id);
-                let normalized = normalize_and_resolve(
-                    &fs_ctx,
-                    BaseDirKind::Workspace { id: workspace_id.to_string() },
-                    rel,
-                )
-                .map_err(shell_error_from_fs)?;
+                let base = BaseDirKind::Workspace { id: workspace_id.to_string() };
+                let normalized = normalize_and_resolve(&fs_ctx, &base, rel).map_err(shell_error_from_fs)?;
                 normalized.abs_path.display().to_string()
             }
             CommandParamType::Bool => {

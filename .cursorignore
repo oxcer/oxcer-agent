@@ -1,0 +1,6 @@
+src/index.html
+public/index.html
+dist/
+.DS_Store
+src-tauri/target/
+*.html

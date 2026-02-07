@@ -1,0 +1,17 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "app-core-minimal",
+  "description": "Minimal core: app lifecycle, events, window, resources, menu, tray. Required to start the app. NO http/net — WebView is local oxcer:// only; outbound HTTP via Rust network layer.",
+  "windows": ["main"],
+  "permissions": [
+    "core:app:default",
+    "core:event:default",
+    "core:window:default",
+    "core:resources:default",
+    "core:menu:default",
+    "core:tray:default",
+    "core:window:allow-set-title",
+    "core:event:allow-listen",
+    "core:event:allow-emit"
+  ]
+}

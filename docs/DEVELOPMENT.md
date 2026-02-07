@@ -3,7 +3,8 @@
 ## Project structure
 
 - **`oxcer-core`** — Pure Rust library: FS Service, Shell Service, Security Policy, Logging. No Tauri dependency. All core logic and unit tests live here; test with `cargo test -p oxcer-core` (or `cd oxcer-core && cargo test`).
-- **`src-tauri`** — Thin Tauri launcher: initializes Tauri context/capabilities and exposes a small set of commands that delegate into `oxcer-core`. Replaceable by other frontends (e.g. SwiftUI, Flutter) that reuse the same core.
+- **`src-tauri`** — Tauri backend: initializes Tauri context/capabilities and exposes commands (FS, Shell, Security, Settings) that delegate into `oxcer-core`. **Backend only** — no WebView UI. The primary UI is a native macOS Swift app that communicates via IPC/sidecar.
+- **`src/`** — Minimal placeholder `index.html` required by Tauri (no scripts). Legacy WebView UI archived in `reference/legacy_ui/`.
 
 ## Default workflow
 
@@ -13,11 +14,10 @@
   - No Tauri or window; tests are pure Rust.
 
 - **Tauri app sanity:** After core tests are green, ensure the launcher still builds and runs.
-  - `cd src-tauri`
-  - `cargo test` — compiles the binary (with mock context); no need to run integration tests here if all logic is in `oxcer-core`.
-  - `cargo tauri dev` — for manual integration and UI.
+  - From repo root: `pnpm tauri dev` (or `cd src-tauri && cargo test` for Rust-only tests)
+  - The backend runs with a minimal hidden window; the Swift app will provide the primary UI.
 
-- **Routine:** Modify core → run `cargo test` in `oxcer-core` → then run `cargo tauri dev` when you need to try the full app.
+- **Routine:** Modify core → run `cargo test` in `oxcer-core` → then run `pnpm tauri dev` when you need to exercise the backend.
 
 ## Tauri context and `cargo test`
 
@@ -31,6 +31,7 @@
 ## Security and capabilities
 
 - **FS and Shell** go through our own services and **Security Policy** (path blocklist, command deny list); they are not raw filesystem/shell access.
+- Oxcer runs with a hidden window; the Swift app is the primary UI and invokes backend commands via IPC/sidecar.
 - Capabilities are configured in `tauri.conf.json` under `app.security.capabilities`; the main window uses the `"main"` capability.
 - For new features, add tests in `oxcer-core` (in the relevant module: `fs.rs` or `shell.rs`) first; keep Tauri-specific wiring in `src-tauri/src/main.rs` and validate with `cargo tauri dev` when needed.
 
