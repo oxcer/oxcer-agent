@@ -2,16 +2,13 @@
 
 use std::path::PathBuf;
 
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Manager};
 use tauri_plugin_fs;
 
-mod fs;
+use oxcer_core::fs;
+use oxcer_core::shell;
 
 /// Helper to build the FS context from the running application handle.
-///
-/// For Sprint 2 the workspace roots list is minimal and static. In future
-/// sprints this will be loaded from persisted app configuration so users
-/// can manage workspace roots via Settings UI.
 fn build_fs_context(app: &AppHandle) -> fs::AppFsContext {
     let app_config_dir = app
         .path()
@@ -80,6 +77,33 @@ fn cmd_fs_read_file(
     )
 }
 
+/// Shell Service: run a catalog-defined command by id with validated params.
+/// No free-form shell; only commands from the default catalog are allowed.
+#[tauri::command]
+fn cmd_shell_run(
+    app: AppHandle,
+    workspace_root: String,
+    command_id: String,
+    params: serde_json::Value,
+) -> Result<shell::ShellResult, shell::ShellError> {
+    let ctx = shell::ShellContext {
+        workspace_roots: vec![fs::WorkspaceRoot {
+            id: "default".to_string(),
+            name: "default".to_string(),
+            path: PathBuf::from(&workspace_root),
+        }],
+        default_workspace_id: "default".to_string(),
+    };
+    let catalog = shell::default_catalog();
+    shell::shell_run(
+        shell::ShellCaller::Ui,
+        &ctx,
+        &catalog,
+        &command_id,
+        params,
+    )
+}
+
 #[tauri::command]
 fn cmd_fs_write_file(
     app: AppHandle,
@@ -110,6 +134,21 @@ fn cmd_fs_write_file(
     )
 }
 
+/// Returns the Tauri context for the app. In test builds we use a mock so that
+/// `cargo test` can compile without OUT_DIR / generate_context!(); real runs
+/// use the bundled context. See docs/DEVELOPMENT.md for workflow notes.
+fn app_context() -> tauri::Context<tauri::Wry> {
+    #[cfg(test)]
+    {
+        tauri::test::mock_context(tauri::test::noop_assets())
+    }
+
+    #[cfg(not(test))]
+    {
+        tauri::generate_context!()
+    }
+}
+
 fn main() {
     tauri::Builder::default()
         // NOTE: The FS plugin is initialized with narrow, capability-scoped
@@ -119,9 +158,8 @@ fn main() {
         // SSH keys, cloud credentials, or keychains.
         .plugin(tauri_plugin_fs::init())
         .setup(|app| {
-            // In the future we may store the FS context in managed state
-            // for reuse. For now we just ensure the app config dir exists.
-            let ctx = build_fs_context(app);
+            let handle = app.handle();
+            let ctx = build_fs_context(&handle);
             std::fs::create_dir_all(&ctx.app_config_dir)
                 .expect("failed to create app config directory");
             Ok(())
@@ -132,9 +170,10 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             cmd_fs_list_dir,
             cmd_fs_read_file,
-            cmd_fs_write_file
+            cmd_fs_write_file,
+            cmd_shell_run
         ])
-        .run(tauri::generate_context!())
+        .run(app_context())
         .expect("error while running Oxcer Tauri application");
 }
 

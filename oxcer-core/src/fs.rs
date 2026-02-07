@@ -97,6 +97,8 @@ pub enum DenyReason {
     BlocklistedPath,
     OutsideAllowedBase,
     EscapeAttempt,
+    /// Command or argument token matched a hard-deny list (e.g. rm, sudo, nmap).
+    BlocklistedCommand,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -106,7 +108,7 @@ pub struct SecurityDecision {
     pub reason: Option<DenyReason>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FsErrorKind {
     InvalidPath,
@@ -552,8 +554,10 @@ mod tests {
     #[test]
     fn inside_workspace_allows_read() {
         let dir = tempdir().unwrap();
-        let root = dir.path();
-        let ctx = make_workspace_ctx(root);
+        // Use canonical path so normalize_and_resolve's canonicalize() stays under base_dir
+        // (on macOS, temp dirs under /var are symlinks to /private/var).
+        let root = stdfs::canonicalize(dir.path()).unwrap();
+        let ctx = make_workspace_ctx(&root);
 
         let file_path = root.join("file.txt");
         stdfs::write(&file_path, b"hello").unwrap();
@@ -630,23 +634,24 @@ mod tests {
     #[test]
     fn large_file_read_is_blocked() {
         let dir = tempdir().unwrap();
-        let root = dir.path();
-        let ctx = make_workspace_ctx(root);
+        let root = stdfs::canonicalize(dir.path()).unwrap();
+        let ctx = make_workspace_ctx(&root);
 
         let file_path = root.join("big.bin");
-        let data = vec![0u8; (MAX_READ_BYTES + 1) as usize];
+        let size = MAX_READ_BYTES + 1;
+        let data = vec![b'a'; size as usize];
         stdfs::write(&file_path, &data).unwrap();
 
-        let err = fs_read_file(
+        let res = fs_read_file(
             FsCaller::Ui,
             &ctx,
             BaseDirKind::Workspace { id: "ws".to_string() },
             "big.bin",
-        )
-        .unwrap_err();
-
-        assert_eq!(matches!(err.kind, FsErrorKind::TooLarge), true);
+        );
+        assert!(
+            matches!(res, Err(FsError { kind: FsErrorKind::TooLarge, .. })),
+            "expected TooLarge, got {:?}",
+            res
+        );
     }
 }
-
-

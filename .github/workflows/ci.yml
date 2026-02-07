@@ -2,10 +2,32 @@ name: CI
 
 on:
   push:
+    branches: [main, master]
   pull_request:
+    branches: [main, master]
 
 jobs:
+  core-tests:
+    name: oxcer-core tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run oxcer-core tests
+        run: cargo test -p oxcer-core
+
+      # TODO: later add:
+      # - cargo fmt --check -p oxcer-core
+      # - cargo clippy -p oxcer-core --all-targets -- -D warnings
+      # Separate job for Tauri app (macOS runner + cargo tauri build)
+
   check:
+    name: frontend checks
     runs-on: ubuntu-latest
 
     steps:
@@ -24,13 +46,8 @@ jobs:
           node-version: 22
           cache: pnpm
 
-      # Optional: Rust setup for Tauri, kept minimal for now
-      # - name: Setup Rust
-      #   uses: dtolnay/rust-toolchain@stable
-
       - name: Install dependencies
         run: pnpm install
 
       - name: Run checks
         run: pnpm check
-

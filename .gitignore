@@ -13,6 +13,9 @@ build/
 .vite/
 coverage/
 
+# Rust / Tauri
+target/
+
 # misc
 *.log
 npm-debug.log*

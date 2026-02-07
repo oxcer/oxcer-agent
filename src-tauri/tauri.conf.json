@@ -24,9 +24,7 @@
     "active": true,
     "targets": ["dmg", "app"],
     "macOS": {
-      "entitlements": null,
-      "category": "DeveloperTool"
+      "entitlements": null
     }
   }
 }
-
