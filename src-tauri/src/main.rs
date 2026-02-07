@@ -30,21 +30,21 @@ use tauri_plugin_fs;
 use uuid::Uuid;
 
 use oxcer_core::fs;
-use settings::{
-    get_effective_fs_policy as settings_get_effective_fs_policy, is_forbidden_workspace_path,
-    load as settings_load, log_destructive_setting_change as settings_log_destructive_change,
-    save as settings_save, AppSettings, to_workspace_roots, WorkspaceDirectory, EffectiveFsPolicy,
-};
 use oxcer_core::security::policy_engine::{
     evaluate, Operation, PolicyCaller, PolicyDecisionKind, PolicyRequest, PolicyTarget, ToolType,
 };
 use oxcer_core::shell;
 
-mod router;
-mod settings;
-use router::{
-    ApprovalRequestRecord, PendingApprovalsStore, PendingOperation, RouterError,
-    to_requested_payload,
+use oxcer::event_log;
+use oxcer::router;
+use oxcer::router::{
+    get_destructive_command_visibility, CommandVisibilityContext, PendingApprovalsStore,
+    PendingOperation, RouterError, to_requested_payload,
+};
+use oxcer::settings::{
+    get_effective_fs_policy as settings_get_effective_fs_policy, is_forbidden_workspace_path,
+    load as settings_load, log_destructive_setting_change as settings_log_destructive_change,
+    save as settings_save, AppSettings, to_workspace_roots, WorkspaceDirectory, EffectiveFsPolicy,
 };
 
 /// Helper to get effective FS policy from app state (for config gates).
@@ -318,7 +318,8 @@ fn emit_destructive_op_executed(app: &AppHandle, summary: &str) {
     );
 }
 
-/// FS delete — Agent MUST use this. Gated by config; requires approval when enabled.
+/// FS delete — Agent MUST use this. Gated by config.
+/// Agent never executes delete immediately; all agent delete requests require explicit user approval.
 #[tauri::command]
 fn cmd_fs_delete(
     app: AppHandle,
@@ -347,6 +348,49 @@ fn cmd_fs_delete(
             canonical_path: normalized.abs_path.display().to_string(),
         },
     };
+
+    // Agent must NEVER execute delete without explicit user approval.
+    if policy_caller == PolicyCaller::AgentOrchestrator {
+        let request_id = Uuid::new_v4().to_string();
+        let summary = format!("Delete {}", rel_path);
+        let store = app.state::<PendingApprovalsStore>();
+        let record = store.create_record(
+            request_id.clone(),
+            policy_caller,
+            ToolType::Fs,
+            Operation::Delete,
+            request.target,
+            PendingOperation::FsDelete {
+                workspace_root: workspace_root.clone(),
+                rel_path: rel_path.clone(),
+            },
+            "AGENT_DESTRUCTIVE_REQUIRES_APPROVAL".to_string(),
+            summary.clone(),
+        );
+        store.insert(record.clone());
+        let payload = to_requested_payload(&record);
+        if let Ok(app_config_dir) = app.path().app_config_dir() {
+            let _ = event_log::append(
+                &app_config_dir,
+                "destructive_approval.requested",
+                Some(&workspace_id),
+                Some(&serde_json::json!({
+                    "operation": "fs_delete",
+                    "request_id": request_id,
+                    "rel_path": rel_path,
+                    "summary": summary
+                })),
+            );
+        }
+        app.emit("security.approval.requested", &payload).ok();
+        return Err(RouterError::ApprovalRequired {
+            request_id,
+            operation: "fs_delete".to_string(),
+            summary,
+            reason_code: "AGENT_DESTRUCTIVE_REQUIRES_APPROVAL".to_string(),
+        });
+    }
+
     let decision = evaluate(request.clone());
     router::log_policy_decision(&request, &decision);
     if decision.decision == PolicyDecisionKind::Deny {
@@ -397,7 +441,8 @@ fn cmd_fs_delete(
     Ok(())
 }
 
-/// FS rename — Agent MUST use this. Gated by config; requires approval when enabled.
+/// FS rename — Agent MUST use this. Gated by config.
+/// Agent never executes rename immediately; all agent rename requests require explicit user approval.
 #[tauri::command]
 fn cmd_fs_rename(
     app: AppHandle,
@@ -427,6 +472,50 @@ fn cmd_fs_rename(
             canonical_path: normalized.abs_path.display().to_string(),
         },
     };
+
+    if policy_caller == PolicyCaller::AgentOrchestrator {
+        let request_id = Uuid::new_v4().to_string();
+        let summary = format!("Rename {} → {}", rel_path, new_rel_path);
+        let store = app.state::<PendingApprovalsStore>();
+        let record = store.create_record(
+            request_id.clone(),
+            policy_caller,
+            ToolType::Fs,
+            Operation::Rename,
+            request.target,
+            PendingOperation::FsRename {
+                workspace_root: workspace_root.clone(),
+                rel_path: rel_path.clone(),
+                new_rel_path: new_rel_path.clone(),
+            },
+            "AGENT_DESTRUCTIVE_REQUIRES_APPROVAL".to_string(),
+            summary.clone(),
+        );
+        store.insert(record.clone());
+        let payload = to_requested_payload(&record);
+        if let Ok(app_config_dir) = app.path().app_config_dir() {
+            let _ = event_log::append(
+                &app_config_dir,
+                "destructive_approval.requested",
+                Some(&workspace_id),
+                Some(&serde_json::json!({
+                    "operation": "fs_rename",
+                    "request_id": request_id,
+                    "rel_path": rel_path,
+                    "new_rel_path": new_rel_path,
+                    "summary": summary
+                })),
+            );
+        }
+        app.emit("security.approval.requested", &payload).ok();
+        return Err(RouterError::ApprovalRequired {
+            request_id,
+            operation: "fs_rename".to_string(),
+            summary,
+            reason_code: "AGENT_DESTRUCTIVE_REQUIRES_APPROVAL".to_string(),
+        });
+    }
+
     let decision = evaluate(request.clone());
     router::log_policy_decision(&request, &decision);
     if decision.decision == PolicyDecisionKind::Deny {
@@ -479,7 +568,8 @@ fn cmd_fs_rename(
     Ok(())
 }
 
-/// FS move — Agent MUST use this. Gated by config; requires approval when enabled.
+/// FS move — Agent MUST use this. Gated by config.
+/// Agent never executes move immediately; all agent move requests require explicit user approval.
 #[tauri::command]
 fn cmd_fs_move(
     app: AppHandle,
@@ -511,6 +601,52 @@ fn cmd_fs_move(
             canonical_path: normalized.abs_path.display().to_string(),
         },
     };
+
+    if policy_caller == PolicyCaller::AgentOrchestrator {
+        let request_id = Uuid::new_v4().to_string();
+        let summary = format!("Move {} → {}/{}", rel_path, dest_workspace_root, dest_rel_path);
+        let store = app.state::<PendingApprovalsStore>();
+        let record = store.create_record(
+            request_id.clone(),
+            policy_caller,
+            ToolType::Fs,
+            Operation::Move,
+            request.target,
+            PendingOperation::FsMove {
+                workspace_root: workspace_root.clone(),
+                rel_path: rel_path.clone(),
+                dest_workspace_root: dest_workspace_root.clone(),
+                dest_rel_path: dest_rel_path.clone(),
+            },
+            "AGENT_DESTRUCTIVE_REQUIRES_APPROVAL".to_string(),
+            summary.clone(),
+        );
+        store.insert(record.clone());
+        let payload = to_requested_payload(&record);
+        if let Ok(app_config_dir) = app.path().app_config_dir() {
+            let _ = event_log::append(
+                &app_config_dir,
+                "destructive_approval.requested",
+                Some(&src_workspace_id),
+                Some(&serde_json::json!({
+                    "operation": "fs_move",
+                    "request_id": request_id,
+                    "rel_path": rel_path,
+                    "dest_workspace_root": dest_workspace_root,
+                    "dest_rel_path": dest_rel_path,
+                    "summary": summary
+                })),
+            );
+        }
+        app.emit("security.approval.requested", &payload).ok();
+        return Err(RouterError::ApprovalRequired {
+            request_id,
+            operation: "fs_move".to_string(),
+            summary,
+            reason_code: "AGENT_DESTRUCTIVE_REQUIRES_APPROVAL".to_string(),
+        });
+    }
+
     let decision = evaluate(request.clone());
     router::log_policy_decision(&request, &decision);
     if decision.decision == PolicyDecisionKind::Deny {
@@ -644,7 +780,7 @@ fn cmd_shell_run(
 /// Execute a pending approval request after user confirms in the HITL modal.
 /// On Allow: marks record APPROVED, resumes original command execution.
 /// On Deny: marks DENIED, returns error.
-/// On timeout/expiry: take() returns None (auto-deny, fail closed).
+/// Destructive (delete/rename/move) requests and decisions are logged to the event log.
 #[tauri::command]
 fn cmd_approve_and_execute(
     app: AppHandle,
@@ -658,6 +794,38 @@ fn cmd_approve_and_execute(
             message: "Approval request expired or not found".to_string(),
         }
     })?;
+
+    let is_destructive = matches!(
+        record.operation_payload,
+        PendingOperation::FsDelete { .. }
+            | PendingOperation::FsRename { .. }
+            | PendingOperation::FsMove { .. }
+    );
+    if is_destructive {
+        let op_name = match &record.operation_payload {
+            PendingOperation::FsDelete { .. } => "fs_delete",
+            PendingOperation::FsRename { .. } => "fs_rename",
+            PendingOperation::FsMove { .. } => "fs_move",
+            _ => "",
+        };
+        if let Ok(dir) = app.path().app_config_dir() {
+            let event_type = if approved {
+                "destructive_approval.approved"
+            } else {
+                "destructive_approval.denied"
+            };
+            let _ = event_log::append(
+                &dir,
+                event_type,
+                None,
+                Some(&serde_json::json!({
+                    "request_id": request_id,
+                    "operation": op_name,
+                    "summary": record.summary
+                })),
+            );
+        }
+    }
 
     if !approved {
         return Err(RouterError::PolicyDenied {
@@ -799,6 +967,17 @@ fn cmd_settings_save(app: AppHandle, settings: AppSettings) -> Result<(), String
     settings_save(&app_config_dir, &settings)?;
     if from != to {
         let _ = settings_log_destructive_change(&app_config_dir, from, to);
+        let event_type = if to {
+            "security.destructive_fs.enabled"
+        } else {
+            "security.destructive_fs.disabled"
+        };
+        let _ = event_log::append(
+            &app_config_dir,
+            event_type,
+            None,
+            Some(&serde_json::json!({ "from": from, "to": to })),
+        );
     }
     *state.lock().expect("settings lock") = settings;
     Ok(())
@@ -847,21 +1026,22 @@ fn cmd_workspace_add(app: AppHandle, path: String) -> Result<(), String> {
     let id = uuid::Uuid::new_v4().to_string();
     guard.workspace_directories.push(WorkspaceDirectory {
         id: id.clone(),
-        name,
-        path: path_str,
+        name: name.clone(),
+        path: path_str.clone(),
     });
-    settings_save(&app_config_dir, &*guard).map_err(|e| e.to_string())
+    settings_save(&app_config_dir, &*guard)?;
+    let _ = event_log::append(
+        &app_config_dir,
+        "workspace_added",
+        Some(&id),
+        Some(&serde_json::json!({ "name": name, "root_path": path_str })),
+    );
+    Ok(())
 }
 
 #[tauri::command]
 fn cmd_workspace_remove(app: AppHandle, id: String) -> Result<(), String> {
-    let app_config_dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
-    let state = app
-        .try_state::<Mutex<AppSettings>>()
-        .ok_or_else(|| "Settings not initialized".to_string())?;
-    let mut guard = state.lock().expect("settings lock");
-    guard.workspace_directories.retain(|w| w.id != id);
-    settings_save(&app_config_dir, &*guard).map_err(|e| e.to_string())
+    oxcer::commands::workspace_cleanup_on_delete(&app, &id)
 }
 
 /// Returns effective FS policy for the Security Policy Engine.
@@ -885,16 +1065,34 @@ fn get_config(app: AppHandle) -> Result<serde_json::Value, String> {
         Ok(s) => s,
         Err(_) => {
             return Ok(serde_json::json!({
+                "security": { "destructive_fs": { "enabled": false } },
                 "workspaces": [],
-                "default_model": "gemini-2.5-flash",
-                "fs": { "destructive_operations_enabled": false }
+                "model": { "default_id": "gemini-2.5-flash" }
             }))
         }
     };
     serde_json::from_str(&config).map_err(|e| e.to_string())
 }
 
+/// Returns visibility for destructive commands (delete/rename/move) so UI can hide or show disabled with explanation.
+/// context: "main" = command palette (hide when off), "advanced" = Settings advanced (show disabled with message).
+#[tauri::command]
+fn get_command_visibility(
+    app: AppHandle,
+    context: CommandVisibilityContext,
+) -> Result<std::collections::HashMap<String, oxcer::router::CommandVisibility>, String> {
+    let destructive = app
+        .try_state::<Mutex<AppSettings>>()
+        .ok_or_else(|| "Settings not initialized".to_string())?
+        .lock()
+        .expect("settings lock")
+        .advanced
+        .allow_destructive_fs_without_hitl;
+    Ok(get_destructive_command_visibility(destructive, context))
+}
+
 /// Returns available model options for the default-model dropdown (id + display name). Sprint 5 spec.
+/// Stored selection is persisted to model.default_id only; Semantic Router / real model routing in a later sprint.
 #[tauri::command]
 fn cmd_models_list() -> Vec<(String, String)> {
     vec![
@@ -912,12 +1110,12 @@ fn cmd_models_list() -> Vec<(String, String)> {
 
 /// Returns the Tauri context for the app.
 fn app_context() -> tauri::Context<tauri::Wry> {
-    #[cfg(test)]
+    #[cfg(all(test, feature = "test"))]
     {
         tauri::test::mock_context(tauri::test::noop_assets())
     }
 
-    #[cfg(not(test))]
+    #[cfg(not(all(test, feature = "test")))]
     {
         tauri::generate_context!()
     }
@@ -1017,6 +1215,7 @@ fn main() {
             cmd_workspace_remove,
             cmd_models_list,
             get_config,
+            get_command_visibility,
             get_effective_fs_policy,
         ])
         .run(context)

@@ -14,8 +14,12 @@
   - No Tauri or window; tests are pure Rust.
 
 - **Tauri app sanity:** After core tests are green, ensure the launcher still builds and runs.
-  - From repo root: `pnpm tauri dev` (or `cd src-tauri && cargo test` for Rust-only tests)
+  - From repo root: `pnpm tauri dev` (or run workspace tests; see below).
   - The backend runs with a minimal hidden window; the Swift app will provide the primary UI.
+
+- **Workspace tests:** From repo root, run all packages’ tests:
+  - `cargo check --workspace`
+  - `cargo test --workspace --features test` (the `test` feature enables Tauri’s mock context for the `oxcer` binary tests).
 
 - **Routine:** Modify core → run `cargo test` in `oxcer-core` → then run `pnpm tauri dev` when you need to exercise the backend.
 

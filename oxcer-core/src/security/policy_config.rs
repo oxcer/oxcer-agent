@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::policy_engine::{Operation, PolicyCaller, PolicyDecisionKind, PolicyTarget, ToolType};
+use super::policy_engine::{Operation, PolicyCaller, PolicyTarget, ToolType};
 
 // -----------------------------------------------------------------------------
 // Policy schema

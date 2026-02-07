@@ -14,6 +14,18 @@ interface ApprovalRequiredError {
   reason_code: string;
 }
 
+interface AffectedItem {
+  name: string;
+  path: string;
+}
+
+interface ImpactSummary {
+  item_count: number;
+  affected_items: AffectedItem[];
+  operation_description: string;
+  target_path?: string;
+}
+
 interface ApprovalRequestedPayload {
   request_id: string;
   caller: string;
@@ -27,6 +39,8 @@ interface ApprovalRequestedPayload {
   created_at_ms: number;
   expires_at_ms: number;
   details_redacted: Record<string, unknown>;
+  impact_summary?: ImpactSummary;
+  danger_zone?: boolean;
 }
 
 function getApprovalRequired(err: unknown): ApprovalRequiredError | null {
@@ -39,6 +53,31 @@ function getApprovalRequired(err: unknown): ApprovalRequiredError | null {
 async function showApprovalModal(payload: ApprovalRequestedPayload): Promise<boolean> {
   const callerLabel = payload.caller === 'agent' ? 'Agent' : payload.caller === 'user' ? 'User' : payload.caller;
   const targetLabel = payload.target_hint === 'path' ? 'Path' : payload.target_hint === 'command' ? 'Command' : 'Target';
+
+  const impactHtml = payload.impact_summary
+    ? `
+      <div style="margin: 12px 0; padding: 12px; background: #252525; border-radius: 6px; border: 1px solid #444;">
+        <p style="margin: 0 0 8px; font-size: 13px; font-weight: 600;">Impact summary</p>
+        <p style="margin: 0 0 8px; font-size: 13px; color: #c0c0c0;">${payload.impact_summary.operation_description}</p>
+        <ul style="margin: 0; padding-left: 20px; font-size: 13px; color: #a0a0a0;">
+          ${payload.impact_summary.affected_items
+            .map((i) => `<li><strong>${escapeHtml(i.name)}</strong> — ${escapeHtml(i.path)}</li>`)
+            .join('')}
+        </ul>
+        ${payload.impact_summary.target_path ? `<p style="margin: 8px 0 0 0; font-size: 12px; color: #888;">Destination: <code>${escapeHtml(payload.impact_summary.target_path)}</code></p>` : ''}
+      </div>
+    `
+    : '';
+
+  const dangerZoneHtml =
+    payload.danger_zone === true
+      ? `
+      <div style="margin: 12px 0; padding: 12px; background: #332208; border: 1px solid #664; border-radius: 6px;">
+        <p style="margin: 0; font-size: 13px; color: #f0ad4e;"><strong>Danger zone</strong></p>
+        <p style="margin: 6px 0 0 0; font-size: 12px; color: #c9a227;">This action is irreversible. The item will be permanently deleted with no undo or trash.</p>
+      </div>
+    `
+      : '';
 
   return new Promise((resolve) => {
     const overlay = document.createElement('div');
@@ -58,7 +97,9 @@ async function showApprovalModal(payload: ApprovalRequestedPayload): Promise<boo
       background: #1e1e1e;
       border-radius: 8px;
       padding: 24px;
-      max-width: 420px;
+      max-width: 480px;
+      max-height: 90vh;
+      overflow-y: auto;
       box-shadow: 0 4px 24px rgba(0,0,0,0.4);
       font-family: system-ui, -apple-system, sans-serif;
       color: #e0e0e0;
@@ -79,20 +120,22 @@ async function showApprovalModal(payload: ApprovalRequestedPayload): Promise<boo
     detailsEl.textContent = JSON.stringify(payload.details_redacted, null, 2);
 
     modal.innerHTML = `
-      <h3 style="margin: 0 0 16px; font-size: 18px;">Action requires approval</h3>
-      <p style="margin: 0 0 4px; font-size: 14px; color: #a0a0a0;">${payload.summary}</p>
-      <p style="margin: 0 0 4px; font-size: 13px; color: #909090;">Caller: <strong>${callerLabel}</strong></p>
-      <p style="margin: 0 0 4px; font-size: 13px; color: #909090;">${targetLabel}: <code style="font-size: 12px; background: #2a2a2a; padding: 2px 6px; border-radius: 4px;">${payload.target}</code></p>
-      ${payload.risk_hints.length > 0 ? `<p style="margin: 8px 0 0 0; font-size: 12px; color: #f0ad4e;">Risk: ${payload.risk_hints.join(', ')}</p>` : ''}
+      <h3 style="margin: 0 0 16px; font-size: 18px;">Confirm destructive operation</h3>
+      <p style="margin: 0 0 4px; font-size: 14px; color: #a0a0a0;">${escapeHtml(payload.summary)}</p>
+      ${impactHtml}
+      ${dangerZoneHtml}
+      <p style="margin: 8px 0 0 0; font-size: 13px; color: #909090;">Caller: <strong>${escapeHtml(callerLabel)}</strong></p>
+      <p style="margin: 0 0 4px; font-size: 13px; color: #909090;">${targetLabel}: <code style="font-size: 12px; background: #2a2a2a; padding: 2px 6px; border-radius: 4px;">${escapeHtml(payload.target)}</code></p>
+      ${payload.risk_hints.length > 0 ? `<p style="margin: 8px 0 0 0; font-size: 12px; color: #f0ad4e;">Risk: ${escapeHtml(payload.risk_hints.join(', '))}</p>` : ''}
       <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 20px; flex-wrap: wrap;">
-        <button id="approval-deny" style="
+        <button id="approval-cancel" style="
           padding: 8px 16px;
           background: #333;
           color: #fff;
           border: none;
           border-radius: 4px;
           cursor: pointer;
-        ">Deny</button>
+        ">Cancel</button>
         <button id="approval-view-details" style="
           padding: 8px 16px;
           background: #3a3a3a;
@@ -101,14 +144,14 @@ async function showApprovalModal(payload: ApprovalRequestedPayload): Promise<boo
           border-radius: 4px;
           cursor: pointer;
         ">View details</button>
-        <button id="approval-allow" style="
+        <button id="approval-accept" style="
           padding: 8px 16px;
           background: #0a84ff;
           color: #fff;
           border: none;
           border-radius: 4px;
           cursor: pointer;
-        ">Allow once</button>
+        ">Accept</button>
       </div>
     `;
 
@@ -121,7 +164,7 @@ async function showApprovalModal(payload: ApprovalRequestedPayload): Promise<boo
       overlay.remove();
     };
 
-    modal.querySelector('#approval-deny')!.addEventListener('click', () => {
+    modal.querySelector('#approval-cancel')!.addEventListener('click', () => {
       cleanup();
       resolve(false);
     });
@@ -132,11 +175,17 @@ async function showApprovalModal(payload: ApprovalRequestedPayload): Promise<boo
       (modal.querySelector('#approval-view-details') as HTMLButtonElement).textContent = detailsVisible ? 'Hide details' : 'View details';
     });
 
-    modal.querySelector('#approval-allow')!.addEventListener('click', () => {
+    modal.querySelector('#approval-accept')!.addEventListener('click', () => {
       cleanup();
       resolve(true);
     });
   });
+}
+
+function escapeHtml(s: string): string {
+  const div = document.createElement('div');
+  div.textContent = s;
+  return div.innerHTML;
 }
 
 const handlingRequestIds = new Set<string>();
@@ -168,7 +217,7 @@ async function handleInvokeWithApproval<T>(
       const approved = await showApprovalModal(payload);
       handlingRequestIds.delete(approval.request_id);
       const result = await invoke('cmd_approve_and_execute', {
-        requestId: approval.request_id,
+        request_id: approval.request_id,
         approved,
       });
       if (!approved) {
@@ -187,7 +236,7 @@ listen<ApprovalRequestedPayload>('security.approval.requested', (event) => {
   showApprovalModal(payload).then(async (approved) => {
     try {
       await invoke('cmd_approve_and_execute', {
-        requestId: payload.request_id,
+        request_id: payload.request_id,
         approved,
       });
       if (approved) {
@@ -307,7 +356,7 @@ function renderSettingsScreen(settings: AppSettings): void {
         </ul>
         <button id="workspace-add" style="padding: 8px 16px; background: #0a84ff; color: #fff; border: none; border-radius: 4px; cursor: pointer;">Add directory…</button>
         <h3 style="margin: 24px 0 12px; font-size: 16px;">Default model</h3>
-        <p style="margin: 0 0 8px; font-size: 13px; color: #a0a0a0;">Preferred model for the Semantic Router (stored only).</p>
+        <p style="margin: 0 0 8px; font-size: 13px; color: #a0a0a0;">Stored only; Semantic Router / real model routing will be implemented in a later sprint.</p>
         <select id="default-model" style="padding: 8px 12px; background: #2a2a2a; color: #e0e0e0; border: 1px solid #444; border-radius: 4px; min-width: 200px;">
           <option value="">— Select model —</option>
         </select>
@@ -330,6 +379,10 @@ function renderSettingsScreen(settings: AppSettings): void {
             <input type="checkbox" id="adv-agent-exec" ${(advanced.allow_agent_exec_without_approval ?? false) ? 'checked' : ''} />
             <span>Allow agent to run shell commands without per-request approval</span>
           </label>
+        </div>
+        <div id="locked-commands" style="margin-top: 16px; padding: 12px; background: #252525; border-radius: 6px; border: 1px solid #444;">
+          <p style="margin: 0 0 8px; font-size: 13px; color: #888;">Locked commands (shown when destructive file operations are off):</p>
+          <ul id="locked-commands-list" style="list-style: none; padding: 0; margin: 0; font-size: 13px; color: #a0a0a0;"></ul>
         </div>
       </div>
     </div>`;
@@ -396,6 +449,26 @@ function renderSettingsScreen(settings: AppSettings): void {
       }
     });
   });
+
+  invoke('get_command_visibility', { context: 'advanced' })
+    .then((visibility: Record<string, { disabled_with_explanation?: { message: string }; DisabledWithExplanation?: { message: string } }>) => {
+      const listEl = document.getElementById('locked-commands-list');
+      if (!listEl) return;
+      const labels: Record<string, string> = { fs_delete: 'Delete file', fs_rename: 'Rename file', fs_move: 'Move file' };
+      listEl.innerHTML = '';
+      for (const [key, val] of Object.entries(visibility)) {
+        const msg = val?.disabled_with_explanation?.message ?? val?.DisabledWithExplanation?.message;
+        if (msg) {
+          const li = document.createElement('li');
+          li.style.padding = '6px 0';
+          li.innerHTML = `<strong>${labels[key] ?? key}</strong>: ${msg}`;
+          listEl.appendChild(li);
+        }
+      }
+      const containerLocked = document.getElementById('locked-commands');
+      if (containerLocked) (containerLocked as HTMLElement).style.display = listEl.children.length ? 'block' : 'none';
+    })
+    .catch(() => {});
 
   function updateAdvanced(): void {
     const next: AppSettings = {

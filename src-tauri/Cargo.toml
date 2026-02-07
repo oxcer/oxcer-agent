@@ -5,6 +5,15 @@ description = "Oxcer macOS desktop launcher (Tauri v2, local binary, no web serv
 authors = ["Oxcer"]
 edition = "2021"
 
+[lib]
+name = "oxcer"
+path = "src/lib.rs"
+
+[features]
+default = []
+# Enable for `cargo test -p oxcer --features test` so tauri::test (mock context) is available
+test = ["tauri/test"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

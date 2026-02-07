@@ -19,12 +19,13 @@
 //! 4. ALLOW → execute underlying tool/command
 //! 5. REQUIRE_APPROVAL → trigger HITL approval flow before proceeding
 
+use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use oxcer_core::fs;
 use oxcer_core::security::policy_engine::{
-    evaluate, Operation, PolicyCaller, PolicyDecision, PolicyDecisionKind, PolicyRequest,
+    Operation, PolicyCaller, PolicyDecision, PolicyDecisionKind, PolicyRequest,
     PolicyTarget, ToolType,
 };
 use oxcer_core::shell;
@@ -46,7 +47,7 @@ struct PolicyLogEntry<'a> {
 
 /// Logs policy decision for audit trail. Called on every DENY, and optionally
 /// on REQUIRE_APPROVAL and ALLOW for full traceability.
-pub(crate) fn log_policy_decision(request: &PolicyRequest, decision: &PolicyDecision) {
+pub fn log_policy_decision(request: &PolicyRequest, decision: &PolicyDecision) {
     let timestamp = {
         let now = std::time::SystemTime::now();
         match now.duration_since(std::time::UNIX_EPOCH) {
@@ -90,11 +91,86 @@ pub(crate) fn log_policy_decision(request: &PolicyRequest, decision: &PolicyDeci
 }
 
 // -----------------------------------------------------------------------------
+// Command visibility (Sprint 5: hide vs disabled-with-explanation)
+// -----------------------------------------------------------------------------
+
+/// Policy for whether a dangerous command is shown and how.
+/// Other frontends (SwiftUI, etc.) can reuse this.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CommandVisibility {
+    /// Do not show in main command palette / menus.
+    Hidden,
+    /// Show as disabled; on hover/click show explanation (e.g. helper text or modal).
+    DisabledWithExplanation { message: String },
+    /// Shown and available.
+    Available,
+}
+
+/// Context for visibility: "main" (command palette / primary UI) vs "advanced" (Settings advanced panel).
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CommandVisibilityContext {
+    Main,
+    Advanced,
+}
+
+/// Destructive FS commands (delete, rename, move). Used by get_destructive_command_visibility.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DestructiveCommand {
+    FsDelete,
+    FsRename,
+    FsMove,
+}
+
+const DESTRUCTIVE_DISABLED_MSG: &str =
+    "Enable 'Allow destructive file operations' in Settings to use this option.";
+
+/// Returns visibility for destructive commands so UI can hide or show disabled with explanation.
+pub fn get_destructive_command_visibility(
+    destructive_fs_enabled: bool,
+    context: CommandVisibilityContext,
+) -> HashMap<String, CommandVisibility> {
+    let mut out = HashMap::new();
+    let (del, ren, mov) = if destructive_fs_enabled {
+        (
+            CommandVisibility::Available,
+            CommandVisibility::Available,
+            CommandVisibility::Available,
+        )
+    } else {
+        match context {
+            CommandVisibilityContext::Main => (
+                CommandVisibility::Hidden,
+                CommandVisibility::Hidden,
+                CommandVisibility::Hidden,
+            ),
+            CommandVisibilityContext::Advanced => (
+                CommandVisibility::DisabledWithExplanation {
+                    message: DESTRUCTIVE_DISABLED_MSG.to_string(),
+                },
+                CommandVisibility::DisabledWithExplanation {
+                    message: DESTRUCTIVE_DISABLED_MSG.to_string(),
+                },
+                CommandVisibility::DisabledWithExplanation {
+                    message: DESTRUCTIVE_DISABLED_MSG.to_string(),
+                },
+            ),
+        }
+    };
+    out.insert("fs_delete".to_string(), del);
+    out.insert("fs_rename".to_string(), ren);
+    out.insert("fs_move".to_string(), mov);
+    out
+}
+
+// -----------------------------------------------------------------------------
 // Caller mapping
 // -----------------------------------------------------------------------------
 
 /// Maps string caller from frontend to PolicyCaller.
-pub(crate) fn parse_caller(s: Option<&str>) -> PolicyCaller {
+pub fn parse_caller(s: Option<&str>) -> PolicyCaller {
     match s {
         Some("agent_orchestrator") | Some("AGENT_ORCHESTRATOR") => PolicyCaller::AgentOrchestrator,
         Some("internal_system") | Some("INTERNAL_SYSTEM") => PolicyCaller::InternalSystem,
@@ -173,6 +249,25 @@ impl ApprovalRequestRecord {
     }
 }
 
+/// One affected item for the approval modal impact summary.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AffectedItem {
+    pub name: String,
+    pub path: String,
+}
+
+/// Impact summary for destructive operations: list of affected files/folders and counts.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ImpactSummary {
+    pub item_count: u32,
+    pub affected_items: Vec<AffectedItem>,
+    /// Human-readable description: "Delete 1 file", "Move 1 file to …", etc.
+    pub operation_description: String,
+    /// For move: destination path. Absent for delete/rename.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_path: Option<String>,
+}
+
 /// Sanitized payload for event emission (no secrets in plain text).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ApprovalRequestedPayload {
@@ -189,6 +284,12 @@ pub struct ApprovalRequestedPayload {
     pub expires_at_ms: u64,
     /// Redacted payload for View details (no raw contents, only metadata).
     pub details_redacted: serde_json::Value,
+    /// For delete/move/rename: impact summary for the confirmation modal.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub impact_summary: Option<ImpactSummary>,
+    /// True for irreversible actions (e.g. hard delete); UI shows danger-zone copy.
+    #[serde(default)]
+    pub danger_zone: bool,
 }
 
 /// In-memory store for approval requests. Configurable timeout (default 5 min).
@@ -280,59 +381,124 @@ pub fn to_requested_payload(record: &ApprovalRequestRecord) -> ApprovalRequested
     }
     .to_string();
     let risk_hints = vec![record.reason_code.clone()];
-    let details_redacted = match &record.operation_payload {
+    let (details_redacted, impact_summary, danger_zone) = match &record.operation_payload {
         PendingOperation::FsWrite {
             workspace_root,
             rel_path,
             contents,
-        } => serde_json::json!({
-            "op": "fs_write",
-            "workspace_root": workspace_root,
-            "rel_path": rel_path,
-            "contents_size_bytes": contents.len(),
-            "contents_preview": "[redacted]",
-        }),
+        } => (
+            serde_json::json!({
+                "op": "fs_write",
+                "workspace_root": workspace_root,
+                "rel_path": rel_path,
+                "contents_size_bytes": contents.len(),
+                "contents_preview": "[redacted]",
+            }),
+            None,
+            false,
+        ),
         PendingOperation::FsDelete {
-            workspace_root,
+            workspace_root: _,
             rel_path,
-        } => serde_json::json!({
-            "op": "fs_delete",
-            "workspace_root": workspace_root,
-            "rel_path": rel_path,
-        }),
+        } => {
+            let name = std::path::Path::new(rel_path)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or(rel_path)
+                .to_string();
+            let impact = ImpactSummary {
+                item_count: 1,
+                affected_items: vec![AffectedItem {
+                    name: name.clone(),
+                    path: rel_path.clone(),
+                }],
+                operation_description: format!("Delete 1 item: {}", rel_path),
+                target_path: None,
+            };
+            (
+                serde_json::json!({
+                    "op": "fs_delete",
+                    "rel_path": rel_path,
+                }),
+                Some(impact),
+                true, // Hard delete is irreversible
+            )
+        }
         PendingOperation::FsRename {
-            workspace_root,
+            workspace_root: _,
             rel_path,
             new_rel_path,
-        } => serde_json::json!({
-            "op": "fs_rename",
-            "workspace_root": workspace_root,
-            "rel_path": rel_path,
-            "new_rel_path": new_rel_path,
-        }),
+        } => {
+            let name = std::path::Path::new(rel_path)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or(rel_path)
+                .to_string();
+            let impact = ImpactSummary {
+                item_count: 1,
+                affected_items: vec![AffectedItem {
+                    name,
+                    path: rel_path.clone(),
+                }],
+                operation_description: format!("Rename to {}", new_rel_path),
+                target_path: Some(new_rel_path.clone()),
+            };
+            (
+                serde_json::json!({
+                    "op": "fs_rename",
+                    "rel_path": rel_path,
+                    "new_rel_path": new_rel_path,
+                }),
+                Some(impact),
+                false,
+            )
+        }
         PendingOperation::FsMove {
-            workspace_root,
+            workspace_root: _,
             rel_path,
-            dest_workspace_root,
+            dest_workspace_root: _,
             dest_rel_path,
-        } => serde_json::json!({
-            "op": "fs_move",
-            "workspace_root": workspace_root,
-            "rel_path": rel_path,
-            "dest_workspace_root": dest_workspace_root,
-            "dest_rel_path": dest_rel_path,
-        }),
+        } => {
+            let name = std::path::Path::new(rel_path)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or(rel_path)
+                .to_string();
+            let target = format!("{}", dest_rel_path);
+            let impact = ImpactSummary {
+                item_count: 1,
+                affected_items: vec![AffectedItem {
+                    name,
+                    path: rel_path.clone(),
+                }],
+                operation_description: format!("Move 1 item to {}", target),
+                target_path: Some(target),
+            };
+            (
+                serde_json::json!({
+                    "op": "fs_move",
+                    "rel_path": rel_path,
+                    "dest_rel_path": dest_rel_path,
+                }),
+                Some(impact),
+                false,
+            )
+        }
         PendingOperation::ShellRun {
             workspace_root,
             command_id,
             params,
-        } => serde_json::json!({
-            "op": "shell_run",
-            "workspace_root": workspace_root,
-            "command_id": command_id,
-            "params_keys": params.as_object().map(|o| o.keys().collect::<Vec<_>>()),
-            "params": "[redacted]",
-        }),
+        } => (
+            serde_json::json!({
+                "op": "shell_run",
+                "workspace_root": workspace_root,
+                "command_id": command_id,
+                "params_keys": params.as_object().map(|o| o.keys().collect::<Vec<_>>()),
+                "params": "[redacted]",
+            }),
+            None,
+            false,
+        ),
     };
     ApprovalRequestedPayload {
         request_id: record.request_id.clone(),
@@ -344,9 +510,11 @@ pub fn to_requested_payload(record: &ApprovalRequestRecord) -> ApprovalRequested
         reason_code: record.reason_code.clone(),
         summary: record.summary.clone(),
         risk_hints,
-        created_at_ms: 0, // Approximate; could use SystemTime
-        expires_at_ms: 300_000, // 5 min in ms
+        created_at_ms: 0,
+        expires_at_ms: 300_000,
         details_redacted,
+        impact_summary,
+        danger_zone,
     }
 }
 
@@ -381,6 +549,27 @@ impl PendingApprovalsStore {
             .lock()
             .unwrap()
             .retain(|_, v| !v.is_expired(now));
+    }
+
+    /// Cancel all pending approvals that reference this workspace (by root path).
+    /// Used when a workspace is deleted so no approval can execute against it.
+    pub fn cancel_pending_for_workspace_root(&self, root_path: &str) {
+        let mut guard = self.inner.lock().unwrap();
+        guard.retain(|_, record| {
+            let payload = &record.operation_payload;
+            let touches = match payload {
+                PendingOperation::FsWrite { workspace_root, .. }
+                | PendingOperation::FsDelete { workspace_root, .. }
+                | PendingOperation::FsRename { workspace_root, .. }
+                | PendingOperation::ShellRun { workspace_root, .. } => *workspace_root == root_path,
+                PendingOperation::FsMove {
+                    workspace_root,
+                    dest_workspace_root,
+                    ..
+                } => *workspace_root == root_path || *dest_workspace_root == root_path,
+            };
+            !touches
+        });
     }
 }
 
@@ -463,6 +652,58 @@ impl From<shell::ShellError> for RouterError {
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    #[test]
+    fn parse_caller_maps_agent_orchestrator() {
+        assert!(matches!(
+            parse_caller(Some("agent_orchestrator")),
+            PolicyCaller::AgentOrchestrator
+        ));
+        assert!(matches!(
+            parse_caller(Some("AGENT_ORCHESTRATOR")),
+            PolicyCaller::AgentOrchestrator
+        ));
+    }
+
+    #[test]
+    fn parse_caller_maps_internal_system() {
+        assert!(matches!(
+            parse_caller(Some("internal_system")),
+            PolicyCaller::InternalSystem
+        ));
+    }
+
+    #[test]
+    fn parse_caller_defaults_to_ui() {
+        assert!(matches!(parse_caller(None), PolicyCaller::Ui));
+        assert!(matches!(parse_caller(Some("unknown")), PolicyCaller::Ui));
+    }
+
+    #[test]
+    fn visibility_main_hides_when_destructive_off() {
+        let vis = get_destructive_command_visibility(false, CommandVisibilityContext::Main);
+        assert_eq!(vis.get("fs_delete"), Some(&CommandVisibility::Hidden));
+        assert_eq!(vis.get("fs_move"), Some(&CommandVisibility::Hidden));
+    }
+
+    #[test]
+    fn visibility_advanced_disabled_with_explanation_when_destructive_off() {
+        let vis = get_destructive_command_visibility(false, CommandVisibilityContext::Advanced);
+        let del = vis.get("fs_delete").unwrap();
+        match del {
+            CommandVisibility::DisabledWithExplanation { message } => {
+                assert!(message.contains("Allow destructive"));
+            }
+            _ => panic!("expected DisabledWithExplanation"),
+        }
+    }
+
+    #[test]
+    fn visibility_available_when_destructive_on() {
+        let vis = get_destructive_command_visibility(true, CommandVisibilityContext::Main);
+        assert_eq!(vis.get("fs_delete"), Some(&CommandVisibility::Available));
+        assert_eq!(vis.get("fs_rename"), Some(&CommandVisibility::Available));
+    }
 
     /// DENY / REQUIRE_APPROVAL: pending record lifecycle.
     #[test]
