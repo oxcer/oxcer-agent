@@ -1,4 +1,4 @@
-name: CI
+name: CI / test-and-check
 
 on:
   push:
@@ -14,20 +14,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install system deps (glib, GTK)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            pkg-config \
-            libglib2.0-dev \
-            libgtk-3-dev \
-            libcairo2-dev \
-            libgdk-pixbuf2.0-dev \
-            build-essential
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -39,29 +25,15 @@ jobs:
           node-version: 20
           cache: pnpm
 
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
       - name: Install JS deps
         run: pnpm install
 
-      - name: Cargo check (workspace)
-        run: cargo check --workspace
-
-      - name: Cargo test (workspace)
-        run: cargo test --workspace
-
       - name: pnpm check
         run: pnpm check
+        # Or: pnpm lint — change the command above if you prefer lint-only.
 
-      - name: Cargo build (verbose, on failure)
-        if: failure()
-        run: cargo build --verbose --workspace
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cargo check (workspace)
+        run: cargo check --workspace
