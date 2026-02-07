@@ -14,27 +14,30 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Install pnpm CLI
+      - name: Install system deps (glib, GTK)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            pkg-config \
+            libglib2.0-dev \
+            libgtk-3-dev \
+            libcairo2-dev \
+            libgdk-pixbuf2.0-dev \
+            build-essential
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
           run_install: false
 
-      # Setup Node.js and enable pnpm cache
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: pnpm
-
-      - name: Install JS deps
-        run: pnpm install
-
-      # Setup Rust toolchain
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
 
       - name: Cache cargo
         uses: actions/cache@v4
@@ -47,18 +50,18 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      # 1) Rust workspace checks (core + tauri)
+      - name: Install JS deps
+        run: pnpm install
+
       - name: Cargo check (workspace)
         run: cargo check --workspace
 
-      - name: Cargo test (oxcer-core only)
-        run: cargo test -p oxcer-core
+      - name: Cargo test (workspace)
+        run: cargo test --workspace
 
-      # 2) Build minimal dist shell
-      - name: Build dist shell
-        run: pnpm build
+      - name: pnpm check
+        run: pnpm check
 
-      # 3) Tauri app check (no release artifacts, just compilation)
-      - name: Cargo check (src-tauri)
-        working-directory: src-tauri
-        run: cargo check
+      - name: Cargo build (verbose, on failure)
+        if: failure()
+        run: cargo build --verbose --workspace
