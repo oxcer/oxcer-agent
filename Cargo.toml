@@ -1,3 +1,3 @@
 [workspace]
-members = ["oxcer-core", "src-tauri"]
+members = ["oxcer-core", "oxcer_ffi", "src-tauri"]
 resolver = "2"

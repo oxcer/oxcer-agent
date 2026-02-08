@@ -84,6 +84,26 @@ pub struct AdvancedSettings {
     pub allow_destructive_fs_without_hitl: bool,
 }
 
+/// Observability / metrics options (Sprint 8 §6).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ObservabilityOptions {
+    /// Max session LLM cost (USD) before alerting. Default 0.5.
+    #[serde(default = "default_max_session_cost_usd")]
+    pub max_session_cost_usd: f64,
+}
+
+fn default_max_session_cost_usd() -> f64 {
+    0.5
+}
+
+impl Default for ObservabilityOptions {
+    fn default() -> Self {
+        Self {
+            max_session_cost_usd: default_max_session_cost_usd(),
+        }
+    }
+}
+
 /// Application settings (in-memory view of config.json).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AppSettings {
@@ -95,6 +115,8 @@ pub struct AppSettings {
     pub default_model_id: String,
     #[serde(default)]
     pub advanced: AdvancedSettings,
+    #[serde(default)]
+    pub observability: ObservabilityOptions,
 }
 
 impl Default for AppSettings {
@@ -103,6 +125,7 @@ impl Default for AppSettings {
             workspace_directories: Vec::new(),
             default_model_id: DEFAULT_MODEL.to_string(),
             advanced: AdvancedSettings::default(),
+            observability: ObservabilityOptions::default(),
         }
     }
 }
@@ -117,6 +140,8 @@ pub struct ConfigFile {
     pub workspaces: Vec<ConfigWorkspace>,
     #[serde(default)]
     pub model: ModelOptions,
+    #[serde(default)]
+    pub observability: ObservabilityOptions,
     // Legacy keys (read-only for migration)
     #[serde(default)]
     pub default_model: String,
@@ -155,6 +180,7 @@ impl Default for ConfigFile {
             security: SecurityOptions::default(),
             workspaces: Vec::new(),
             model: ModelOptions::default(),
+            observability: ObservabilityOptions::default(),
             default_model: DEFAULT_MODEL.to_string(),
             fs: FsOptions::default(),
         }
@@ -235,6 +261,7 @@ pub fn load(app_config_dir: &Path) -> AppSettings {
                 advanced: AdvancedSettings {
                     allow_destructive_fs_without_hitl: destructive,
                 },
+                observability: cfg.observability.clone(),
             };
         }
     }
@@ -274,6 +301,7 @@ pub fn save(app_config_dir: &Path, settings: &AppSettings) -> Result<(), String>
         model: ModelOptions {
             default_id: settings.default_model_id.clone(),
         },
+        observability: settings.observability.clone(),
         default_model: settings.default_model_id.clone(),
         fs: FsOptions {
             destructive_operations_enabled: settings.advanced.allow_destructive_fs_without_hitl,

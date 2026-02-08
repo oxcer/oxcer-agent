@@ -2,15 +2,22 @@
 # Policies are evaluated in order; first matching rule wins.
 # Invalid policy → secure default (default-deny).
 #
+# Agent = untrusted client: the agent (caller: agent_orchestrator) is never
+# trusted. It gets the same path/command blocklist as UI; write and exec
+# require approval. Each tool call is evaluated separately (no batching).
+#
 # Schema: match (caller, tool_type, operation, path_patterns, command_patterns),
 #         action (allow | deny | require_approval),
-#         optional: reason_code, notes, risk_level
+#         optional: reason_code, notes, risk_level, data_sensitivity.
+# data_sensitivity (optional): when request includes content_sensitivity (e.g. for LLM-bound content),
+#   max_level: low | medium | high  — deny if content level > max_level
+#   require_approval_if: low | medium | high  — force require_approval when content level >= this
 
 version: 1
 default_action: deny
 
 rules:
-  # Path blocklist — sensitive credential paths, deny read and write
+  # Path blocklist — sensitive credential paths (HOME, .ssh, .aws, etc.), deny for ALL callers including agent
   - match:
       tool_type: [fs]
       path_patterns:  # home-relative patterns; ~ expands to $HOME

@@ -18,6 +18,13 @@ commands.allow = [
   "cmd_workspace_add",
   "cmd_workspace_remove",
   "cmd_models_list",
+  "cmd_llm_invoke",
+  "cmd_scrub_payload_for_llm",
+  "cmd_agent_step",
+  "list_sessions",
+  "load_session_log",
   "get_config",
+  "get_command_visibility",
   "get_effective_fs_policy",
+  "cmd_plugin_capabilities",
 ]

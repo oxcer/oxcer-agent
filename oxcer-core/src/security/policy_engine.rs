@@ -10,10 +10,11 @@ use serde::{Deserialize, Serialize};
 // -----------------------------------------------------------------------------
 
 /// Logical caller of the requested operation.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum PolicyCaller {
     /// Human-driven UI (trusted; still subject to path/command blocklists).
+    #[default]
     Ui,
     /// AI Agent Orchestrator (untrusted; stricter policy).
     AgentOrchestrator,
@@ -22,9 +23,10 @@ pub enum PolicyCaller {
 }
 
 /// Type of tool being invoked.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ToolType {
+    #[default]
     Fs,
     Shell,
     Agent,
@@ -33,9 +35,10 @@ pub enum ToolType {
 }
 
 /// Operation being performed.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Operation {
+    #[default]
     Read,
     Write,
     Delete,
@@ -63,13 +66,28 @@ pub enum PolicyTarget {
     },
 }
 
+impl Default for PolicyTarget {
+    /// Default target: empty FS path. Policy rules that need a path will use this;
+    /// evaluate_with_config treats missing/invalid target as no-match for path rules.
+    fn default() -> Self {
+        PolicyTarget::FsPath {
+            canonical_path: String::new(),
+        }
+    }
+}
+
 /// Request passed to the Policy Engine.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct PolicyRequest {
     pub caller: PolicyCaller,
     pub tool_type: ToolType,
     pub operation: Operation,
     pub target: PolicyTarget,
+    /// When the tool call includes content intended for the LLM, the caller may attach
+    /// the result of the data_sensitivity classifier. Rules with `data_sensitivity` use this
+    /// to deny or require approval when sensitivity exceeds the configured level.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_sensitivity: Option<crate::data_sensitivity::SensitivityResult>,
 }
 
 // -----------------------------------------------------------------------------
@@ -98,6 +116,8 @@ pub enum ReasonCode {
     AgentDestructiveRequiresApproval,
     ExplicitAllow,
     InternalSystem,
+    DataSensitivityDeny,
+    DataSensitivityRequireApproval,
     /// Least-privilege fallback: no explicit allow rule matched.
     DefaultDeny,
 }
@@ -114,6 +134,8 @@ impl ReasonCode {
             ReasonCode::AgentDestructiveRequiresApproval => "AGENT_DESTRUCTIVE_REQUIRES_APPROVAL",
             ReasonCode::ExplicitAllow => "EXPLICIT_ALLOW",
             ReasonCode::InternalSystem => "INTERNAL_SYSTEM",
+            ReasonCode::DataSensitivityDeny => "DATA_SENSITIVITY_DENY",
+            ReasonCode::DataSensitivityRequireApproval => "DATA_SENSITIVITY_REQUIRE_APPROVAL",
             ReasonCode::DefaultDeny => "DEFAULT_DENY",
         }
     }
@@ -149,6 +171,7 @@ pub fn is_path_blocklisted(canonical_path: &str) -> bool {
         target: PolicyTarget::FsPath {
             canonical_path: canonical_path.to_string(),
         },
+        ..Default::default()
     };
     let dec = evaluate(req);
     matches!(dec.decision, PolicyDecisionKind::Deny)
@@ -170,6 +193,15 @@ fn loaded_policy() -> &'static crate::security::policy_config::PolicyConfig {
     })
 }
 
+/// Initializes the policy with a config (e.g. default + plugin rules).
+/// Must be called before any `evaluate()`. Typically called at app startup.
+/// Returns `Err(())` if policy was already initialized.
+pub fn init_policy_with_config(
+    config: crate::security::policy_config::PolicyConfig,
+) -> Result<(), ()> {
+    DEFAULT_POLICY.set(config).map_err(|_| ())
+}
+
 /// Main entry point: evaluates a policy request and returns a decision.
 ///
 /// Uses config-driven policy (see `policy_config` and `policies/default.yaml`).
@@ -182,6 +214,27 @@ pub fn evaluate(request: PolicyRequest) -> PolicyDecision {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn policy_target_default_is_empty_fs_path() {
+        let t = PolicyTarget::default();
+        match &t {
+            PolicyTarget::FsPath { canonical_path } => assert!(canonical_path.is_empty()),
+            _ => panic!("expected FsPath default"),
+        }
+    }
+
+    #[test]
+    fn policy_request_default_roundtrip() {
+        let req = PolicyRequest::default();
+        assert_eq!(req.caller, PolicyCaller::Ui);
+        assert_eq!(req.tool_type, ToolType::Fs);
+        assert_eq!(req.operation, Operation::Read);
+        match &req.target {
+            PolicyTarget::FsPath { canonical_path } => assert!(canonical_path.is_empty()),
+            _ => panic!("expected FsPath default"),
+        }
+    }
 
     /// Table-driven policy tests: (caller, tool_type, operation, target) -> (decision, reason_code).
     /// Covers allow, deny, require_approval, and Agent vs UI asymmetry.
@@ -202,6 +255,7 @@ mod tests {
                 tool_type: tc.tool_type,
                 operation: tc.operation,
                 target: tc.target.clone(),
+                ..Default::default()
             };
             let dec = evaluate(req);
             assert_eq!(
@@ -423,6 +477,7 @@ mod tests {
                 command_id: "rm".to_string(),
                 normalized_command: Some("rm -rf /".to_string()),
             },
+            ..Default::default()
         };
         let dec = evaluate(req);
         assert_eq!(dec.decision, PolicyDecisionKind::Deny);
@@ -439,6 +494,7 @@ mod tests {
                 command_id: "sudo".to_string(),
                 normalized_command: None,
             },
+            ..Default::default()
         };
         let dec = evaluate(req);
         assert_eq!(dec.decision, PolicyDecisionKind::Deny);
@@ -456,6 +512,7 @@ mod tests {
             target: PolicyTarget::FsPath {
                 canonical_path: "/tmp/workspace/file.txt".to_string(),
             },
+            ..Default::default()
         };
         let dec = evaluate(req);
         assert_eq!(dec.decision, PolicyDecisionKind::RequireApproval);
@@ -475,6 +532,7 @@ mod tests {
                 command_id: "deploy".to_string(),
                 normalized_command: None,
             },
+            ..Default::default()
         };
         let dec = evaluate(req);
         assert_eq!(dec.decision, PolicyDecisionKind::RequireApproval);
@@ -498,6 +556,7 @@ mod tests {
             target: PolicyTarget::FsPath {
                 canonical_path: "/tmp/workspace/to_delete.txt".to_string(),
             },
+            ..Default::default()
         };
         let dec = evaluate(req);
         assert_eq!(dec.decision, PolicyDecisionKind::RequireApproval);
@@ -520,6 +579,7 @@ mod tests {
                 command_id: "run_tests".to_string(),
                 normalized_command: None,
             },
+            ..Default::default()
         };
         let dec = evaluate(req);
         assert_eq!(dec.decision, PolicyDecisionKind::RequireApproval);
@@ -535,6 +595,7 @@ mod tests {
             target: PolicyTarget::FsPath {
                 canonical_path: "/tmp/workspace/file.txt".to_string(),
             },
+            ..Default::default()
         };
         let dec = evaluate(req);
         assert_eq!(dec.decision, PolicyDecisionKind::RequireApproval);
@@ -550,6 +611,7 @@ mod tests {
             target: PolicyTarget::FsPath {
                 canonical_path: "/tmp/workspace/file.txt".to_string(),
             },
+            ..Default::default()
         };
         let dec = evaluate(req);
         assert_eq!(dec.decision, PolicyDecisionKind::Allow);
@@ -564,6 +626,7 @@ mod tests {
             target: PolicyTarget::FsPath {
                 canonical_path: "/tmp/workspace/file.txt".to_string(),
             },
+            ..Default::default()
         };
         let dec = evaluate(req);
         assert_eq!(dec.decision, PolicyDecisionKind::Allow);
@@ -581,6 +644,7 @@ mod tests {
                 target: PolicyTarget::FsPath {
                     canonical_path: path.clone(),
                 },
+                ..Default::default()
             };
             let dec = evaluate(req);
             assert_eq!(dec.decision, PolicyDecisionKind::Deny);
@@ -600,6 +664,7 @@ mod tests {
                 resource_id: "unknown".to_string(),
                 api_name: None,
             },
+            ..Default::default()
         };
         let dec = evaluate(req);
         assert_eq!(dec.decision, PolicyDecisionKind::Deny);
@@ -695,7 +760,13 @@ mod proptest_tests {
                 },
                 _ => PolicyTarget::Resource { resource_id: "r1".to_string(), api_name: None },
             };
-            let req = PolicyRequest { caller, tool_type, operation, target };
+            let req = PolicyRequest {
+                caller,
+                tool_type,
+                operation,
+                target,
+                ..Default::default()
+            };
             let config = default_policy();
             let dec = evaluate_with_config(&req, &config);
             assert!(matches!(
@@ -714,6 +785,7 @@ mod proptest_tests {
                 tool_type: ToolType::Fs,
                 operation: Operation::Read,
                 target: PolicyTarget::FsPath { canonical_path: blocklisted },
+                ..Default::default()
             };
             let config = default_policy();
             let dec = evaluate_with_config(&req, &config);
@@ -731,6 +803,7 @@ mod proptest_tests {
                     command_id: "rm".to_string(),
                     normalized_command: Some("rm -rf /".to_string()),
                 },
+                ..Default::default()
             };
             let config = default_policy();
             let dec = evaluate_with_config(&req, &config);
@@ -758,12 +831,14 @@ mod proptest_tests {
                 tool_type,
                 operation,
                 target: target.clone(),
+                ..Default::default()
             };
             let req_agent = PolicyRequest {
                 caller: PolicyCaller::AgentOrchestrator,
                 tool_type,
                 operation,
                 target,
+                ..Default::default()
             };
             let dec_ui = evaluate_with_config(&req_ui, &config);
             let dec_agent = evaluate_with_config(&req_agent, &config);

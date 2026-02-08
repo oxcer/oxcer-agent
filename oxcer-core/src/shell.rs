@@ -23,6 +23,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use serde::Serialize;
 
+use crate::env_filter;
 use crate::fs::{
     AppFsContext, BaseDirKind, DenyReason, FsError, normalize_and_resolve, SecurityDecision,
     SecurityDecisionKind, WorkspaceRoot,
@@ -84,6 +85,7 @@ pub struct CommandSpec {
 }
 
 /// Catalog of allowed commands: the only source of truth for what can run.
+/// Uses HashMap for O(1) lookup by command id. Plugin IDs override built-ins on merge.
 pub struct CommandCatalog {
     commands: HashMap<String, CommandSpec>,
 }
@@ -500,8 +502,25 @@ pub fn evaluate_command_policy(
 }
 
 impl CommandCatalog {
+    /// O(1) lookup by command id.
     pub fn get(&self, command_id: &str) -> Option<&CommandSpec> {
         self.commands.get(command_id)
+    }
+
+    /// Iterate over all commands (id, spec). Order is unspecified.
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &CommandSpec)> {
+        self.commands.iter().map(|(k, v)| (k.as_str(), v))
+    }
+
+    /// Merges plugin command specs into the catalog (Sprint 9).
+    /// Plugin ids override built-in commands if they collide.
+    pub fn merge_plugin_commands(
+        &mut self,
+        specs: impl IntoIterator<Item = (String, CommandSpec)>,
+    ) {
+        for (id, spec) in specs {
+            self.commands.insert(id, spec);
+        }
     }
 }
 
@@ -557,15 +576,28 @@ pub fn shell_run(
     }
 
     let run_start = Instant::now();
+    let safe_env = env_filter::safe_env_for_child(
+        &restricted_path(),
+        "en_US.UTF-8",
+        "dumb",
+    );
+    if env_filter::env_has_high_risk_keys() {
+        if let Ok(json) = serde_json::to_string(&serde_json::json!({
+            "event": "shell_scrubbed_env",
+            "message": "Child process started with filtered env (high-risk keys dropped)",
+        })) {
+            println!("{json}");
+        }
+    }
     let mut cmd = std::process::Command::new(&bound.binary);
     cmd.args(&bound.args)
         .current_dir(&bound.cwd)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
     cmd.env_clear();
-    cmd.env("PATH", restricted_path());
-    cmd.env("LANG", "en_US.UTF-8");
-    cmd.env("TERM", "dumb");
+    for (k, v) in safe_env {
+        cmd.env(k, v);
+    }
 
     let mut child = match cmd.spawn() {
         Ok(c) => c,

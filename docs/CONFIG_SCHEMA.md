@@ -26,7 +26,7 @@ Settings file: `config.json` under the app config directory (e.g. `~/Library/App
 | Workspace list item path | `workspaces[].root_path` | string |
 | Default model dropdown (Settings → Basic) | `model.default_id` | string |
 
-The default model selection is **stored only** in this sprint; Semantic Router / real model routing will be implemented in a later sprint.
+The default model selection is used by the Agent Orchestrator (Sprint 6) for model backend choice when the Semantic Router selects `cheap_model` or `expensive_model`. See `docs/AGENT_ORCHESTRATOR.md`.
 
 ## Backward compatibility
 

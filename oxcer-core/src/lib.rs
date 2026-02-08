@@ -11,7 +11,17 @@
 //! launcher level — only the Command Router may call `fs::`/`shell::` after
 //! policy evaluation.
 
+pub mod agent_session_log;
+pub mod data_sensitivity;
+pub mod data_sensitivity_config;
+pub mod env_filter;
 pub mod fs;
+pub mod plugins;
 pub mod network;
+pub mod orchestrator;
+pub mod prompt_sanitizer;
 pub mod security;
+pub mod semantic_router;
+pub mod llm_metrics;
 pub mod shell;
+pub mod telemetry;

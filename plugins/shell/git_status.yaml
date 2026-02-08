@@ -1,0 +1,18 @@
+# Canonical E2E demo plugin: git status (Sprint 9)
+# Copy to ~/Library/Application Support/Oxcer/plugins/ (macOS)
+# Exercises: load → catalog → policy → router tool_hints → telemetry
+id: "shell.git_status"
+type: "shell"
+binary_path: "/usr/bin/git"
+template: ["-C", "{{workspace}}", "status", "--short"]
+schema:
+  description: "Show git status in the current workspace"
+  category_hint: "git"
+  args:
+    - name: "workspace_id"
+      type: "string"
+      required: true
+security:
+  tool_type: [shell]
+  operations: [read]
+  dangerous: false

@@ -12,7 +12,7 @@ Oxcer is split into two parts:
 - **Role:** Exposes commands (FS, Shell, Security, Agent, Settings) via Tauri's invoke/event system.
 - **No HTML/WebView UI:** The `src/` directory contains only a minimal placeholder `index.html` required by Tauri's build. The window is hidden (`visible: false`).
 - **Launch:** Run as a sidecar process from the Swift app, or standalone with `pnpm tauri dev` for development. The backend currently uses a hidden window; it can be evolved into a tray app or pure daemon if needed.
-- **Commands:** `cmd_fs_*`, `cmd_shell_run`, `cmd_approve_and_execute`, `cmd_settings_get`, `cmd_settings_save`, `cmd_workspace_add`, `cmd_workspace_remove`, `cmd_models_list`.
+- **Commands:** `cmd_fs_*`, `cmd_shell_run`, `cmd_approve_and_execute`, `cmd_agent_step` (Sprint 6: Agent Orchestrator + Semantic Router), `cmd_settings_get`, `cmd_settings_save`, `cmd_workspace_add`, `cmd_workspace_remove`, `cmd_models_list`.
 
 ## Swift app (future)
 

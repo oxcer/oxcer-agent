@@ -5,6 +5,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::data_sensitivity::SensitivityLevel;
+
 use super::policy_engine::{Operation, PolicyCaller, PolicyTarget, ToolType};
 
 // -----------------------------------------------------------------------------
@@ -58,6 +60,38 @@ pub struct PolicyMatch {
     pub command_patterns: Option<Vec<String>>,
 }
 
+/// Data-sensitivity constraint for a rule: when content is intended for the LLM,
+/// compare classification level to these bounds.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DataSensitivityRule {
+    /// Deny (or require approval) if content sensitivity is above this level.
+    #[serde(rename = "max_level")]
+    pub max_level: SensitivityLevelConfig,
+    /// If set, force RequireApproval when content sensitivity >= this level.
+    #[serde(default, rename = "require_approval_if")]
+    pub require_approval_if: Option<SensitivityLevelConfig>,
+}
+
+/// Config representation of sensitivity level ("low" | "medium" | "high").
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SensitivityLevelConfig {
+    Low,
+    Medium,
+    High,
+}
+
+impl SensitivityLevelConfig {
+    fn to_level(self) -> SensitivityLevel {
+        match self {
+            SensitivityLevelConfig::Low => SensitivityLevel::Low,
+            SensitivityLevelConfig::Medium => SensitivityLevel::Medium,
+            SensitivityLevelConfig::High => SensitivityLevel::High,
+        }
+    }
+}
+
+
 /// A single policy rule.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PolicyRule {
@@ -70,6 +104,10 @@ pub struct PolicyRule {
     pub notes: Option<String>,
     #[serde(default)]
     pub risk_level: Option<String>,
+    /// Optional data-sensitivity constraint: when request includes content_sensitivity,
+    /// apply max_level and require_approval_if before the rule action.
+    #[serde(default)]
+    pub data_sensitivity: Option<DataSensitivityRule>,
 }
 
 // -----------------------------------------------------------------------------
@@ -235,6 +273,15 @@ pub fn default_policy() -> PolicyConfig {
     }
 }
 
+/// Merges extra rules (e.g. from plugins) into a base config.
+/// Extra rules are prepended so they are evaluated first (plugin-specific rules match before general allow).
+pub fn merge_rules(mut base: PolicyConfig, extra: Vec<PolicyRule>) -> PolicyConfig {
+    let mut rules = extra;
+    rules.append(&mut base.rules);
+    base.rules = rules;
+    base
+}
+
 /// Hard-coded default rules (same as default.yaml). Used when YAML parse fails.
 fn builtin_default_rules() -> Vec<PolicyRule> {
     vec![
@@ -267,6 +314,7 @@ fn builtin_default_rules() -> Vec<PolicyRule> {
             reason_code: Some("FS_PATH_IN_BLOCKLIST".into()),
             notes: Some("Sensitive credential paths".into()),
             risk_level: Some("high".into()),
+            data_sensitivity: None,
         },
         PolicyRule {
             match_: PolicyMatch {
@@ -289,6 +337,7 @@ fn builtin_default_rules() -> Vec<PolicyRule> {
             reason_code: Some("SHELL_COMMAND_BLACKLISTED".into()),
             notes: Some("Destructive/privilege commands".into()),
             risk_level: Some("high".into()),
+            data_sensitivity: None,
         },
         PolicyRule {
             match_: PolicyMatch {
@@ -302,6 +351,7 @@ fn builtin_default_rules() -> Vec<PolicyRule> {
             reason_code: Some("DESTRUCTIVE_FS_REQUIRES_APPROVAL".into()),
             notes: None,
             risk_level: Some("high".into()),
+            data_sensitivity: None,
         },
         PolicyRule {
             match_: PolicyMatch {
@@ -315,6 +365,7 @@ fn builtin_default_rules() -> Vec<PolicyRule> {
             reason_code: Some("HIGH_RISK_TOOL_REQUIRES_APPROVAL".into()),
             notes: None,
             risk_level: Some("high".into()),
+            data_sensitivity: None,
         },
         PolicyRule {
             match_: PolicyMatch {
@@ -328,6 +379,7 @@ fn builtin_default_rules() -> Vec<PolicyRule> {
             reason_code: Some("INTERNAL_SYSTEM".into()),
             notes: None,
             risk_level: None,
+            data_sensitivity: None,
         },
         PolicyRule {
             match_: PolicyMatch {
@@ -341,6 +393,7 @@ fn builtin_default_rules() -> Vec<PolicyRule> {
             reason_code: Some("EXPLICIT_ALLOW".into()),
             notes: None,
             risk_level: None,
+            data_sensitivity: None,
         },
         PolicyRule {
             match_: PolicyMatch {
@@ -354,6 +407,7 @@ fn builtin_default_rules() -> Vec<PolicyRule> {
             reason_code: Some("AGENT_WRITE_REQUIRES_APPROVAL".into()),
             notes: None,
             risk_level: Some("high".into()),
+            data_sensitivity: None,
         },
         PolicyRule {
             match_: PolicyMatch {
@@ -367,6 +421,7 @@ fn builtin_default_rules() -> Vec<PolicyRule> {
             reason_code: Some("AGENT_EXEC_REQUIRES_APPROVAL".into()),
             notes: None,
             risk_level: Some("high".into()),
+            data_sensitivity: None,
         },
         PolicyRule {
             match_: PolicyMatch {
@@ -380,6 +435,7 @@ fn builtin_default_rules() -> Vec<PolicyRule> {
             reason_code: Some("EXPLICIT_ALLOW".into()),
             notes: None,
             risk_level: None,
+            data_sensitivity: None,
         },
         PolicyRule {
             match_: PolicyMatch {
@@ -393,6 +449,7 @@ fn builtin_default_rules() -> Vec<PolicyRule> {
             reason_code: Some("EXPLICIT_ALLOW".into()),
             notes: None,
             risk_level: None,
+            data_sensitivity: None,
         },
     ]
 }
@@ -548,6 +605,33 @@ pub fn evaluate_with_config(
             &request.target,
             home_path,
         ) {
+            if let (Some(ds), Some(sr)) = (&rule.data_sensitivity, &request.content_sensitivity) {
+                let max_level = ds.max_level.to_level();
+                if sr.level > max_level {
+                    return PolicyDecision {
+                        decision: PolicyDecisionKind::Deny,
+                        reason_code: ReasonCode::DataSensitivityDeny,
+                        metadata: Some(serde_json::json!({
+                            "data_sensitivity": "level above max_level",
+                            "level": format!("{:?}", sr.level),
+                            "max_level": format!("{:?}", max_level),
+                        })),
+                    };
+                }
+                if ds.require_approval_if
+                    .map(|c| sr.level >= c.to_level())
+                    .unwrap_or(false)
+                {
+                    return PolicyDecision {
+                        decision: PolicyDecisionKind::RequireApproval,
+                        reason_code: ReasonCode::DataSensitivityRequireApproval,
+                        metadata: Some(serde_json::json!({
+                            "data_sensitivity": "require_approval_if",
+                            "level": format!("{:?}", sr.level),
+                        })),
+                    };
+                }
+            }
             let decision = match rule.action {
                 PolicyAction::Allow => PolicyDecisionKind::Allow,
                 PolicyAction::Deny => PolicyDecisionKind::Deny,
@@ -588,6 +672,7 @@ pub fn evaluate_with_config(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::data_sensitivity::{SensitivityLevel, SensitivityResult};
     use crate::security::policy_engine::{PolicyCaller, PolicyDecisionKind, PolicyRequest, PolicyTarget, ToolType, Operation};
 
     fn safe_request() -> PolicyRequest {
@@ -598,6 +683,7 @@ mod tests {
             target: PolicyTarget::FsPath {
                 canonical_path: "/tmp/workspace/file.txt".to_string(),
             },
+            ..Default::default()
         }
     }
 
@@ -740,6 +826,80 @@ rules:
         assert_not_more_permissive(&cfg);
     }
 
+    #[test]
+    fn data_sensitivity_rule_deny_when_above_max_level() {
+        let yaml = br#"
+version: 1
+default_action: deny
+rules:
+  - match:
+      tool_type: [fs]
+      operation: [read]
+    action: allow
+    reason_code: EXPLICIT_ALLOW
+    data_sensitivity:
+      max_level: medium
+      require_approval_if: high
+"#;
+        let cfg = load_from_yaml_result(yaml).expect("yaml");
+        let high_content = SensitivityResult {
+            level: SensitivityLevel::High,
+            masked_content: String::new(),
+            findings: vec![],
+            original_length: 0,
+            redacted_length: 0,
+        };
+        let req = PolicyRequest {
+            caller: PolicyCaller::AgentOrchestrator,
+            tool_type: ToolType::Fs,
+            operation: Operation::Read,
+            target: PolicyTarget::FsPath {
+                canonical_path: "/tmp/workspace/file.txt".to_string(),
+            },
+            content_sensitivity: Some(high_content),
+        };
+        let dec = evaluate_with_config(&req, &cfg);
+        assert_eq!(dec.decision, PolicyDecisionKind::Deny);
+        assert!(matches!(dec.reason_code, crate::security::policy_engine::ReasonCode::DataSensitivityDeny));
+    }
+
+    #[test]
+    fn data_sensitivity_rule_require_approval_when_meets_require_approval_if() {
+        let yaml = br#"
+version: 1
+default_action: deny
+rules:
+  - match:
+      tool_type: [fs]
+      operation: [read]
+    action: allow
+    reason_code: EXPLICIT_ALLOW
+    data_sensitivity:
+      max_level: high
+      require_approval_if: high
+"#;
+        let cfg = load_from_yaml_result(yaml).expect("yaml");
+        let high_content = SensitivityResult {
+            level: SensitivityLevel::High,
+            masked_content: String::new(),
+            findings: vec![],
+            original_length: 0,
+            redacted_length: 0,
+        };
+        let req = PolicyRequest {
+            caller: PolicyCaller::AgentOrchestrator,
+            tool_type: ToolType::Fs,
+            operation: Operation::Read,
+            target: PolicyTarget::FsPath {
+                canonical_path: "/tmp/workspace/file.txt".to_string(),
+            },
+            content_sensitivity: Some(high_content),
+        };
+        let dec = evaluate_with_config(&req, &cfg);
+        assert_eq!(dec.decision, PolicyDecisionKind::RequireApproval);
+        assert!(matches!(dec.reason_code, crate::security::policy_engine::ReasonCode::DataSensitivityRequireApproval));
+    }
+
     /// Regression: load_from_yaml never returns policy that allows agent write by default.
     #[test]
     fn regression_malformed_policy_never_weakens_guardrails() {
@@ -775,6 +935,8 @@ fn reason_code_from_str(s: &str) -> crate::security::policy_engine::ReasonCode {
         "AGENT_DESTRUCTIVE_REQUIRES_APPROVAL" => ReasonCode::AgentDestructiveRequiresApproval,
         "EXPLICIT_ALLOW" => ReasonCode::ExplicitAllow,
         "INTERNAL_SYSTEM" => ReasonCode::InternalSystem,
+        "DATA_SENSITIVITY_DENY" => ReasonCode::DataSensitivityDeny,
+        "DATA_SENSITIVITY_REQUIRE_APPROVAL" => ReasonCode::DataSensitivityRequireApproval,
         _ => ReasonCode::DefaultDeny,
     }
 }

@@ -19,8 +19,9 @@
 //! Oxcer's primary UI is a native Swift app. The Tauri backend currently uses a
 //! hidden window but can be evolved into a tray app or pure daemon if needed.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use http::{header::CONTENT_TYPE, Response, StatusCode};
 use tauri::menu::{MenuBuilder, MenuItem, PredefinedMenuItem, SubmenuBuilder};
@@ -29,23 +30,100 @@ use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_fs;
 use uuid::Uuid;
 
+use oxcer_core::agent_session_log::AgentSessionLog;
 use oxcer_core::fs;
-use oxcer_core::security::policy_engine::{
-    evaluate, Operation, PolicyCaller, PolicyDecisionKind, PolicyRequest, PolicyTarget, ToolType,
+use oxcer_core::orchestrator::{
+    next_action, run_first_step, OrchestratorAction, SessionState, StepResult,
 };
+use oxcer_core::semantic_router::{category_for_log, strategy_for_log, RouterInput};
+use oxcer_core::llm_metrics::{
+    cost_usd as llm_cost_usd, estimate_tokens_from_chars, provider_for_model,
+};
+use oxcer_core::network::{
+    anthropic_client::{self, AnthropicMessagesRequest},
+    gemini_client::{self, GeminiChatRequest},
+    grok_client::{self, GrokChatRequest},
+    openai_client::{self, OpenAIChatRequest},
+    HttpClient, HttpError, NetworkTool,
+};
+use oxcer_core::telemetry::{log_event, LogEvent, LogMetrics};
+use oxcer_core::security::policy_engine::{
+    evaluate, Operation, PolicyCaller, PolicyDecision, PolicyDecisionKind, PolicyRequest,
+    PolicyTarget, ToolType,
+};
+use oxcer_core::prompt_sanitizer::{self, ScrubbingError};
+use oxcer_core::plugins::{
+    build_capability_registry, load_plugins_from_dir_with_telemetry, plugin_rules_from_descriptors,
+    shell_plugins_to_command_specs,
+};
+use oxcer_core::security::policy_config::{load_from_yaml, merge_rules};
+use oxcer_core::security::policy_engine::init_policy_with_config;
 use oxcer_core::shell;
 
 use oxcer::event_log;
 use oxcer::router;
 use oxcer::router::{
-    get_destructive_command_visibility, CommandVisibilityContext, PendingApprovalsStore,
-    PendingOperation, RouterError, to_requested_payload,
+    get_destructive_command_visibility, ApprovalRequestedPayload, CommandVisibilityContext,
+    PendingApprovalsStore, PendingOperation, RouterError, to_requested_payload,
 };
 use oxcer::settings::{
     get_effective_fs_policy as settings_get_effective_fs_policy, is_forbidden_workspace_path,
     load as settings_load, log_destructive_setting_change as settings_log_destructive_change,
     save as settings_save, AppSettings, to_workspace_roots, WorkspaceDirectory, EffectiveFsPolicy,
 };
+
+/// If session cost exceeds the configured threshold, emit a cost_threshold_exceeded LogEvent
+/// and a Launcher notification (once per session). Sprint 8 §6.
+fn check_cost_threshold_and_alert(app: &AppHandle, session_id: &str, session_cost_usd: f64) {
+    let threshold = app
+        .try_state::<Mutex<AppSettings>>()
+        .and_then(|s| s.lock().ok())
+        .map(|s| s.observability.max_session_cost_usd)
+        .unwrap_or(0.5);
+    if session_cost_usd <= threshold {
+        return;
+    }
+    let alerted = app
+        .try_state::<SessionCostAlertedStore>()
+        .map(|s| s.has_alerted(session_id))
+        .unwrap_or(false);
+    if alerted {
+        return;
+    }
+    if let Some(store) = app.try_state::<SessionCostAlertedStore>() {
+        store.mark_alerted(session_id);
+    }
+    if let Ok(app_config_dir) = app.path().app_config_dir() {
+        let details = serde_json::json!({ "threshold_usd": threshold });
+        let _ = log_event(
+            &app_config_dir,
+            session_id,
+            None,
+            "agent",
+            "orchestrator",
+            "cost_threshold_exceeded",
+            Some("alert"),
+            LogMetrics {
+                cost_usd: Some(session_cost_usd),
+                ..Default::default()
+            },
+            details,
+        );
+    }
+    let msg = format!(
+        "This session exceeded ${:.2} in LLM cost. Consider tightening context or routing rules.",
+        threshold
+    );
+    let _ = app.emit(
+        "metrics.cost_threshold_exceeded",
+        serde_json::json!({
+            "session_id": session_id,
+            "session_cost_usd": session_cost_usd,
+            "threshold_usd": threshold,
+            "message": msg,
+        }),
+    );
+}
 
 /// Helper to get effective FS policy from app state (for config gates).
 fn effective_fs_policy_from_app(app: &AppHandle) -> EffectiveFsPolicy {
@@ -84,17 +162,71 @@ const WORKSPACE_OUTSIDE_MSG: &str =
 const DASHBOARD_HTML: &str = r#"<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><title>Oxcer Guardrails Dashboard</title>
-<style>body{font-family:system-ui;color:#e0e0e0;background:#1a1a1a;margin:0;padding:20px;}
-#toast{position:fixed;bottom:20px;right:20px;background:#333;color:#e0e0e0;padding:12px 20px;border-radius:8px;max-width:360px;display:none;}</style>
+<style>
+body{font-family:system-ui;color:#e0e0e0;background:#1a1a1a;margin:0;padding:20px;}
+#toast{position:fixed;bottom:20px;right:20px;background:#333;color:#e0e0e0;padding:12px 20px;border-radius:8px;max-width:360px;display:none;}
+.tabs{display:flex;gap:8px;margin-bottom:16px;border-bottom:1px solid #333;}
+.tabs button{padding:8px 16px;background:transparent;color:#a0a0a0;border:none;cursor:pointer;border-bottom:2px solid transparent;}
+.tabs button.active{color:#e0e0e0;border-bottom-color:#4a9eff;}
+.panel{display:none;}
+.panel.active{display:block;}
+#sessionsList{list-style:none;padding:0;margin:0;}
+#sessionsList li{padding:12px;margin:4px 0;background:#252525;border-radius:6px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;}
+#sessionsList li:hover{background:#2a2a2a;}
+#sessionsList li.selected{outline:1px solid #4a9eff;}
+#sessionTimeline{display:none;margin-top:16px;}
+#timelineFilters{display:flex;gap:12px;margin-bottom:12px;flex-wrap:wrap;}
+#timelineFilters input,#timelineFilters select{padding:6px 10px;background:#252525;border:1px solid #333;border-radius:4px;color:#e0e0e0;}
+#timelineTable{width:100%;border-collapse:collapse;font-size:13px;}
+#timelineTable th{text-align:left;padding:8px;background:#252525;color:#a0a0a0;}
+#timelineTable td{padding:8px;border-bottom:1px solid #252525;}
+#timelineTable tr:hover{background:#252525;}
+#timelineTable tr.expanded td{background:#1e2a33;}
+.detailsJson{font-family:monospace;font-size:11px;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow:auto;padding:8px;background:#0d1117;}
+.metrics{color:#8b949e;}
+</style>
 </head>
 <body>
 <h1>Oxcer Guardrails Dashboard</h1>
-<p style="color:#a0a0a0;">Add workspaces in Settings. Destructive operations require explicit enabling.</p>
+<div class="tabs">
+  <button type="button" class="tab active" data-panel="dashboard">Dashboard</button>
+  <button type="button" class="tab" data-panel="sessions">Recent Sessions</button>
+</div>
+<div id="panel-dashboard" class="panel active">
+  <p style="color:#a0a0a0;">Add workspaces in Settings. Destructive operations require explicit enabling.</p>
+</div>
+<div id="panel-sessions" class="panel">
+  <p style="color:#a0a0a0;">Per-session telemetry from logs. Select a session to view the timeline.</p>
+  <ul id="sessionsList"></ul>
+  <div id="sessionTimeline">
+    <div id="timelineFilters">
+      <select id="filterComponent"><option value="">All components</option><option value="semantic_router">semantic_router</option><option value="llm_client">llm_client</option><option value="security">security</option><option value="orchestrator">orchestrator</option></select>
+      <select id="filterDecision"><option value="">All decisions</option><option value="allow">allow</option><option value="deny">deny</option><option value="approval_required">approval_required</option><option value="approve">approve</option><option value="success">success</option><option value="error">error</option></select>
+      <input type="text" id="filterText" placeholder="Search details..." style="min-width:180px;">
+    </div>
+    <table id="timelineTable"><thead><tr><th>Time</th><th>Component</th><th>Action</th><th>Decision</th><th>Metrics</th><th></th></tr></thead><tbody id="timelineBody"></tbody></table>
+  </div>
+</div>
 <div id="toast"></div>
 <script>
-(function(){const i=window.__TAURI__?.core?.invoke;if(!i)return;
-function t(m){const e=document.getElementById('toast');e.textContent=m;e.style.display='block';setTimeout(()=>e.style.display='none',6000);}
-window.__TAURI__?.event?.listen?.('security.destructive_op_executed',e=>t(e.payload?.summary||'')).catch(()=>{});})();
+(function(){
+var invoke=window.__TAURI__?.core?.invoke;if(!invoke)return;
+function toast(m){var e=document.getElementById('toast');e.textContent=m;e.style.display='block';setTimeout(function(){e.style.display='none';},6000);}
+window.__TAURI__?.event?.listen?.('security.destructive_op_executed',function(ev){toast(ev.payload?.summary||'');}).catch(function(){});
+window.__TAURI__?.event?.listen?.('metrics.cost_threshold_exceeded',function(ev){toast(ev.payload?.message||'Session exceeded LLM cost threshold.');}).catch(function(){});
+function showPanel(id){document.querySelectorAll('.panel').forEach(function(p){p.classList.remove('active');});document.querySelectorAll('.tabs button').forEach(function(b){b.classList.remove('active');});var p=document.getElementById('panel-'+id);if(p)p.classList.add('active');var b=document.querySelector('.tabs button[data-panel="'+id+'"]');if(b)b.classList.add('active');}
+document.querySelectorAll('.tab').forEach(function(btn){btn.addEventListener('click',function(){showPanel(btn.dataset.panel);if(btn.dataset.panel==='sessions')loadSessions();});});
+function shortId(s){if(!s)return'';return s.length>12?s.slice(0,8)+'…':s;}
+function formatTime(ts){if(!ts)return'';try{var d=new Date(ts);return d.toLocaleString();}catch(e){return ts;}}
+var allEvents=[];
+var selectedSessionId=null;
+function loadSessions(){invoke('list_sessions').then(function(summaries){var ul=document.getElementById('sessionsList');ul.innerHTML='';summaries.forEach(function(s){var li=document.createElement('li');li.dataset.sessionId=s.session_id;li.innerHTML='<span><strong>'+shortId(s.session_id)+'</strong> '+formatTime(s.start_timestamp)+'</span><span>'+s.total_cost_usd.toFixed(4)+' USD · '+s.tool_calls_count+' tools · '+s.approvals_count+' ok / '+s.denies_count+' deny'+(s.success?' ✓':' ✗')+'</span>';li.addEventListener('click',function(){selectedSessionId=s.session_id;document.querySelectorAll('#sessionsList li').forEach(function(x){x.classList.toggle('selected',x.dataset.sessionId===s.session_id);});loadSessionLog(s.session_id);});ul.appendChild(li);});}).catch(function(e){toast('Failed to list sessions: '+e);});}
+function loadSessionLog(sessionId){invoke('load_session_log',{sessionId:sessionId}).then(function(events){allEvents=events;renderTimeline();document.getElementById('sessionTimeline').style.display='block';}).catch(function(e){toast('Failed to load log: '+e);});}
+function renderTimeline(){var comp=document.getElementById('filterComponent').value;var dec=document.getElementById('filterDecision').value;var text=(document.getElementById('filterText').value||'').toLowerCase();var tbody=document.getElementById('timelineBody');tbody.innerHTML='';var events=allEvents.filter(function(e){if(comp&&e.component!==comp)return false;if(dec&&e.decision!==dec)return false;if(text&&JSON.stringify(e.details).toLowerCase().indexOf(text)===-1)return false;return true;});events.forEach(function(ev){var metrics=[];if(ev.metrics.tokens_in!=null)metrics.push('in:'+ev.metrics.tokens_in);if(ev.metrics.tokens_out!=null)metrics.push('out:'+ev.metrics.tokens_out);if(ev.metrics.latency_ms!=null)metrics.push(ev.metrics.latency_ms+'ms');if(ev.metrics.cost_usd!=null)metrics.push('$'+ev.metrics.cost_usd.toFixed(4));var tr=document.createElement('tr');tr.innerHTML='<td>'+formatTime(ev.timestamp)+'</td><td>'+ev.component+'</td><td>'+ev.action+'</td><td>'+(ev.decision||'—')+'</td><td class="metrics">'+metrics.join(' ')+'</td><td><button type="button">Details</button></td>';var btn=tr.querySelector('button');var detailsRow=document.createElement('tr');detailsRow.style.display='none';var td=document.createElement('td');td.colSpan=6;td.className='detailsJson';detailsRow.appendChild(td);btn.addEventListener('click',function(){var open=detailsRow.style.display!=='none';detailsRow.style.display=open?'none':'table-row';td.textContent=open?'':JSON.stringify(ev.details,null,2);tr.classList.toggle('expanded',!open);});tbody.appendChild(tr);tbody.appendChild(detailsRow);});}
+document.getElementById('filterComponent').addEventListener('change',renderTimeline);
+document.getElementById('filterDecision').addEventListener('change',renderTimeline);
+document.getElementById('filterText').addEventListener('input',renderTimeline);
+})();
 </script>
 </body>
 </html>"#;
@@ -141,12 +273,194 @@ fn fs_caller_from_policy(c: PolicyCaller) -> fs::FsCaller {
     }
 }
 
+/// In-memory store for agent orchestrator sessions (per session_id).
+/// Used so the frontend can resume after executing a tool call or after approval.
+pub struct AgentSessionStore(Mutex<HashMap<String, SessionState>>);
+
+impl AgentSessionStore {
+    pub fn new() -> Self {
+        Self(Mutex::new(HashMap::new()))
+    }
+    fn insert(&self, session_id: String, state: SessionState) {
+        self.0.lock().expect("session store lock").insert(session_id, state);
+    }
+    fn get(&self, session_id: &str) -> Option<SessionState> {
+        self.0.lock().expect("session store lock").get(session_id).cloned()
+    }
+    fn remove(&self, session_id: &str) -> Option<SessionState> {
+        self.0.lock().expect("session store lock").remove(session_id)
+    }
+}
+
+impl Default for AgentSessionStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Per-session LLM token and cost totals for session_summary (Sprint 8 §4.2).
+#[derive(Clone, Debug, Default)]
+pub struct SessionLlmTotals {
+    pub tokens_in: u32,
+    pub tokens_out: u32,
+    pub cost_usd: f64,
+}
+
+/// In-memory store for session LLM metrics (tokens_in, tokens_out, cost_usd).
+pub struct SessionLlmMetricsStore(Mutex<HashMap<String, SessionLlmTotals>>);
+
+impl SessionLlmMetricsStore {
+    pub fn new() -> Self {
+        Self(Mutex::new(HashMap::new()))
+    }
+    pub fn add(&self, session_id: &str, tokens_in: u32, tokens_out: u32, cost_usd: f64) {
+        let mut g = self.0.lock().expect("session llm metrics lock");
+        let e = g.entry(session_id.to_string()).or_default();
+        e.tokens_in += tokens_in;
+        e.tokens_out += tokens_out;
+        e.cost_usd += cost_usd;
+    }
+    /// Current totals for a session (without removing). Used for cost-threshold check.
+    pub fn get_totals(&self, session_id: &str) -> Option<SessionLlmTotals> {
+        self.0
+            .lock()
+            .expect("session llm metrics lock")
+            .get(session_id)
+            .cloned()
+    }
+    pub fn take(&self, session_id: &str) -> Option<SessionLlmTotals> {
+        self.0.lock().expect("session llm metrics lock").remove(session_id)
+    }
+}
+
+/// Sessions that have already triggered a cost-threshold alert (avoid duplicate notifications).
+pub struct SessionCostAlertedStore(Mutex<std::collections::HashSet<String>>);
+
+impl SessionCostAlertedStore {
+    pub fn new() -> Self {
+        Self(Mutex::new(std::collections::HashSet::new()))
+    }
+    pub fn mark_alerted(&self, session_id: &str) {
+        self.0.lock().expect("cost alerted lock").insert(session_id.to_string());
+    }
+    pub fn has_alerted(&self, session_id: &str) -> bool {
+        self.0.lock().expect("cost alerted lock").contains(session_id)
+    }
+}
+
+impl Default for SessionCostAlertedStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Default for SessionLlmMetricsStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Returns (workspace_id, workspace_root) for the first configured workspace, if any.
+fn default_workspace_from_app(app: &AppHandle) -> (Option<String>, Option<String>) {
+    app.try_state::<Mutex<AppSettings>>()
+        .and_then(|state| {
+            let guard = state.lock().ok()?;
+            let w = guard.workspace_directories.first()?;
+            Some((Some(w.id.clone()), Some(w.path.clone())))
+        })
+        .unwrap_or((None, None))
+}
+
 fn shell_caller_from_policy(c: PolicyCaller) -> shell::ShellCaller {
     match c {
         PolicyCaller::Ui => shell::ShellCaller::Ui,
         PolicyCaller::AgentOrchestrator => shell::ShellCaller::Agent,
         PolicyCaller::InternalSystem => shell::ShellCaller::System,
     }
+}
+
+/// Emit structured telemetry for a policy evaluation (Sprint 8 §3.1).
+fn emit_policy_evaluate_telemetry(
+    app: &AppHandle,
+    session_id: &str,
+    request: &PolicyRequest,
+    decision: &PolicyDecision,
+    workspace_id: Option<&str>,
+) {
+    let Ok(app_config_dir) = app.path().app_config_dir() else {
+        return;
+    };
+    let caller_str = match request.caller {
+        PolicyCaller::Ui => "ui",
+        PolicyCaller::AgentOrchestrator => "agent",
+        PolicyCaller::InternalSystem => "system",
+    };
+    let decision_str = match decision.decision {
+        PolicyDecisionKind::Allow => "allow",
+        PolicyDecisionKind::Deny => "deny",
+        PolicyDecisionKind::RequireApproval => "approval_required",
+    };
+    let tool_name = match request.tool_type {
+        ToolType::Fs => "fs",
+        ToolType::Shell => "shell",
+        ToolType::Agent => "agent",
+        ToolType::Web => "web",
+        ToolType::Other => "other",
+    };
+    let operation_str = match request.operation {
+        Operation::Read => "read",
+        Operation::Write => "write",
+        Operation::Delete => "delete",
+        Operation::Rename => "rename",
+        Operation::Move => "move",
+        Operation::Chmod => "chmod",
+        Operation::Exec => "exec",
+    };
+    let data_sensitivity_level = request.content_sensitivity.as_ref().map(|s| {
+        format!("{:?}", s.level).to_lowercase()
+    });
+    let details = serde_json::json!({
+        "tool": tool_name,
+        "operation": operation_str,
+        "workspace_id": workspace_id.unwrap_or(""),
+        "rule_id": decision.reason_code.as_str(),
+        "rule_reason": decision.reason_code.as_str(),
+        "data_sensitivity_level": data_sensitivity_level,
+    });
+    let _ = log_event(
+        &app_config_dir,
+        session_id,
+        None,
+        caller_str,
+        "security",
+        "policy_evaluate",
+        Some(decision_str),
+        LogMetrics::default(),
+        details,
+    );
+}
+
+/// Emit structured telemetry for an approval request (Sprint 8 §3.2).
+fn emit_approval_request_telemetry(app: &AppHandle, payload: &ApprovalRequestedPayload) {
+    let Ok(app_config_dir) = app.path().app_config_dir() else {
+        return;
+    };
+    let details = serde_json::json!({
+        "request_id": payload.request_id,
+        "impact_summary": payload.impact_summary,
+        "danger_zone": payload.danger_zone,
+    });
+    let _ = log_event(
+        &app_config_dir,
+        "",
+        None,
+        &payload.caller,
+        "security",
+        "approval_request",
+        Some("approval_required"),
+        LogMetrics::default(),
+        details,
+    );
 }
 
 /// FS list_dir — Agent MUST use this; never call fs:: directly.
@@ -170,9 +484,11 @@ fn cmd_fs_list_dir(
         target: PolicyTarget::FsPath {
             canonical_path: normalized.abs_path.display().to_string(),
         },
+        ..Default::default()
     };
     let decision = evaluate(request.clone());
     router::log_policy_decision(&request, &decision);
+    emit_policy_evaluate_telemetry(&app, "", &request, &decision, Some(&workspace_id));
     if decision.decision == PolicyDecisionKind::Deny {
         return Err(RouterError::PolicyDenied {
             reason_code: decision.reason_code.as_str().to_string(),
@@ -210,9 +526,11 @@ fn cmd_fs_read_file(
         target: PolicyTarget::FsPath {
             canonical_path: normalized.abs_path.display().to_string(),
         },
+        ..Default::default()
     };
     let decision = evaluate(request.clone());
     router::log_policy_decision(&request, &decision);
+    emit_policy_evaluate_telemetry(&app, "", &request, &decision, Some(&workspace_id));
     if decision.decision == PolicyDecisionKind::Deny {
         return Err(RouterError::PolicyDenied {
             reason_code: decision.reason_code.as_str().to_string(),
@@ -252,9 +570,11 @@ fn cmd_fs_write_file(
         target: PolicyTarget::FsPath {
             canonical_path: canonical_path.clone(),
         },
+        ..Default::default()
     };
     let decision = evaluate(request.clone());
     router::log_policy_decision(&request, &decision);
+    emit_policy_evaluate_telemetry(&app, "", &request, &decision, None);
     if decision.decision == PolicyDecisionKind::Deny {
         return Err(RouterError::PolicyDenied {
             reason_code: decision.reason_code.as_str().to_string(),
@@ -284,6 +604,7 @@ fn cmd_fs_write_file(
         store.insert(record.clone());
         let payload = to_requested_payload(&record);
         app.emit("security.approval.requested", &payload).ok();
+        emit_approval_request_telemetry(&app, &payload);
         return Err(RouterError::ApprovalRequired {
             request_id,
             operation: "fs_write".to_string(),
@@ -347,6 +668,7 @@ fn cmd_fs_delete(
         target: PolicyTarget::FsPath {
             canonical_path: normalized.abs_path.display().to_string(),
         },
+        ..Default::default()
     };
 
     // Agent must NEVER execute delete without explicit user approval.
@@ -383,6 +705,7 @@ fn cmd_fs_delete(
             );
         }
         app.emit("security.approval.requested", &payload).ok();
+        emit_approval_request_telemetry(&app, &payload);
         return Err(RouterError::ApprovalRequired {
             request_id,
             operation: "fs_delete".to_string(),
@@ -393,6 +716,7 @@ fn cmd_fs_delete(
 
     let decision = evaluate(request.clone());
     router::log_policy_decision(&request, &decision);
+    emit_policy_evaluate_telemetry(&app, "", &request, &decision, Some(&workspace_id));
     if decision.decision == PolicyDecisionKind::Deny {
         return Err(RouterError::PolicyDenied {
             reason_code: decision.reason_code.as_str().to_string(),
@@ -419,6 +743,7 @@ fn cmd_fs_delete(
         store.insert(record.clone());
         let payload = to_requested_payload(&record);
         app.emit("security.approval.requested", &payload).ok();
+        emit_approval_request_telemetry(&app, &payload);
         return Err(RouterError::ApprovalRequired {
             request_id,
             operation: "fs_delete".to_string(),
@@ -471,6 +796,7 @@ fn cmd_fs_rename(
         target: PolicyTarget::FsPath {
             canonical_path: normalized.abs_path.display().to_string(),
         },
+        ..Default::default()
     };
 
     if policy_caller == PolicyCaller::AgentOrchestrator {
@@ -508,6 +834,7 @@ fn cmd_fs_rename(
             );
         }
         app.emit("security.approval.requested", &payload).ok();
+        emit_approval_request_telemetry(&app, &payload);
         return Err(RouterError::ApprovalRequired {
             request_id,
             operation: "fs_rename".to_string(),
@@ -518,6 +845,7 @@ fn cmd_fs_rename(
 
     let decision = evaluate(request.clone());
     router::log_policy_decision(&request, &decision);
+    emit_policy_evaluate_telemetry(&app, "", &request, &decision, Some(&workspace_id));
     if decision.decision == PolicyDecisionKind::Deny {
         return Err(RouterError::PolicyDenied {
             reason_code: decision.reason_code.as_str().to_string(),
@@ -545,6 +873,7 @@ fn cmd_fs_rename(
         store.insert(record.clone());
         let payload = to_requested_payload(&record);
         app.emit("security.approval.requested", &payload).ok();
+        emit_approval_request_telemetry(&app, &payload);
         return Err(RouterError::ApprovalRequired {
             request_id,
             operation: "fs_rename".to_string(),
@@ -600,6 +929,7 @@ fn cmd_fs_move(
         target: PolicyTarget::FsPath {
             canonical_path: normalized.abs_path.display().to_string(),
         },
+        ..Default::default()
     };
 
     if policy_caller == PolicyCaller::AgentOrchestrator {
@@ -639,6 +969,7 @@ fn cmd_fs_move(
             );
         }
         app.emit("security.approval.requested", &payload).ok();
+        emit_approval_request_telemetry(&app, &payload);
         return Err(RouterError::ApprovalRequired {
             request_id,
             operation: "fs_move".to_string(),
@@ -649,6 +980,7 @@ fn cmd_fs_move(
 
     let decision = evaluate(request.clone());
     router::log_policy_decision(&request, &decision);
+    emit_policy_evaluate_telemetry(&app, "", &request, &decision, Some(&src_workspace_id));
     if decision.decision == PolicyDecisionKind::Deny {
         return Err(RouterError::PolicyDenied {
             reason_code: decision.reason_code.as_str().to_string(),
@@ -677,6 +1009,7 @@ fn cmd_fs_move(
         store.insert(record.clone());
         let payload = to_requested_payload(&record);
         app.emit("security.approval.requested", &payload).ok();
+        emit_approval_request_telemetry(&app, &payload);
         return Err(RouterError::ApprovalRequired {
             request_id,
             operation: "fs_move".to_string(),
@@ -720,9 +1053,11 @@ fn cmd_shell_run(
             command_id: command_id.clone(),
             normalized_command: None,
         },
+        ..Default::default()
     };
     let decision = evaluate(request.clone());
     router::log_policy_decision(&request, &decision);
+    emit_policy_evaluate_telemetry(&app, "", &request, &decision, None);
     if decision.decision == PolicyDecisionKind::Deny {
         return Err(RouterError::PolicyDenied {
             reason_code: decision.reason_code.as_str().to_string(),
@@ -753,6 +1088,7 @@ fn cmd_shell_run(
         store.insert(record.clone());
         let payload = to_requested_payload(&record);
         app.emit("security.approval.requested", &payload).ok();
+        emit_approval_request_telemetry(&app, &payload);
         return Err(RouterError::ApprovalRequired {
             request_id,
             operation: "shell_run".to_string(),
@@ -766,11 +1102,14 @@ fn cmd_shell_run(
         workspace_roots: fs_ctx.workspace_roots,
         default_workspace_id: workspace_id,
     };
-    let catalog = shell::default_catalog();
+    let catalog = app
+        .try_state::<Arc<shell::CommandCatalog>>()
+        .map(|s| s.clone())
+        .unwrap_or_else(|| Arc::new(shell::default_catalog()));
     shell::shell_run(
         shell_caller_from_policy(policy_caller),
         &ctx,
-        &catalog,
+        catalog.as_ref(),
         &command_id,
         params,
     )
@@ -801,13 +1140,22 @@ fn cmd_approve_and_execute(
             | PendingOperation::FsRename { .. }
             | PendingOperation::FsMove { .. }
     );
+    let op_name = match &record.operation_payload {
+        PendingOperation::FsDelete { .. } => "fs_delete",
+        PendingOperation::FsRename { .. } => "fs_rename",
+        PendingOperation::FsMove { .. } => "fs_move",
+        PendingOperation::FsWrite { .. } => "fs_write",
+        PendingOperation::ShellRun { .. } => "shell_run",
+    };
+    let workspace_id_for_telemetry = match &record.operation_payload {
+        PendingOperation::FsWrite { workspace_root, .. }
+        | PendingOperation::FsDelete { workspace_root, .. }
+        | PendingOperation::FsRename { workspace_root, .. }
+        | PendingOperation::FsMove { workspace_root, .. }
+        | PendingOperation::ShellRun { workspace_root, .. } => workspace_root.as_str(),
+    };
+
     if is_destructive {
-        let op_name = match &record.operation_payload {
-            PendingOperation::FsDelete { .. } => "fs_delete",
-            PendingOperation::FsRename { .. } => "fs_rename",
-            PendingOperation::FsMove { .. } => "fs_move",
-            _ => "",
-        };
         if let Ok(dir) = app.path().app_config_dir() {
             let event_type = if approved {
                 "destructive_approval.approved"
@@ -825,6 +1173,32 @@ fn cmd_approve_and_execute(
                 })),
             );
         }
+    }
+
+    // Approval decision telemetry (Sprint 8 §3.2): latency and approve/deny.
+    let approval_time_ms = record.created_at.elapsed().as_millis() as u64;
+    if let Ok(app_config_dir) = app.path().app_config_dir() {
+        let decision_str = if approved { "approve" } else { "deny" };
+        let details = serde_json::json!({
+            "request_id": request_id,
+            "operation": op_name,
+            "workspace_id": workspace_id_for_telemetry,
+            "danger_zone": is_destructive,
+        });
+        let _ = log_event(
+            &app_config_dir,
+            "",
+            None,
+            "ui",
+            "security",
+            "approval_decision",
+            Some(decision_str),
+            LogMetrics {
+                latency_ms: Some(approval_time_ms),
+                ..Default::default()
+            },
+            details,
+        );
     }
 
     if !approved {
@@ -922,11 +1296,14 @@ fn cmd_approve_and_execute(
                 workspace_roots: fs_ctx.workspace_roots,
                 default_workspace_id: workspace_id,
             };
-            let catalog = shell::default_catalog();
+            let catalog = app
+                .try_state::<Arc<shell::CommandCatalog>>()
+                .map(|s| s.clone())
+                .unwrap_or_else(|| Arc::new(shell::default_catalog()));
             let result = shell::shell_run(
                 shell::ShellCaller::Agent,
                 &ctx,
-                &catalog,
+                catalog.as_ref(),
                 &command_id,
                 params,
             )
@@ -1067,7 +1444,8 @@ fn get_config(app: AppHandle) -> Result<serde_json::Value, String> {
             return Ok(serde_json::json!({
                 "security": { "destructive_fs": { "enabled": false } },
                 "workspaces": [],
-                "model": { "default_id": "gemini-2.5-flash" }
+                "model": { "default_id": "gemini-2.5-flash" },
+                "observability": { "max_session_cost_usd": 0.5 }
             }))
         }
     };
@@ -1091,6 +1469,18 @@ fn get_command_visibility(
     Ok(get_destructive_command_visibility(destructive, context))
 }
 
+/// Returns plugin agent tool capabilities for the Semantic Router (Sprint 9).
+#[tauri::command]
+fn cmd_plugin_capabilities(
+    app: AppHandle,
+) -> Result<Vec<oxcer_core::plugins::ToolCapability>, String> {
+    let store = app
+        .try_state::<Mutex<oxcer_core::plugins::CapabilityRegistry>>()
+        .ok_or_else(|| "Capability registry not initialized".to_string())?;
+    let reg = store.lock().map_err(|e| e.to_string())?;
+    Ok(reg.list().to_vec())
+}
+
 /// Returns available model options for the default-model dropdown (id + display name). Sprint 5 spec.
 /// Stored selection is persisted to model.default_id only; Semantic Router / real model routing in a later sprint.
 #[tauri::command]
@@ -1106,6 +1496,437 @@ fn cmd_models_list() -> Vec<(String, String)> {
         ("grok-4.1-fast".to_string(), "Grok 4.1 Fast".to_string()),
         ("grok-3-mini".to_string(), "Grok 3 Mini".to_string()),
     ]
+}
+
+/// Invoke LLM (Gemini, OpenAI, Anthropic, Grok) with per-call telemetry (Sprint 8 §4.1).
+#[tauri::command]
+async fn cmd_llm_invoke(
+    app: AppHandle,
+    session_id: String,
+    model_id: String,
+    task: String,
+    strategy: Option<String>,
+) -> Result<serde_json::Value, String> {
+    use std::time::Instant;
+
+    let start = Instant::now();
+    let provider = provider_for_model(&model_id);
+    let tokens_in = estimate_tokens_from_chars(&task);
+    let strategy_str = strategy.as_deref().unwrap_or("");
+
+    let endpoint_short = match provider {
+        "openai" | "grok" => "chat.completions",
+        "anthropic" => "messages",
+        "gemini" => "generateContent",
+        _ => "invoke",
+    };
+
+    let (response_text, tokens_out, err_msg) = match provider {
+        "gemini" => {
+            let api_key = std::env::var("GOOGLE_API_KEY")
+                .or_else(|_| std::env::var("GEMINI_API_KEY"))
+                .map_err(|_| "GOOGLE_API_KEY or GEMINI_API_KEY not set".to_string())?;
+            let client = HttpClient::for_tool(NetworkTool::Gemini)
+                .map_err(|e| e.message)?;
+            let request = GeminiChatRequest {
+                contents: vec![serde_json::json!({"parts": [{"text": task}]})],
+                generation_config: None,
+            };
+            match gemini_client::call_gemini_chat(&client, &model_id, &api_key, &request).await {
+                Ok(r) => {
+                    let text = r
+                        .candidates
+                        .as_ref()
+                        .and_then(|c| c.first())
+                        .and_then(|c| c.get("content"))
+                        .and_then(|c| c.get("parts"))
+                        .and_then(|p| p.as_array())
+                        .and_then(|p| p.first())
+                        .and_then(|p| p.get("text"))
+                        .and_then(|t| t.as_str())
+                        .unwrap_or("");
+                    (text.to_string(), estimate_tokens_from_chars(text), None)
+                }
+                Err(e) => (String::new(), 0, Some(e.message)),
+            }
+        }
+        "openai" => {
+            let api_key = std::env::var("OPENAI_API_KEY")
+                .map_err(|_| "OPENAI_API_KEY not set".to_string())?;
+            let client = HttpClient::for_tool(NetworkTool::OpenAI).map_err(|e| e.message)?;
+            let request = OpenAIChatRequest {
+                model: model_id.clone(),
+                messages: vec![serde_json::json!({"role": "user", "content": task})],
+            };
+            match openai_client::call_openai_chat(&client, &request, &api_key).await {
+                Ok(r) => {
+                    let text = r
+                        .choices
+                        .as_ref()
+                        .and_then(|c| c.first())
+                        .and_then(|c| c.get("message"))
+                        .and_then(|m| m.get("content"))
+                        .and_then(|c| c.as_str())
+                        .unwrap_or("");
+                    (text.to_string(), estimate_tokens_from_chars(text), None)
+                }
+                Err(e) => (String::new(), 0, Some(e.message)),
+            }
+        }
+        "anthropic" => {
+            let api_key = std::env::var("ANTHROPIC_API_KEY")
+                .map_err(|_| "ANTHROPIC_API_KEY not set".to_string())?;
+            let client = HttpClient::for_tool(NetworkTool::Anthropic).map_err(|e| e.message)?;
+            let request = AnthropicMessagesRequest {
+                model: model_id.clone(),
+                max_tokens: 4096,
+                messages: vec![serde_json::json!({"role": "user", "content": task})],
+            };
+            match anthropic_client::call_anthropic_messages(&client, &request, &api_key).await {
+                Ok(r) => {
+                    let text = r
+                        .content
+                        .as_ref()
+                        .and_then(|c| c.first())
+                        .and_then(|c| c.get("text"))
+                        .and_then(|t| t.as_str())
+                        .unwrap_or("");
+                    (text.to_string(), estimate_tokens_from_chars(text), None)
+                }
+                Err(e) => (String::new(), 0, Some(e.message)),
+            }
+        }
+        "grok" => {
+            let api_key = std::env::var("XAI_API_KEY")
+                .map_err(|_| "XAI_API_KEY not set".to_string())?;
+            let client = HttpClient::for_tool(NetworkTool::Grok).map_err(|e| e.message)?;
+            let request = GrokChatRequest {
+                model: model_id.clone(),
+                messages: vec![serde_json::json!({"role": "user", "content": task})],
+            };
+            match grok_client::call_grok_chat(&client, &request, &api_key).await {
+                Ok(r) => {
+                    let text = r
+                        .choices
+                        .as_ref()
+                        .and_then(|c| c.first())
+                        .and_then(|c| c.get("message"))
+                        .and_then(|m| m.get("content"))
+                        .and_then(|c| c.as_str())
+                        .unwrap_or("");
+                    (text.to_string(), estimate_tokens_from_chars(text), None)
+                }
+                Err(e) => (String::new(), 0, Some(e.message)),
+            }
+        }
+        _ => return Err("Unsupported model (provider not openai/gemini/anthropic/grok)".to_string()),
+    };
+
+    let latency_ms = start.elapsed().as_millis() as u64;
+    match &err_msg {
+        None => {
+            let cost = llm_cost_usd(provider, &model_id, tokens_in, tokens_out);
+            if let Ok(app_config_dir) = app.path().app_config_dir() {
+                let details = serde_json::json!({
+                    "provider": provider,
+                    "model": model_id,
+                    "endpoint": endpoint_short,
+                    "strategy": strategy_str,
+                    "error": serde_json::Value::Null,
+                });
+                let _ = log_event(
+                    &app_config_dir,
+                    &session_id,
+                    None,
+                    "agent",
+                    "llm_client",
+                    "invoke",
+                    Some("success"),
+                    LogMetrics {
+                        tokens_in: Some(tokens_in),
+                        tokens_out: Some(tokens_out),
+                        latency_ms: Some(latency_ms),
+                        cost_usd: Some(cost),
+                    },
+                    details,
+                );
+            }
+            if let Some(store) = app.try_state::<SessionLlmMetricsStore>() {
+                store.add(&session_id, tokens_in, tokens_out, cost);
+                if let Some(totals) = store.get_totals(&session_id) {
+                    check_cost_threshold_and_alert(&app, &session_id, totals.cost_usd);
+                }
+            }
+        }
+        Some(msg) => {
+            if let Ok(app_config_dir) = app.path().app_config_dir() {
+                let details = serde_json::json!({
+                    "provider": provider,
+                    "model": model_id,
+                    "endpoint": endpoint_short,
+                    "strategy": strategy_str,
+                    "error": msg,
+                });
+                let _ = log_event(
+                    &app_config_dir,
+                    &session_id,
+                    None,
+                    "agent",
+                    "llm_client",
+                    "invoke",
+                    Some("error"),
+                    LogMetrics {
+                        tokens_in: Some(tokens_in),
+                        tokens_out: Some(0),
+                        latency_ms: Some(latency_ms),
+                        cost_usd: None,
+                    },
+                    details,
+                );
+            }
+        }
+    }
+
+    match err_msg {
+        None => Ok(serde_json::json!({ "text": response_text })),
+        Some(e) => Err(e),
+    }
+}
+
+/// Scrubbing pipeline for LLM calls: run the central scrubber on the combined payload before sending to any provider.
+/// Returns the scrubbed string to use in the request, or an error if ≥50% was redacted (caller must not call the LLM).
+/// Audit entry is written to logs/scrubbing.log for observability.
+#[tauri::command]
+fn cmd_scrub_payload_for_llm(
+    app: AppHandle,
+    session_id: Option<String>,
+    raw_payload: String,
+    workspace_root: Option<String>,
+) -> Result<String, String> {
+    let mut opts = oxcer_core::data_sensitivity::ClassifierOptions::default();
+    opts.workspace_root = workspace_root;
+    opts.normalize_paths = workspace_root.is_some();
+    let sid = session_id.as_deref().unwrap_or("");
+    let (result, audit_entry) = prompt_sanitizer::scrub_for_llm_call_audit(&raw_payload, &opts, sid);
+    if let Ok(app_config_dir) = app.path().app_config_dir() {
+        let _ = oxcer::scrubbing_log::append(&app_config_dir, &audit_entry);
+    }
+    result.map_err(|e| match e {
+        ScrubbingError::TooMuchSensitiveData { message } => message,
+        ScrubbingError::NeverSendToLlm { message, .. } => message,
+    })
+}
+
+/// Agent step: run Semantic Router + Orchestrator; return next action (ToolCall, Complete, or AwaitingApproval).
+/// The frontend executes tool intents via existing commands (cmd_fs_*, cmd_shell_run) with caller "agent_orchestrator",
+/// then passes the result back as last_result and calls this again. All tool execution goes through Command Router → Policy → Approval.
+#[tauri::command]
+fn cmd_agent_step(
+    app: AppHandle,
+    session_id: String,
+    task: String,
+    input: RouterInput,
+    last_result: Option<StepResult>,
+) -> Result<OrchestratorAction, String> {
+    let store = app.state::<AgentSessionStore>();
+    let (default_ws_id, default_ws_root) = default_workspace_from_app(&app);
+
+    let action = if let (Some(result), Some(session)) = (last_result.as_ref(), store.get(&session_id)) {
+        let out = next_action(session, Some(result.clone())).map_err(|e| e.to_string())?;
+        match &out {
+            OrchestratorAction::ToolCall { session: s, .. }
+            | OrchestratorAction::AwaitingApproval { session: s, .. } => store.insert(session_id.clone(), s.clone()),
+            OrchestratorAction::Complete { session: s, .. } => {
+                store.remove(&session_id);
+            }
+        }
+        out
+    } else if last_result.is_none() {
+        let capabilities = app
+            .try_state::<Mutex<oxcer_core::plugins::CapabilityRegistry>>()
+            .and_then(|s| s.lock().ok())
+            .map(|reg| reg.list().to_vec());
+        let input_with_task = RouterInput {
+            task_description: task.clone(),
+            capabilities: capabilities.or(input.capabilities),
+            ..input
+        };
+        let action = run_first_step(
+            session_id.clone(),
+            input_with_task,
+            default_ws_id.clone(),
+            default_ws_root.clone(),
+        )
+        .map_err(|e| e.to_string())?;
+
+        // Semantic Router classification telemetry (Sprint 8): before any LLM calls.
+        let session_ref = match &action {
+            OrchestratorAction::ToolCall { session, .. }
+            | OrchestratorAction::AwaitingApproval { session, .. }
+            | OrchestratorAction::Complete { session, .. } => session,
+        };
+        if let (Some(router_output), Ok(app_config_dir)) = (
+            session_ref.router_output.as_ref(),
+            app.path().app_config_dir(),
+        ) {
+            let input_length_chars = task.len();
+            let tokens_in_approx = (input_length_chars / 4).max(1) as u32;
+            let selected_model = app
+                .try_state::<Mutex<AppSettings>>()
+                .and_then(|s| s.lock().ok())
+                .and_then(|s| {
+                    let id = s.default_model_id.clone();
+                    if id.is_empty() {
+                        None
+                    } else {
+                        Some(id)
+                    }
+                });
+            let details = serde_json::json!({
+                "category": category_for_log(router_output.category),
+                "strategy": strategy_for_log(router_output.strategy),
+                "flags": {
+                    "requires_high_risk_approval": router_output.flags.requires_high_risk_approval,
+                    "allow_model_tools_mix": router_output.flags.allow_model_tools_mix,
+                },
+                "input_length_chars": input_length_chars,
+                "selected_model": selected_model.as_deref().unwrap_or(""),
+            });
+            let _ = log_event(
+                &app_config_dir,
+                &session_id,
+                None,
+                "agent",
+                "semantic_router",
+                "classify",
+                Some("ok"),
+                LogMetrics {
+                    tokens_in: Some(tokens_in_approx),
+                    ..Default::default()
+                },
+                details,
+            );
+        }
+
+        match &action {
+            OrchestratorAction::ToolCall { session: s, .. }
+            | OrchestratorAction::AwaitingApproval { session: s, .. } => store.insert(session_id.clone(), s.clone()),
+            OrchestratorAction::Complete { .. } => {}
+        }
+        action
+    } else {
+        return Err("Missing session for this session_id; start a new run without last_result.".to_string());
+    };
+
+    // Persist agent session log when complete (for explainability and evaluation).
+    if let OrchestratorAction::Complete { session, .. } = &action {
+        if let (Some(router_decision), Ok(app_config_dir)) = (
+            session.router_output.as_ref(),
+            app.path().app_config_dir(),
+        ) {
+            let workspace_id = input
+                .context
+                .workspace_id
+                .as_deref()
+                .or(default_ws_id.as_deref())
+                .unwrap_or("");
+            let selected_model = app
+                .try_state::<Mutex<AppSettings>>()
+                .and_then(|s| s.lock().ok())
+                .map(|s| s.default_model_id.clone())
+                .filter(|s| !s.is_empty());
+            let log = AgentSessionLog::from_completed_session(
+                &session_id,
+                &session.task_description,
+                workspace_id,
+                router_decision,
+                selected_model.as_deref(),
+                &session.tool_traces,
+                session.accumulated_response.as_deref(),
+            );
+            let _ = oxcer::agent_sessions::append_session_log(&app_config_dir, &log);
+
+            // Session-level outcome for metrics (Sprint 8): success vs error.
+            let outcome = session
+                .accumulated_response
+                .as_deref()
+                .map_or("success", |r| if r.starts_with("Error:") { "error" } else { "success" });
+            let details = serde_json::json!({
+                "outcome": outcome,
+                "category": category_for_log(router_decision.category),
+                "strategy": strategy_for_log(router_decision.strategy),
+                "selected_model": selected_model.as_deref().unwrap_or(""),
+            });
+            let _ = log_event(
+                &app_config_dir,
+                &session_id,
+                None,
+                "agent",
+                "orchestrator",
+                "session_complete",
+                Some(outcome),
+                LogMetrics::default(),
+                details,
+            );
+
+            // Session LLM summary (Sprint 8 §4.2): tokens and cost for the session.
+            if let Some(llm_store) = app.try_state::<SessionLlmMetricsStore>() {
+                if let Some(totals) = llm_store.take(&session_id) {
+                    check_cost_threshold_and_alert(&app, &session_id, totals.cost_usd);
+                    let tool_total = session.tool_traces.len();
+                    let tool_ok = session
+                        .tool_traces
+                        .iter()
+                        .filter(|t| !t.result_summary.as_deref().map_or(false, |s| s.starts_with("Error")))
+                        .count();
+                    let tool_success_rate = if tool_total > 0 {
+                        (tool_ok as f64) / (tool_total as f64)
+                    } else {
+                        1.0
+                    };
+                    let details = serde_json::json!({
+                        "router_stats": {
+                            "category": category_for_log(router_decision.category),
+                            "strategy": strategy_for_log(router_decision.strategy),
+                        },
+                        "tool_success_rate": tool_success_rate,
+                    });
+                    let _ = log_event(
+                        &app_config_dir,
+                        &session_id,
+                        None,
+                        "agent",
+                        "orchestrator",
+                        "session_summary",
+                        Some("complete"),
+                        LogMetrics {
+                            tokens_in: Some(totals.tokens_in),
+                            tokens_out: Some(totals.tokens_out),
+                            cost_usd: Some(totals.cost_usd),
+                            ..Default::default()
+                        },
+                        details,
+                    );
+                }
+            }
+        }
+    }
+
+    Ok(action)
+}
+
+/// List recent sessions from appdata/logs/*.jsonl (excludes telemetry.jsonl).
+#[tauri::command]
+fn list_sessions(app: AppHandle) -> Result<Vec<oxcer::telemetry_viewer::SessionSummary>, String> {
+    let app_config_dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    oxcer::telemetry_viewer::list_sessions_from_dir(&app_config_dir)
+}
+
+/// Load one session's log events from logs/{session_id}.jsonl.
+#[tauri::command]
+fn load_session_log(app: AppHandle, session_id: String) -> Result<Vec<LogEvent>, String> {
+    let app_config_dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    oxcer::telemetry_viewer::load_session_log_from_dir(&app_config_dir, &session_id)
 }
 
 /// Returns the Tauri context for the app.
@@ -1127,6 +1948,9 @@ fn main() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(PendingApprovalsStore::new())
+        .manage(AgentSessionStore::new())
+        .manage(SessionLlmMetricsStore::new())
+        .manage(SessionCostAlertedStore::new())
         .manage(Mutex::new(AppSettings::default()))
         .setup(|app| {
             let handle = app.handle();
@@ -1136,6 +1960,33 @@ fn main() {
             if let Some(state) = handle.try_state::<Mutex<AppSettings>>() {
                 *state.lock().expect("settings lock") = loaded;
             }
+
+            // Sprint 9: Load plugins, merge into catalog, init policy with plugin rules
+            let plugins_dir = app_config_dir.join("plugins");
+            let descriptors = match load_plugins_from_dir_with_telemetry(
+                &plugins_dir,
+                &app_config_dir,
+                "system",
+            ) {
+                Ok(d) => d,
+                Err(e) => {
+                    eprintln!("[plugins] load failed: {}", e);
+                    vec![]
+                }
+            };
+            let plugin_rules = plugin_rules_from_descriptors(&descriptors);
+            let base_yaml = include_str!("../../oxcer-core/policies/default.yaml");
+            let base_config = load_from_yaml(base_yaml.as_bytes());
+            let merged_config = merge_rules(base_config, plugin_rules);
+            let _ = init_policy_with_config(merged_config);
+
+            let mut catalog = shell::default_catalog();
+            let shell_specs = shell_plugins_to_command_specs(&descriptors);
+            catalog.merge_plugin_commands(shell_specs);
+            handle.manage(Arc::new(catalog));
+
+            let capability_registry = build_capability_registry(&descriptors);
+            handle.manage(std::sync::Mutex::new(capability_registry));
 
             // App menu: Oxcer (Quit); in debug builds also View → Toggle Developer Tools
             let quit = PredefinedMenuItem::quit(handle, None)?;
@@ -1214,9 +2065,15 @@ fn main() {
             cmd_workspace_add,
             cmd_workspace_remove,
             cmd_models_list,
+            cmd_llm_invoke,
+            cmd_scrub_payload_for_llm,
+            cmd_agent_step,
+            list_sessions,
+            load_session_log,
             get_config,
             get_command_visibility,
             get_effective_fs_policy,
+            cmd_plugin_capabilities,
         ])
         .run(context)
         .expect("error while running Oxcer Tauri application");

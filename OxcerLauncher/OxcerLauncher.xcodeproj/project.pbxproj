@@ -1,0 +1,326 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		B10000000000000000000001 /* OxcerLauncherApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000001 /* OxcerLauncherApp.swift */; };
+		B10000000000000000000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000002 /* ContentView.swift */; };
+		B10000000000000000000003 /* OxcerFFI.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000003 /* OxcerFFI.swift */; };
+		B10000000000000000000004 /* liboxcer_ffi.dylib in Embed Libraries */ = {isa = PBXBuildFile; fileRef = B20000000000000000000008 /* liboxcer_ffi.dylib (Rust build) */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		B10000000000000000000005 /* liboxcer_ffi.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = B20000000000000000000008 /* liboxcer_ffi.dylib (Rust build) */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		B30000000000000000000002 /* Build Rust dylib */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Build Rust dylib";
+			outputPaths = (
+				"$(PROJECT_DIR)/../target/release/liboxcer_ffi.dylib",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e\nREPO_ROOT=\"${PROJECT_DIR}/..\"\ncd \"${REPO_ROOT}\" && cargo build -p oxcer_ffi --release\n";
+			showEnvVarsInLog = 0;
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		B30000000000000000000001 /* Embed Libraries */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				B10000000000000000000004 /* liboxcer_ffi.dylib in Embed Libraries */,
+			);
+			name = "Embed Libraries";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		B20000000000000000000001 /* OxcerLauncherApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OxcerLauncherApp.swift; sourceTree = "<group>"; };
+		B20000000000000000000002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		B20000000000000000000003 /* OxcerFFI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OxcerFFI.swift; sourceTree = "<group>"; };
+		B20000000000000000000004 /* liboxcer_ffi.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; path = liboxcer_ffi.dylib; sourceTree = "<group>"; };
+		B20000000000000000000008 /* liboxcer_ffi.dylib (Rust build) */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; path = liboxcer_ffi.dylib; sourceTree = "<group>"; };
+		B20000000000000000000005 /* OxcerLauncher.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OxcerLauncher.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B20000000000000000000006 /* oxcer_ffi.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = oxcer_ffi.h; sourceTree = "<group>"; };
+		B20000000000000000000007 /* OxcerLauncher-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "OxcerLauncher-Bridging-Header.h"; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		B40000000000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B10000000000000000000005 /* liboxcer_ffi.dylib in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		B50000000000000000000001 = {
+			isa = PBXGroup;
+			children = (
+				B50000000000000000000002 /* OxcerLauncher */,
+				B50000000000000000000003 /* Products */,
+				B50000000000000000000004 /* Libs */,
+			);
+			sourceTree = "<group>";
+		};
+		B50000000000000000000002 /* OxcerLauncher */ = {
+			isa = PBXGroup;
+			children = (
+				B20000000000000000000001 /* OxcerLauncherApp.swift */,
+				B20000000000000000000002 /* ContentView.swift */,
+				B20000000000000000000003 /* OxcerFFI.swift */,
+				B20000000000000000000007 /* OxcerLauncher-Bridging-Header.h */,
+				B20000000000000000000006 /* oxcer_ffi.h */,
+			);
+			path = OxcerLauncher;
+			sourceTree = "<group>";
+		};
+		B50000000000000000000003 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				B20000000000000000000005 /* OxcerLauncher.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		B50000000000000000000004 /* Libs */ = {
+			isa = PBXGroup;
+			children = (
+				B50000000000000000000005 /* Rust release */,
+				B20000000000000000000004 /* liboxcer_ffi.dylib (copy in Libs/) */,
+			);
+			path = Libs;
+			sourceTree = "<group>";
+		};
+		B50000000000000000000005 /* Rust release */ = {
+			isa = PBXGroup;
+			children = (
+				B20000000000000000000008 /* liboxcer_ffi.dylib (Rust build) */,
+			);
+			path = "../target/release";
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		B60000000000000000000001 /* OxcerLauncher */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B70000000000000000000002 /* Build configuration list for PBXNativeTarget "OxcerLauncher" */;
+			buildPhases = (
+				B30000000000000000000002 /* Build Rust dylib */,
+				B40000000000000000000002 /* Sources */,
+				B40000000000000000000001 /* Frameworks */,
+				B40000000000000000000003 /* Resources */,
+				B30000000000000000000001 /* Embed Libraries */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = OxcerLauncher;
+			productName = OxcerLauncher;
+			productReference = B20000000000000000000005 /* OxcerLauncher.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		B80000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargets = 1;
+				LastSwiftUpdateCheck = 1500;
+				LastUpgradeCheck = 1500;
+			};
+			buildConfigurationList = B70000000000000000000001 /* Build configuration list for PBXProject "OxcerLauncher" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = B50000000000000000000001;
+			productRefGroup = B50000000000000000000003 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				B60000000000000000000001 /* OxcerLauncher */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		B40000000000000000000003 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		B40000000000000000000002 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B10000000000000000000001 /* OxcerLauncherApp.swift in Sources */,
+				B10000000000000000000002 /* ContentView.swift in Sources */,
+				B10000000000000000000003 /* OxcerFFI.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		B90000000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		B90000000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_OPTIMIZATION_LEVEL = s;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		B90000000000000000000003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "";
+				CODE_SIGN_ENTITLEMENTS = "";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "";
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(PROJECT_DIR)/Libs",
+					"$(PROJECT_DIR)/../target/release",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.oxcer.launcher;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "OxcerLauncher/OxcerLauncher-Bridging-Header.h";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		B90000000000000000000004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "";
+				CODE_SIGN_ENTITLEMENTS = "";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "";
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(PROJECT_DIR)/Libs",
+					"$(PROJECT_DIR)/../target/release",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.oxcer.launcher;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "OxcerLauncher/OxcerLauncher-Bridging-Header.h";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		B70000000000000000000001 /* Build configuration list for PBXProject "OxcerLauncher" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B90000000000000000000001 /* Debug */,
+				B90000000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B70000000000000000000002 /* Build configuration list for PBXNativeTarget "OxcerLauncher" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B90000000000000000000003 /* Debug */,
+				B90000000000000000000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = B80000000000000000000001 /* Project object */;
+}
