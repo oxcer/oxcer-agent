@@ -233,6 +233,9 @@ public enum OxcerFFIError: LocalizedError {
 }
 
 // MARK: - OxcerFFI (C calls via bridging header)
+//
+// The Rust dylib (liboxcer_ffi.dylib) is embedded in the app bundle at Contents/PlugIns and
+// loaded at runtime via the runpath @executable_path/../PlugIns (no absolute paths).
 
 public final class OxcerFFI {
 

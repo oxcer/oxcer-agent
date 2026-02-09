@@ -42,7 +42,7 @@ This produces **`target/release/liboxcer_ffi.dylib`**. The Xcode project is set 
 3. **Build and run**  
    - **⌘B** to build, **⌘R** to run.
 
-On **Build**, Xcode runs a **Run Script** phase first: it runs `cargo build -p oxcer_ffi --release` from the repo root, then compiles Swift and links/embeds `liboxcer_ffi.dylib` into the app bundle. The app’s runpath is set so it loads the dylib from `Contents/Frameworks` at runtime.
+On **Build**, Xcode runs **"Build Rust dylib"** (`cargo build -p oxcer_ffi --release` from the repo root), then compiles Swift, links the dylib, and **"Copy Rust dylib"** copies it into the app bundle. The app’s runpath is set so it loads the dylib from `Contents/PlugIns` at runtime (runpath `@executable_path/../PlugIns`, so the app is portable.
 
 ## 3. Integration checklist
 
@@ -71,9 +71,9 @@ Config and logs path: if `app_config_dir` is omitted, the Rust side uses the def
 
 If you prefer not to run the Run Script phase:
 
-1. Create `apps/OxcerLauncher/Libs/` if needed.
-2. Copy `target/release/liboxcer_ffi.dylib` into `apps/OxcerLauncher/Libs/`.
-3. In Xcode, remove or disable the **“Build Rust dylib”** Run Script phase, and in **Frameworks** and **Embed Libraries** use `Libs/liboxcer_ffi.dylib` instead of the **Rust release** reference.
+1. Build once: `cargo build --release -p oxcer_ffi` from the repo root.
+2. Create `apps/OxcerLauncher/Libs/` if needed and copy `target/release/liboxcer_ffi.dylib` there.
+3. In Xcode, remove or disable the **“Build Rust dylib”** Run Script phase, point the **Libs** reference to `Libs/liboxcer_ffi.dylib`, and ensure the **“Copy Rust dylib”** phase still copies that file into `Contents/PlugIns` (or adjust the phase to use the Libs copy).
 
 ## Bundle identifier
 
