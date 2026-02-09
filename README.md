@@ -1,7 +1,7 @@
 # Oxcer
-AI Assistant in your computer.
+AI Assistant in your computer, built for privacy. 
 
-Oxcer is built for privacy. It works entirely on your device, keeping your data safe and never sending anything to the cloud.
+It works entirely on your device, keeping your data safe and never sending anything to the cloud.
 
 
 Special Thanks to
