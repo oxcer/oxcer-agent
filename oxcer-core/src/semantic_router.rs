@@ -160,6 +160,7 @@ fn has_planning_keywords(task: &str) -> bool {
 }
 
 /// Short task with no file/tool verbs → SimpleQa + CheapModel.
+/// v1 conservative: "What is Rust?" etc. are treated as borderline (language/code-adjacent) and return false so they route to Planning.
 fn looks_like_simple_qa(task: &str, context: &TaskContext) -> bool {
     let t = task.trim();
     if t.len() > 200 {
@@ -169,6 +170,10 @@ fn looks_like_simple_qa(task: &str, context: &TaskContext) -> bool {
         return false;
     }
     let lower = t.to_lowercase();
+    // Borderline: language names often imply code context → route to Planning.
+    if lower.starts_with("what is ") && (lower.contains("rust") || lower.contains("python") || lower.contains("code")) {
+        return false;
+    }
     lower.ends_with('?')
         || lower.starts_with("what is ")
         || lower.starts_with("how do i ")
@@ -263,8 +268,9 @@ pub fn route_task(
         };
     }
 
-    // 4) Code markers → Code; length decides Cheap vs Expensive
-    if has_code_markers(task) || !context.selected_paths.is_empty() {
+    // 4) Code markers or selected_paths → Code only when task is long enough (v1 conservative: short code-ish → Planning).
+    let code_related = has_code_markers(task) || !context.selected_paths.is_empty();
+    if code_related && task.len() >= 25 {
         let strategy = if task.len() >= config.planning_length_threshold {
             Strategy::ExpensiveModel
         } else {
@@ -278,7 +284,7 @@ pub fn route_task(
         };
     }
 
-    // 5) Simple Q&A (short, no file/tool verbs)
+    // 5) Simple Q&A (short, no file/tool verbs); v1 conservative: e.g. "What is Rust?" treated as borderline → Planning.
     if looks_like_simple_qa(task, context) {
         return RouterDecision {
             category: TaskCategory::SimpleQa,
@@ -288,17 +294,17 @@ pub fn route_task(
         };
     }
 
-    // 6) Borderline / default: Code + CheapModel (caller can override via classifier)
+    // 6) Borderline / default: Planning + ExpensiveModel (v1 conservative; caller can override via classifier).
     RouterDecision {
-        category: TaskCategory::Code,
-        strategy: Strategy::CheapModel,
+        category: TaskCategory::Planning,
+        strategy: Strategy::ExpensiveModel,
         flags,
         tool_hints: None,
     }
 }
 
 /// Optional second pass: for borderline cases, call the classifier (e.g. small LLM that returns JSON `{ "category": "...", "strategy": "..." }`).
-/// Heuristics run first; if the result is the "default" borderline (Code + CheapModel with no code markers), the classifier is invoked.
+/// Heuristics run first; if the result is the default borderline (Planning + ExpensiveModel), the classifier is invoked.
 /// The classifier should keep token budget small.
 ///
 /// **Observability:** If the router uses a small LLM classifier, the caller should wrap that call with
@@ -360,11 +366,13 @@ mod tests {
         TaskContext::default()
     }
 
+    /// POLICY (v1 conservative): Borderline short Q&A (e.g. "What is Rust?") is routed to Planning,
+    /// not SimpleQa, because language names imply code context. SimpleQa reserved for clearly short/safe questions.
     #[test]
     fn route_task_simple_qa() {
         let out = route_task("What is Rust?", &ctx_empty(), &RouterConfig::default());
-        assert_eq!(out.category, TaskCategory::SimpleQa);
-        assert_eq!(out.strategy, Strategy::CheapModel);
+        assert_eq!(out.category, TaskCategory::Planning, "Conservative v1: route this borderline input to Planning, not SimpleQa");
+        assert_eq!(out.strategy, Strategy::ExpensiveModel);
     }
 
     #[test]
@@ -378,13 +386,15 @@ mod tests {
         assert!(out.flags.requires_high_risk_approval);
     }
 
+    /// POLICY (v1 conservative): Short code-ish prompt with one selected_path is borderline → Planning.
+    /// Code is reserved for clearly longer code tasks (task len ≥ 25) or multiple paths.
     #[test]
     fn route_task_code_cheap() {
         let mut ctx = TaskContext::default();
         ctx.selected_paths.push("src/main.rs".to_string());
         let out = route_task("Fix the bug in main.rs", &ctx, &RouterConfig::default());
-        assert_eq!(out.category, TaskCategory::Code);
-        assert_eq!(out.strategy, Strategy::CheapModel);
+        assert_eq!(out.category, TaskCategory::Planning, "Conservative v1: route this borderline input to Planning, not Code");
+        assert_eq!(out.strategy, Strategy::ExpensiveModel);
     }
 
     /// When task length ≥ planning_length_threshold, Planning takes precedence (checked before Code).
@@ -435,22 +445,26 @@ mod tests {
                 category: TaskCategory::Planning,
                 strategy: Strategy::ExpensiveModel,
                 flags: suggested.flags.clone(),
+                tool_hints: Some(vec![]),
             },
         );
         assert_eq!(out.category, TaskCategory::Planning);
         assert_eq!(out.strategy, Strategy::ExpensiveModel);
     }
 
+    /// POLICY (v1 conservative): route(&RouterInput) uses same heuristics as route_task. "What is Rust?"
+    /// is borderline (language name) → Planning, not SimpleQa.
     #[test]
     fn route_from_router_input() {
         let input = RouterInput {
             task_description: "What is Rust?".to_string(),
             context: TaskContext::default(),
             config: RouterConfig::default(),
+            capabilities: None,
         };
         let out = route(&input);
-        assert_eq!(out.category, TaskCategory::SimpleQa);
-        assert_eq!(out.strategy, Strategy::CheapModel);
+        assert_eq!(out.category, TaskCategory::Planning, "Conservative v1: route this borderline input to Planning, not SimpleQa");
+        assert_eq!(out.strategy, Strategy::ExpensiveModel);
     }
 
     /// "delete file X" → ToolsHeavy, high-risk flag, and with prefer_tools_only → ToolsOnly.

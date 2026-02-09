@@ -36,6 +36,7 @@ fn integration_agent_delete_produces_approval_required() {
             prefer_tools_only: true,
             ..Default::default()
         },
+        capabilities: None,
     };
     let (_session, first) = start_session(
         "int-s1".to_string(),
@@ -70,7 +71,7 @@ fn integration_agent_delete_produces_approval_required() {
     );
 }
 
-/// Simple QA goes to cheap model.
+/// v1 policy: borderline cases (e.g. "What is Rust?") are routed to Planning for safety.
 #[test]
 fn integration_simple_qa_cheap_model() {
     let out = route_task(
@@ -78,8 +79,9 @@ fn integration_simple_qa_cheap_model() {
         &TaskContext::default(),
         &RouterConfig::default(),
     );
-    assert_eq!(out.category, TaskCategory::SimpleQa);
-    assert_eq!(out.strategy, Strategy::CheapModel);
+    // v1 policy: borderline cases are routed to Planning for safety.
+    assert_eq!(out.category, TaskCategory::Planning);
+    assert_eq!(out.strategy, Strategy::ExpensiveModel);
 }
 
 /// Long multi-step task with "plan" language goes to expensive model.

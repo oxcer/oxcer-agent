@@ -1,0 +1,29 @@
+# LLM engine profiles. Launchers select a profile (e.g. via CLI or env);
+# oxcer-core instantiates the concrete engine(s). No HTTP or port binding from local engines.
+#
+# Schema:
+#   profiles:
+#     <name>:
+#       engine: "local-phi3" | "hybrid" | ...
+#       allow_external: bool
+#       hybrid:  # when engine == "hybrid"
+#         primary: "local-phi3"
+#         fallback: "http-openai"
+#       external_policy:  # when allow_external is true
+#         never_send: [ "raw_documents", "pii_fields" ]
+
+profiles:
+  local-only:
+    engine: "local-phi3"
+    allow_external: false
+
+  hybrid:
+    engine: "hybrid"
+    hybrid:
+      primary: "local-phi3"
+      fallback: "http-openai"
+    allow_external: true
+    external_policy:
+      never_send:
+        - "raw_documents"
+        - "pii_fields"

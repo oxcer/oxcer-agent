@@ -16,6 +16,7 @@ pub mod data_sensitivity;
 pub mod data_sensitivity_config;
 pub mod env_filter;
 pub mod fs;
+pub mod llm;
 pub mod plugins;
 pub mod network;
 pub mod orchestrator;

@@ -18,7 +18,7 @@ pub fn matching_ids_for_task(capabilities: &[ToolCapability], task: &str) -> Vec
     let task_lower = task.trim().to_lowercase();
     let mut by_category: HashMap<String, Vec<&str>> = HashMap::new();
     let mut by_tag: HashMap<String, Vec<&str>> = HashMap::new();
-    for (i, cap) in capabilities.iter().enumerate() {
+    for (_i, cap) in capabilities.iter().enumerate() {
         let id = cap.id.as_str();
         if let Some(ref hint) = cap.category_hint {
             by_category

@@ -1,5 +1,5 @@
 # Oxcer
-AI Assistant in your computer, built for privacy. 
+AI Assistant in your computer, built for safety and privacy. 
 
 It works entirely on your device, keeping your data safe and never sending anything to the cloud.
 
@@ -35,6 +35,8 @@ apps/
 - **Swift app (OxcerLauncher)** = primary UI/launcher for users. Native macOS SwiftUI app that talks to the Rust core via the **oxcer_ffi** C API (JSON in/out). No webviews; SwiftUI only.
 
 The Tauri app’s frontend is a minimal placeholder (see `apps/desktop-tauri/dist` after build). The former WebView UI is archived in `reference/legacy_ui/`.
+
+**LLM layer:** In-process local (e.g. Phi-3) and optional HTTP fallback live in `oxcer-core/src/llm/`. Launchers pass a profile name (`local-only`, `hybrid`, etc.); the core builds the concrete engine from `oxcer-core/config/llm_profiles.yaml` and `models.yaml`. No launcher logic for local vs external — selection is entirely in the core.
 
 **Development:** Core logic lives in `oxcer-core` (no Tauri); test with `cargo test -p oxcer-core`. The Tauri app lives in `apps/desktop-tauri/`; run with `pnpm tauri dev` from repo root. See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for workflow.
 

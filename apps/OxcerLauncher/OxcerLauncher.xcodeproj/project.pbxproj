@@ -7,33 +7,25 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A896071D2F39AD0E002BC606 /* liboxcer_ffi.dylib in CopyFiles */ = {isa = PBXBuildFile; fileRef = A896071C2F39AD0E002BC606 /* liboxcer_ffi.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		B10000000000000000000001 /* OxcerLauncherApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000001 /* OxcerLauncherApp.swift */; };
 		B10000000000000000000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000002 /* ContentView.swift */; };
 		B10000000000000000000003 /* OxcerFFI.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000003 /* OxcerFFI.swift */; };
-		B10000000000000000000004 /* liboxcer_ffi.dylib in Embed Libraries */ = {isa = PBXBuildFile; fileRef = B20000000000000000000008 /* liboxcer_ffi.dylib (Rust build) */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		B10000000000000000000005 /* liboxcer_ffi.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = B20000000000000000000008 /* liboxcer_ffi.dylib (Rust build) */; };
+		B10000000000000000000004 /* liboxcer_ffi.dylib in Embed Libraries */ = {isa = PBXBuildFile; fileRef = B20000000000000000000008 /* liboxcer_ffi.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		B10000000000000000000005 /* liboxcer_ffi.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = B20000000000000000000008 /* liboxcer_ffi.dylib */; };
 /* End PBXBuildFile section */
 
-/* Begin PBXShellScriptBuildPhase section */
-		B30000000000000000000002 /* Build Rust dylib */ = {
-			isa = PBXShellScriptBuildPhase;
+/* Begin PBXCopyFilesBuildPhase section */
+		A896071B2F39ACA9002BC606 /* CopyFiles */ = {
+			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
 			files = (
-			);
-			inputPaths = (
-			);
-			name = "Build Rust dylib";
-			outputPaths = (
-				"$(PROJECT_DIR)/../../target/release/liboxcer_ffi.dylib",
+				A896071D2F39AD0E002BC606 /* liboxcer_ffi.dylib in CopyFiles */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "set -e\nREPO_ROOT=\"${PROJECT_DIR}/../..\"\ncd \"${REPO_ROOT}\" && cargo build -p oxcer_ffi --release\n";
-			showEnvVarsInLog = 0;
 		};
-/* End PBXShellScriptBuildPhase section */
-
-/* Begin PBXCopyFilesBuildPhase section */
 		B30000000000000000000001 /* Embed Libraries */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
@@ -48,14 +40,16 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		A896071C2F39AD0E002BC606 /* liboxcer_ffi.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = liboxcer_ffi.dylib; path = ../../target/release/liboxcer_ffi.dylib; sourceTree = "<group>"; };
+		A8D4D8622F39A95800A4AA93 /* OxcerLauncherTests */ = {isa = PBXFileReference; lastKnownFileType = folder; path = OxcerLauncherTests; sourceTree = "<group>"; };
 		B20000000000000000000001 /* OxcerLauncherApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OxcerLauncherApp.swift; sourceTree = "<group>"; };
 		B20000000000000000000002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		B20000000000000000000003 /* OxcerFFI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OxcerFFI.swift; sourceTree = "<group>"; };
 		B20000000000000000000004 /* liboxcer_ffi.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; path = liboxcer_ffi.dylib; sourceTree = "<group>"; };
-		B20000000000000000000008 /* liboxcer_ffi.dylib (Rust build) */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; path = liboxcer_ffi.dylib; sourceTree = "<group>"; };
 		B20000000000000000000005 /* OxcerLauncher.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OxcerLauncher.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B20000000000000000000006 /* oxcer_ffi.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = oxcer_ffi.h; sourceTree = "<group>"; };
 		B20000000000000000000007 /* OxcerLauncher-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "OxcerLauncher-Bridging-Header.h"; sourceTree = "<group>"; };
+		B20000000000000000000008 /* liboxcer_ffi.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; path = liboxcer_ffi.dylib; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -73,6 +67,8 @@
 		B50000000000000000000001 = {
 			isa = PBXGroup;
 			children = (
+				A896071C2F39AD0E002BC606 /* liboxcer_ffi.dylib */,
+				A8D4D8622F39A95800A4AA93 /* OxcerLauncherTests */,
 				B50000000000000000000002 /* OxcerLauncher */,
 				B50000000000000000000003 /* Products */,
 				B50000000000000000000004 /* Libs */,
@@ -102,18 +98,18 @@
 		B50000000000000000000004 /* Libs */ = {
 			isa = PBXGroup;
 			children = (
-				B50000000000000000000005 /* Rust release */,
-				B20000000000000000000004 /* liboxcer_ffi.dylib (copy in Libs/) */,
+				B50000000000000000000005 /* ../../target/release */,
+				B20000000000000000000004 /* liboxcer_ffi.dylib */,
 			);
 			path = Libs;
 			sourceTree = "<group>";
 		};
-		B50000000000000000000005 /* Rust release */ = {
+		B50000000000000000000005 /* ../../target/release */ = {
 			isa = PBXGroup;
 			children = (
-				B20000000000000000000008 /* liboxcer_ffi.dylib (Rust build) */,
+				B20000000000000000000008 /* liboxcer_ffi.dylib */,
 			);
-			path = "../../target/release";
+			path = ../../target/release;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -128,6 +124,7 @@
 				B40000000000000000000001 /* Frameworks */,
 				B40000000000000000000003 /* Resources */,
 				B30000000000000000000001 /* Embed Libraries */,
+				A896071B2F39ACA9002BC606 /* CopyFiles */,
 			);
 			buildRules = (
 			);
@@ -175,6 +172,25 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		B30000000000000000000002 /* Build Rust dylib */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Build Rust dylib";
+			outputPaths = (
+				"$(PROJECT_DIR)/../../target/release/liboxcer_ffi.dylib",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e\nREPO_ROOT=\"${PROJECT_DIR}/../..\"\ncd \"${REPO_ROOT}\" && cargo build -p oxcer_ffi --release\n";
+			showEnvVarsInLog = 0;
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		B40000000000000000000002 /* Sources */ = {

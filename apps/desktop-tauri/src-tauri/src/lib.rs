@@ -9,6 +9,7 @@ pub mod commands;
 pub mod event_log;
 pub mod router;
 pub mod scrubbing_log;
+pub mod setup;
 pub mod settings;
 pub mod telemetry_viewer;
 

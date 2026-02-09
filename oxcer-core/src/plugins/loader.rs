@@ -3,9 +3,11 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
+use crate::plugins::CapabilityRegistry;
+use crate::shell::CommandParamType;
 use crate::telemetry::{log_event, LogMetrics};
 
-use super::schema::{PluginDescriptor, PluginDescriptorRaw, PluginSchema, PluginSecurity, PluginType};
+use super::schema::{PluginDescriptor, PluginDescriptorRaw, PluginType};
 
 pub type LoadResult = Result<Vec<PluginDescriptor>, PluginLoadError>;
 

@@ -1,0 +1,20 @@
+# Model definitions for local and external engines.
+# Used by bootstrap to resolve paths and by ModelDownloader for fetching.
+#
+# models:
+#   <model_id>:
+#     source: "huggingface" | ...
+#     repo: "org/repo"
+#     revision: "main"
+#     files: [ "model.gguf", "tokenizer.json" ]
+#     license_notice: "..."
+
+models:
+  phi3-small:
+    source: "huggingface"
+    repo: "microsoft/Phi-3-small-128k-instruct"
+    revision: "main"
+    files:
+      - "model.gguf"
+      - "tokenizer.json"
+    license_notice: "MIT-like (check upstream)"

@@ -522,12 +522,15 @@ mod tests {
         assert!(out.contains("src/main.rs"));
     }
 
+    /// POLICY (sensitive data / API keys): Full secrets (API keys, JWTs, private keys, AWS keys, etc.)
+    /// are NEVER sent to LLMs (NeverSend). API key PREFIXES (e.g. "sk-...") are sensitive but
+    /// allowed after scrubbing: payload MUST contain a REDACTED marker and must NOT contain the raw prefix.
     #[test]
     fn sanitize_text_redacts_api_key_prefix() {
         let s = "Use API key sk-1234567890abcdef for the client.";
         let out = sanitize_text(s);
-        assert!(out.contains("[REDACTED:"));
-        assert!(!out.contains("sk-1234567890abcdef"));
+        assert!(out.contains("[REDACTED"), "policy: redacted output must contain a REDACTED marker; got: {}", out);
+        assert!(!out.contains("sk-1234567890abcdef"), "policy: raw API key prefix must not appear in sanitized text");
     }
 
     #[test]

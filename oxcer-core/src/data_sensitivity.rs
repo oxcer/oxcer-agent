@@ -206,9 +206,9 @@ fn placeholder_medium(kind: &str) -> String {
 
 /// PEM key type prefix: RSA, DSA, EC, OPENSSH, or PGP. Used in BEGIN/END lines.
 const PEM_KEY_TYPE: &str = r"(?:RSA |DSA |EC |OPENSSH |PGP )?";
-/// Character class for word boundaries around paths (space, quotes, angle brackets).
+/// Character class for word boundaries around paths (space, quotes, angle brackets, equals for key=value).
 /// Uses r#"..."# to avoid E0762: single quote in [...] parses as unterminated char literal.
-const PATH_BOUNDARY: &str = r#"[\s"'<>]"#;
+const PATH_BOUNDARY: &str = r#"[\s"'<>=]"#;
 
 // ---- Pattern source strings (named for clarity; used in regex builders) ----
 /// Matches: AKIA + 16 alphanumeric (AWS access key ID format).
@@ -239,6 +239,8 @@ const PATTERN_IP_PORT: &str = r"\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})(:\d{1,5})
 const PATTERN_BASE64_LONG: &str = r"\b[A-Za-z0-9+/=]{128,}\b";
 /// Matches: Authorization: Bearer <token> (20+ chars).
 const PATTERN_AUTH_BEARER: &str = r"(?i)Authorization:\s*Bearer\s+[A-Za-z0-9_\-.]{20,}";
+/// Matches: Standalone API key prefix (e.g. OpenAI "sk-...", Anthropic "sk-ant-...") in free text.
+const PATTERN_API_KEY_PREFIX: &str = r"\bsk-[A-Za-z0-9_-]{16,}\b";
 
 // -----------------------------------------------------------------------------
 // Compiled regexes (lazy, once)
@@ -255,6 +257,7 @@ static RE_PASSWORD_EQUALS: OnceLock<Regex> = OnceLock::new();
 static RE_PASS_IN_URL: OnceLock<Regex> = OnceLock::new();
 static RE_ENV_SECRET_PASS: OnceLock<Regex> = OnceLock::new();
 static RE_API_KEY_SECRET_VAL: OnceLock<Regex> = OnceLock::new();
+static RE_API_KEY_PREFIX: OnceLock<Regex> = OnceLock::new();
 
 // ---- Medium ----
 static RE_KEYCHAIN_PATH: OnceLock<Regex> = OnceLock::new();
@@ -325,6 +328,11 @@ fn re_env_secret_pass() -> &'static Regex {
 fn re_api_key_secret_val() -> &'static Regex {
     RE_API_KEY_SECRET_VAL
         .get_or_init(|| Regex::new(PATTERN_API_KEY_SECRET_VAL).expect("api_key_secret_val regex"))
+}
+
+fn re_api_key_prefix() -> &'static Regex {
+    RE_API_KEY_PREFIX
+        .get_or_init(|| Regex::new(PATTERN_API_KEY_PREFIX).expect("api_key_prefix regex"))
 }
 
 fn re_keychain_path() -> &'static Regex {
@@ -451,6 +459,16 @@ fn run_high_rules(input: &str, findings: &mut Vec<SensitivityFinding>) {
             span_end: m.end(),
             kind: "api_key".to_string(),
             pattern_id: "api_key_secret_val".to_string(),
+        });
+    }
+    // Standalone API key prefix in free text (e.g. "Use API key sk-... for the client").
+    for m in re_api_key_prefix().find_iter(input) {
+        findings.push(SensitivityFinding {
+            level: SensitivityLevel::High,
+            span_start: m.start(),
+            span_end: m.end(),
+            kind: "api_key_prefix".to_string(),
+            pattern_id: "api_key_prefix".to_string(),
         });
     }
 }

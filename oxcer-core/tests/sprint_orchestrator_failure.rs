@@ -18,6 +18,7 @@ fn orchestrator_empty_plan_when_no_workspace_root() {
             prefer_tools_only: true,
             ..Default::default()
         },
+        capabilities: None,
     };
     let (session, first) = start_session(
         "s1".to_string(),

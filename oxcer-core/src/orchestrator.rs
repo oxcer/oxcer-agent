@@ -428,7 +428,7 @@ pub fn start_session(
     default_workspace_id: Option<String>,
     default_workspace_root: Option<String>,
 ) -> (SessionState, Option<ToolCallIntent>) {
-    let router_output = route(input);
+    let router_output = route(&input);
     let task = input.task_description.clone();
     let context = input.context.clone();
 
@@ -566,6 +566,7 @@ pub fn agent_step(
             task_description: input.task_description,
             context: input.context,
             config: config.router_config.clone(),
+            capabilities: None,
         };
         let (new_session, first_intent) = start_session(
             session.session_id.clone(),
@@ -699,6 +700,7 @@ mod tests {
             task_description: "What is Rust?".to_string(),
             context: TaskContext::default(),
             config: Default::default(),
+            capabilities: None,
         };
         let (session, first) = start_session(
             "s1".to_string(),
@@ -721,6 +723,7 @@ mod tests {
                 prefer_tools_only: true,
                 ..Default::default()
             },
+            capabilities: None,
         };
         let (session, first) = start_session(
             "s1".to_string(),
@@ -744,6 +747,7 @@ mod tests {
             task_description: "Hello".to_string(),
             context: TaskContext::default(),
             config: Default::default(),
+            capabilities: None,
         };
         let (mut session, _) = start_session("s1".to_string(), input, None, None);
         session.step_index = 1; // one step done
@@ -823,6 +827,7 @@ mod tests {
                 prefer_tools_only: true,
                 ..Default::default()
             },
+            capabilities: None,
         };
         let (session, first) = start_session(
             "s1".to_string(),

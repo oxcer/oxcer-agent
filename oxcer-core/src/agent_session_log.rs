@@ -214,6 +214,7 @@ mod tests {
             category: TaskCategory::SimpleQa,
             strategy: Strategy::CheapModel,
             flags: RouterFlags::default(),
+            tool_hints: Some(vec![]),
         };
         let traces = vec![ToolTrace {
             tool_name: "llm_generate".to_string(),

@@ -1,4 +1,10 @@
 //! Parameterized tests for SSH key path and PEM rules.
+//!
+//! **Policy (SSH key paths):** We treat canonical SSH key paths as HIGH sensitivity signals.
+//! Paths such as `/etc/ssh/id_rsa`, `~/.ssh/id_rsa`, `/home/<user>/.ssh/id_rsa`, and similar
+//! (id_ed25519, id_ecdsa, with or without `.pub`) should be classified as HIGH and masked/redacted
+//! before sending to an LLM. We accept some false positives on these canonical paths in exchange
+//! for stronger protection.
 
 use oxcer_core::data_sensitivity::{classify_and_mask_default, SensitivityLevel};
 
@@ -13,6 +19,7 @@ fn ssh_key_path_should_match() {
         "Config at /home/dev/.ssh/id_ed25519",
         "Key file: /home/user/.ssh/id_ecdsa.pub",
         "path=/etc/ssh/id_rsa",
+        "path=/home/alice/.ssh/id_rsa",
         "  ~/.ssh/id_rsa  ",
     ];
     for s in cases {

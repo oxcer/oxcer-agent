@@ -66,6 +66,7 @@ use oxcer::router::{
     get_destructive_command_visibility, ApprovalRequestedPayload, CommandVisibilityContext,
     PendingApprovalsStore, PendingOperation, RouterError, to_requested_payload,
 };
+use oxcer::setup::{complete_setup as setup_complete, get_setup_status as setup_get_status, start_model_download as setup_start_download};
 use oxcer::settings::{
     get_effective_fs_policy as settings_get_effective_fs_policy, is_forbidden_workspace_path,
     load as settings_load, log_destructive_setting_change as settings_log_destructive_change,
@@ -184,16 +185,36 @@ body{font-family:system-ui;color:#e0e0e0;background:#1a1a1a;margin:0;padding:20p
 #timelineTable tr.expanded td{background:#1e2a33;}
 .detailsJson{font-family:monospace;font-size:11px;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow:auto;padding:8px;background:#0d1117;}
 .metrics{color:#8b949e;}
+.setup-box,.api-warning-box{background:#252525;border-radius:8px;padding:16px;margin:12px 0;border:1px solid #333;}
+.api-warning-box{border-left:4px solid #e67e22;}
+.setup-progress{margin:8px 0;color:#8b949e;}
 </style>
 </head>
 <body>
 <h1>Oxcer Guardrails Dashboard</h1>
 <div class="tabs">
   <button type="button" class="tab active" data-panel="dashboard">Dashboard</button>
+  <button type="button" class="tab" data-panel="setup">Setup</button>
   <button type="button" class="tab" data-panel="sessions">Recent Sessions</button>
 </div>
 <div id="panel-dashboard" class="panel active">
   <p style="color:#a0a0a0;">Add workspaces in Settings. Destructive operations require explicit enabling.</p>
+  <div id="externalApiWarning" class="api-warning-box" style="margin-top:16px;"><strong>External AI APIs</strong><p id="externalApiWarningText" style="margin:8px 0 0;white-space:pre-wrap;"></p><p style="margin:8px 0 0;color:#a0a0a0;font-size:13px;">This warning appears whenever you configure external API keys. For sensitive data, use local-only mode.</p></div>
+</div>
+<div id="panel-setup" class="panel">
+  <div class="setup-box">
+    <h3 style="margin-top:0;">Local LLM setup</h3>
+    <p>Oxcer uses a local model (Phi-3-small) so your data can stay on this device. Download the model once to enable local-only mode.</p>
+    <p id="setupStatus" class="setup-progress">Checking…</p>
+    <button type="button" id="setupDownloadBtn" style="display:none;padding:8px 16px;background:#4a9eff;color:#fff;border:none;border-radius:6px;cursor:pointer;">Download model</button>
+    <p id="setupProgress" class="setup-progress" style="display:none;"></p>
+    <div id="setupProfileChoice" style="display:none;margin-top:16px;">
+      <p><strong>Choose mode:</strong></p>
+      <label><input type="radio" name="llm_profile" value="local-only" checked> Local only (recommended for privacy)</label><br>
+      <label><input type="radio" name="llm_profile" value="hybrid"> Local + cloud (hybrid)</label>
+      <button type="button" id="setupCompleteBtn" style="margin-top:8px;padding:8px 16px;background:#2ea043;color:#fff;border:none;border-radius:6px;cursor:pointer;">Complete setup</button>
+    </div>
+  </div>
 </div>
 <div id="panel-sessions" class="panel">
   <p style="color:#a0a0a0;">Per-session telemetry from logs. Select a session to view the timeline.</p>
@@ -215,7 +236,11 @@ function toast(m){var e=document.getElementById('toast');e.textContent=m;e.style
 window.__TAURI__?.event?.listen?.('security.destructive_op_executed',function(ev){toast(ev.payload?.summary||'');}).catch(function(){});
 window.__TAURI__?.event?.listen?.('metrics.cost_threshold_exceeded',function(ev){toast(ev.payload?.message||'Session exceeded LLM cost threshold.');}).catch(function(){});
 function showPanel(id){document.querySelectorAll('.panel').forEach(function(p){p.classList.remove('active');});document.querySelectorAll('.tabs button').forEach(function(b){b.classList.remove('active');});var p=document.getElementById('panel-'+id);if(p)p.classList.add('active');var b=document.querySelector('.tabs button[data-panel="'+id+'"]');if(b)b.classList.add('active');}
-document.querySelectorAll('.tab').forEach(function(btn){btn.addEventListener('click',function(){showPanel(btn.dataset.panel);if(btn.dataset.panel==='sessions')loadSessions();});});
+document.querySelectorAll('.tab').forEach(function(btn){btn.addEventListener('click',function(){showPanel(btn.dataset.panel);if(btn.dataset.panel==='sessions')loadSessions();if(btn.dataset.panel==='setup')loadSetupStatus();});});
+invoke('get_external_api_warning').then(function(t){var e=document.getElementById('externalApiWarningText');if(e)e.textContent=t;}).catch(function(){});
+function loadSetupStatus(){invoke('get_setup_status').then(function(s){var statusEl=document.getElementById('setupStatus');var downloadBtn=document.getElementById('setupDownloadBtn');var progressEl=document.getElementById('setupProgress');var profileDiv=document.getElementById('setupProfileChoice');var completeBtn=document.getElementById('setupCompleteBtn');if(s.setup_complete){statusEl.textContent='Setup complete. Profile: '+s.profile;downloadBtn.style.display='none';profileDiv.style.display='none';}else if(s.needs_local_model){statusEl.textContent='Local model not found. Download required (approx. 2GB).';downloadBtn.style.display='inline-block';downloadBtn.onclick=function(){downloadBtn.disabled=true;progressEl.style.display='block';progressEl.textContent='Starting download…';invoke('start_model_download').then(function(){}).catch(function(e){progressEl.textContent='Error: '+e;downloadBtn.disabled=false;});};}else{statusEl.textContent='Local model present. Choose your mode and complete setup.';profileDiv.style.display='block';completeBtn.onclick=function(){var profile=document.querySelector('input[name=llm_profile]:checked');invoke('complete_setup',profile?profile.value:'local-only').then(function(){loadSetupStatus();toast('Setup complete');}).catch(function(e){toast('Error: '+e);});};}}).catch(function(e){document.getElementById('setupStatus').textContent='Error: '+e;});}
+window.__TAURI__?.event?.listen?.('llm_download_progress',function(ev){var p=ev.payload;var el=document.getElementById('setupProgress');if(el)el.textContent=(p&&p.file_name?p.file_name:'')+' '+(p&&p.bytes_downloaded!=null?Math.round(p.bytes_downloaded/1e6)+' MB':'')+(p&&p.total_bytes?(/'+Math.round(p.total_bytes/1e6)+' MB'):'');}).catch(function(){});
+window.__TAURI__?.event?.listen?.('llm_download_complete',function(ev){var ok=ev.payload&&ev.payload.success;var el=document.getElementById('setupProgress');var btn=document.getElementById('setupDownloadBtn');if(btn)btn.disabled=false;if(ok){if(el)el.textContent='Download complete.';toast('Model download complete');loadSetupStatus();}else{if(el)el.textContent='Download failed: '+(ev.payload&&ev.payload.error||'Unknown error');toast('Download failed');}}).catch(function(){});
 function shortId(s){if(!s)return'';return s.length>12?s.slice(0,8)+'…':s;}
 function formatTime(ts){if(!ts)return'';try{var d=new Date(ts);return d.toLocaleString();}catch(e){return ts;}}
 var allEvents=[];
@@ -1323,6 +1348,30 @@ fn cmd_approve_and_execute(
 // Settings commands (for Settings screen)
 // -----------------------------------------------------------------------------
 
+/// Setup wizard: current status (needs_local_model, setup_complete, profile).
+#[tauri::command]
+fn get_setup_status(app: AppHandle) -> Result<oxcer::setup::SetupStatus, String> {
+    setup_get_status(&app)
+}
+
+/// Setup wizard: start downloading local model in background. Listen for llm_download_progress and llm_download_complete.
+#[tauri::command]
+fn start_model_download(app: AppHandle) -> Result<(), String> {
+    setup_start_download(app)
+}
+
+/// Setup wizard: mark setup complete and persist LLM profile (local-only or hybrid).
+#[tauri::command]
+fn complete_setup(app: AppHandle, profile: String) -> Result<(), String> {
+    setup_complete(&app, profile)
+}
+
+/// External API warning text. Show above API key inputs whenever the user edits external API settings; cannot be hidden.
+#[tauri::command]
+fn get_external_api_warning() -> &'static str {
+    oxcer::setup::EXTERNAL_API_WARNING
+}
+
 #[tauri::command]
 fn cmd_settings_get(app: AppHandle) -> Result<AppSettings, String> {
     let state = app
@@ -2059,6 +2108,10 @@ fn main() {
             cmd_fs_move,
             cmd_shell_run,
             cmd_approve_and_execute,
+            get_setup_status,
+            start_model_download,
+            complete_setup,
+            get_external_api_warning,
             cmd_settings_get,
             cmd_settings_save,
             cmd_dialog_open_directory,

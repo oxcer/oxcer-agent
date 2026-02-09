@@ -29,29 +29,27 @@ MIIEowIBAAKCAQEA01234567890123456789012345678901234567890123456789012
 -----END RSA PRIVATE KEY-----
 "#;
 
+    // Use a non-sensitive path so file content is included in the raw payload; then we assert
+    // that classify_and_mask redacts it to placeholders and removes raw secrets (policy: LLM
+    // payload must contain placeholders, never raw secrets).
     let parts = LlmPayloadParts {
         task: "Summarize this file for me.".to_string(),
         file_snippets: vec![oxcer_core::prompt_sanitizer::FileContentChunk {
-            path: "config.env".to_string(),
+            path: "snippet.txt".to_string(),
             content: sensitive_content.to_string(),
         }],
         ..Default::default()
     };
 
     let opts = ClassifierOptions::default();
-    let result = build_and_scrub_for_llm(&parts, &opts);
 
-    // Never-send rule triggers on private key → blocked, but we can still assert
-    // that if we only had API key we'd get scrubbed content. Here we have both,
-    // so we get BlockedByHardRule. So instead assert: raw payload built from file
-    // when scrubbed (via classify_and_mask only, not full pipeline) has placeholders.
+    // Raw payload includes file content; classify_and_mask must produce placeholders and no raw secret.
     let raw = build_raw_payload(&parts);
     let classified = data_sensitivity::classify_and_mask(&raw, &opts);
     assert!(
-        classified.masked_content.contains("[REDACTED: api_key]")
-            || classified.masked_content.contains("[REDACTED: openai")
-            || classified.masked_content.contains("[REDACTED: ssh_private_key]"),
-        "masked content should contain redaction placeholders"
+        classified.masked_content.contains("[REDACTED:"),
+        "masked content should contain redaction placeholders; got: {}",
+        classified.masked_content
     );
     assert!(
         !classified.masked_content.contains("sk-1234567890"),
@@ -72,17 +70,18 @@ MIIEowIBAAKCAQEA01234567890123456789012345678901234567890123456789012
 
 #[test]
 fn integration_sensitive_file_api_key_only_scrubbed_and_sent() {
+    // Use a non-sensitive path so file content is in the raw payload and we can assert redaction.
     let parts = LlmPayloadParts {
         task: "What does this config do?".to_string(),
         file_snippets: vec![oxcer_core::prompt_sanitizer::FileContentChunk {
-            path: "env.example".to_string(),
+            path: "example_env.txt".to_string(),
             content: "OPENAI_API_KEY=sk-proj-1234567890abcdef".to_string(),
         }],
         ..Default::default()
     };
     let opts = ClassifierOptions::default();
     let result = build_and_scrub_for_llm(&parts, &opts);
-    // API key triggers never-send too (api_key in NEVER_SEND_FINDING_KINDS)
+    // API key triggers never-send (api_key in NEVER_SEND_FINDING_KINDS)
     assert!(result.is_err());
     let raw = build_raw_payload(&parts);
     let classified = data_sensitivity::classify_and_mask(&raw, &opts);

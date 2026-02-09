@@ -104,6 +104,21 @@ impl Default for ObservabilityOptions {
     }
 }
 
+/// LLM setup and profile (first-run wizard and local vs hybrid).
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct LlmSetup {
+    /// User has completed the initial setup wizard (downloaded model and chose profile).
+    #[serde(default)]
+    pub setup_complete: bool,
+    /// Selected profile: "local-only" (default) or "hybrid".
+    #[serde(default = "default_llm_profile")]
+    pub profile: String,
+}
+
+fn default_llm_profile() -> String {
+    "local-only".to_string()
+}
+
 /// Application settings (in-memory view of config.json).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AppSettings {
@@ -117,6 +132,9 @@ pub struct AppSettings {
     pub advanced: AdvancedSettings,
     #[serde(default)]
     pub observability: ObservabilityOptions,
+    /// LLM setup wizard and profile (local-only vs hybrid).
+    #[serde(default)]
+    pub llm: LlmSetup,
 }
 
 impl Default for AppSettings {
@@ -126,12 +144,13 @@ impl Default for AppSettings {
             default_model_id: DEFAULT_MODEL.to_string(),
             advanced: AdvancedSettings::default(),
             observability: ObservabilityOptions::default(),
+            llm: LlmSetup::default(),
         }
     }
 }
 
 /// Raw config file structure for JSON (Sprint 5 spec).
-/// Supports both new keys (security.*, model.default_id, workspaces[].name) and legacy (fs.*, default_model).
+/// Supports both new keys (security.*, model.default_id, workspaces[].name, llm.*) and legacy (fs.*, default_model).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ConfigFile {
     #[serde(default)]
@@ -142,6 +161,8 @@ pub struct ConfigFile {
     pub model: ModelOptions,
     #[serde(default)]
     pub observability: ObservabilityOptions,
+    #[serde(default)]
+    pub llm: LlmSetup,
     // Legacy keys (read-only for migration)
     #[serde(default)]
     pub default_model: String,
@@ -181,6 +202,7 @@ impl Default for ConfigFile {
             workspaces: Vec::new(),
             model: ModelOptions::default(),
             observability: ObservabilityOptions::default(),
+            llm: LlmSetup::default(),
             default_model: DEFAULT_MODEL.to_string(),
             fs: FsOptions::default(),
         }
@@ -236,7 +258,7 @@ pub fn log_destructive_setting_change(
 }
 
 /// Load settings from config.json. Migrates from settings.json if config.json doesn't exist.
-/// Reads both new schema (security.destructive_fs.enabled, model.default_id, workspaces[].name) and legacy (fs.*, default_model).
+/// Reads both new schema (security.destructive_fs.enabled, model.default_id, workspaces[].name, llm.*) and legacy (fs.*, default_model).
 pub fn load(app_config_dir: &Path) -> AppSettings {
     let config_path = config_path(app_config_dir);
     if let Ok(s) = std::fs::read_to_string(&config_path) {
@@ -262,6 +284,7 @@ pub fn load(app_config_dir: &Path) -> AppSettings {
                     allow_destructive_fs_without_hitl: destructive,
                 },
                 observability: cfg.observability.clone(),
+                llm: cfg.llm.clone(),
             };
         }
     }
@@ -302,6 +325,7 @@ pub fn save(app_config_dir: &Path, settings: &AppSettings) -> Result<(), String>
             default_id: settings.default_model_id.clone(),
         },
         observability: settings.observability.clone(),
+        llm: settings.llm.clone(),
         default_model: settings.default_model_id.clone(),
         fs: FsOptions {
             destructive_operations_enabled: settings.advanced.allow_destructive_fs_without_hitl,
