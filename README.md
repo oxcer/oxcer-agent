@@ -37,14 +37,14 @@ flowchart TB
   ffi --> oc
 
   subgraph shells["Desktop shells / launchers"]
-    dt[apps/desktop-tauri (Tauri shell, no real web UI)]
-    ol[apps/OxcerLauncher (SwiftUI)]
-    wl[apps/windows-launcher (WinUI 3, planned)]
+    dt[desktop-tauri]
+    ol[OxcerLauncher]
+    wl[windows-launcher (planned)]
   end
 
-  dt -->|Rust commands (src-tauri)| oc
-  ol -->|FFI dylib| ffi
-  wl -.->|planned: FFI or CLI| oc
+  dt -->|Tauri shell → oxcer-core| oc
+  ol -->|FFI dylib → oxcer_ffi| ffi
+  wl -.->|planned: FFI or CLI → oxcer-core| oc
 ```
 
 > See each app’s README for app-level diagrams and details.
