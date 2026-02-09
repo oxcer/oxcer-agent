@@ -6,7 +6,7 @@
 - **Core modules refactor guidelines:** See [docs/ARCHITECTURE_CORE.md](ARCHITECTURE_CORE.md) for policy_engine, data_sensitivity, and orchestrator design principles.
 - **`apps/desktop-tauri/src-tauri`** — Tauri backend: initializes Tauri context/capabilities and exposes commands (FS, Shell, Security, Settings) that delegate into `oxcer-core`. **Backend only** — no WebView UI. The primary UI is a native macOS Swift app that communicates via IPC/sidecar.
 - **Tauri frontend** — Minimal placeholder built to `apps/desktop-tauri/dist/` (no scripts). Legacy WebView UI archived in `reference/legacy_ui/`.
-- **`apps/windows-launcher/`** — Planned Windows-native launcher (WinUI/WPF or Rust GUI); not implemented yet. Intentionally not part of the build or workspaces; will be wired into Cargo/pnpm once implementation starts.
+- **`apps/windows-launcher/`** — Planned Windows-native launcher using WinUI 3 + Windows App SDK (C#). Intentionally not part of the build yet; will be wired into the toolchain when implementation starts.
 
 ## Default workflow
 
