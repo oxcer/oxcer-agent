@@ -28,26 +28,6 @@ apps/
   windows-launcher/    # planned WinUI 3 launcher (Windows native, stub only)
 ```
 
-```mermaid
-flowchart TB
-  subgraph core["Core"]
-    oc[oxcer-core]
-    ffi[oxcer_ffi]
-  end
-  ffi --> oc
-
-  subgraph shells["Desktop shells / launchers"]
-    dt[desktop-tauri]
-    ol[OxcerLauncher]
-    wl[windows-launcher (planned)]
-  end
-
-  dt -->|Tauri shell → oxcer-core| oc
-  ol -->|FFI dylib → oxcer_ffi| ffi
-  wl -.->|planned: FFI or CLI → oxcer-core| oc
-```
-
-> See each app’s README for app-level diagrams and details.
 
 ## Architecture
 
