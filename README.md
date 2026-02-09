@@ -23,9 +23,9 @@ core/
   config/          # policies, defaults, etc.
 
 apps/
-  desktop-tauri/   # cross-platform desktop app (Tauri, Windows + macOS)
-  OxcerLauncher/   # macOS native SwiftUI launcher
-  windows-launcher/   # planned WinUI 3 launcher (stub only)
+  desktop-tauri/       # cross-platform desktop host (Tauri shell around oxcer-core, no real web UI)
+  OxcerLauncher/       # macOS native SwiftUI launcher
+  windows-launcher/    # planned WinUI 3 launcher (Windows native, stub only)
 ```
 
 ```mermaid
@@ -35,15 +35,19 @@ flowchart TB
     ffi[oxcer_ffi]
   end
   ffi --> oc
-  subgraph apps["Apps"]
-    dt[apps/desktop-tauri]
-    ol[apps/OxcerLauncher]
-    wl[apps/windows-launcher]
+
+  subgraph hosts["Desktop hosts / launchers"]
+    dt[apps/desktop-tauri\n(Tauri host, no real web UI)]
+    ol[apps/OxcerLauncher\n(SwiftUI)]
+    wl[apps/windows-launcher\n(WinUI 3, planned)]
   end
-  dt -->|src-tauri, direct| oc
+
+  dt -->|Rust commands (src-tauri)| oc
   ol -->|FFI dylib| ffi
   wl -.->|planned: FFI or CLI| oc
 ```
+
+> See each app’s README for app-level diagrams and details.
 
 ## Architecture
 
