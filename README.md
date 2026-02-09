@@ -23,7 +23,7 @@ core/
   config/          # policies, defaults, etc.
 
 apps/
-  desktop-tauri/       # cross-platform desktop host (Tauri shell around oxcer-core, no real web UI)
+  desktop-tauri/       # cross-platform desktop shell around oxcer-core (no real web UI)
   OxcerLauncher/       # macOS native SwiftUI launcher
   windows-launcher/    # planned WinUI 3 launcher (Windows native, stub only)
 ```
@@ -36,10 +36,10 @@ flowchart TB
   end
   ffi --> oc
 
-  subgraph hosts["Desktop hosts / launchers"]
-    dt[apps/desktop-tauri\n(Tauri host, no real web UI)]
-    ol[apps/OxcerLauncher\n(SwiftUI)]
-    wl[apps/windows-launcher\n(WinUI 3, planned)]
+  subgraph shells["Desktop shells / launchers"]
+    dt[apps/desktop-tauri (Tauri shell, no real web UI)]
+    ol[apps/OxcerLauncher (SwiftUI)]
+    wl[apps/windows-launcher (WinUI 3, planned)]
   end
 
   dt -->|Rust commands (src-tauri)| oc
