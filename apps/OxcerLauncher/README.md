@@ -2,6 +2,19 @@
 
 Minimal macOS SwiftUI launcher for the Oxcer Rust core. All business logic runs in Rust; the app calls into the core via the `oxcer_ffi` C API (UTF-8 JSON in/out). No webviews or HTML/JS — SwiftUI only.
 
+## Architecture
+
+```mermaid
+flowchart LR
+  swift[SwiftUI UI]
+  dylib[oxcer_ffi dylib]
+  oc[oxcer-core]
+  swift <--> dylib
+  dylib --> oc
+```
+
+- **SwiftUI** calls the **oxcer_ffi** Rust dylib (JSON in/out); the dylib uses **oxcer-core**.
+
 ## Requirements
 
 - **macOS 14+**, **Xcode 15+**
