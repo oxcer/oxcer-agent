@@ -1,5 +1,6 @@
 packages:
   - .
+  - apps/desktop-tauri
   - ui
   - packages/*
   - extensions/*

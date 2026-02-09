@@ -1,0 +1,21 @@
+{
+  "name": "desktop-tauri",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Oxcer cross-platform desktop app (Tauri v2). Backend only; primary UI is native Swift (macOS) or future native.",
+  "scripts": {
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "build": "node scripts/build.mjs",
+    "lint": "echo \"no lint yet\"",
+    "test": "echo \"no tests yet\"",
+    "check": "pnpm lint && pnpm test"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  }
+}

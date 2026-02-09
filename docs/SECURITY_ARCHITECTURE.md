@@ -14,7 +14,7 @@ Lives in its own module and acts as the **final authority** for all privileged a
 - **PolicyRequest:** `caller` (UI | AGENT_ORCHESTRATOR | INTERNAL_SYSTEM), `tool_type` (FS | SHELL | AGENT | WEB | OTHER), `operation` (read | write | delete | move | exec), `target` (canonical path, command id, or resource id)
 - **PolicyDecision:** `decision` (ALLOW | DENY | REQUIRE_APPROVAL), `reason_code` (stable string for logging/telemetry)
 
-### 2. Command Router (`src-tauri/src/router.rs`)
+### 2. Command Router (`apps/desktop-tauri/src-tauri/src/router.rs`)
 
 Sits **in front of** the FS and Shell services. All Tauri commands pass through the router, which:
 

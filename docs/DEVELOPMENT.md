@@ -4,8 +4,9 @@
 
 - **`oxcer-core`** — Pure Rust library: FS Service, Shell Service, Security Policy, Logging. No Tauri dependency. All core logic and unit tests live here; test with `cargo test -p oxcer-core` (or `cd oxcer-core && cargo test`).
 - **Core modules refactor guidelines:** See [docs/ARCHITECTURE_CORE.md](ARCHITECTURE_CORE.md) for policy_engine, data_sensitivity, and orchestrator design principles.
-- **`src-tauri`** — Tauri backend: initializes Tauri context/capabilities and exposes commands (FS, Shell, Security, Settings) that delegate into `oxcer-core`. **Backend only** — no WebView UI. The primary UI is a native macOS Swift app that communicates via IPC/sidecar.
-- **`src/`** — Minimal placeholder `index.html` required by Tauri (no scripts). Legacy WebView UI archived in `reference/legacy_ui/`.
+- **`apps/desktop-tauri/src-tauri`** — Tauri backend: initializes Tauri context/capabilities and exposes commands (FS, Shell, Security, Settings) that delegate into `oxcer-core`. **Backend only** — no WebView UI. The primary UI is a native macOS Swift app that communicates via IPC/sidecar.
+- **Tauri frontend** — Minimal placeholder built to `apps/desktop-tauri/dist/` (no scripts). Legacy WebView UI archived in `reference/legacy_ui/`.
+- **`apps/windows-launcher/`** — Planned Windows-native launcher (WinUI/WPF or Rust GUI); not implemented yet. Intentionally not part of the build or workspaces; will be wired into Cargo/pnpm once implementation starts.
 
 ## Default workflow
 
@@ -28,7 +29,7 @@
 
 - **Do not** call `tauri::generate_context!()` directly from code that is compiled when running `cargo test`.
 - `generate_context!()` depends on `OUT_DIR` from the Tauri build script and fails when the test binary is built.
-- **Fix:** Use the `app_context()` helper in `src-tauri/src/main.rs`:
+- **Fix:** Use the `app_context()` helper in `apps/desktop-tauri/src-tauri/src/main.rs`:
   - `#[cfg(test)]`: returns `tauri::test::mock_context(tauri::test::noop_assets())` so the test binary compiles.
   - `#[cfg(not(test))]`: returns `tauri::generate_context!()` for real runs.
 - In `main()` we call `.run(app_context())` instead of `.run(tauri::generate_context!())`.
@@ -38,7 +39,7 @@
 - **FS and Shell** go through our own services and **Security Policy** (path blocklist, command deny list); they are not raw filesystem/shell access.
 - Oxcer runs with a hidden window; the Swift app is the primary UI and invokes backend commands via IPC/sidecar.
 - Capabilities are configured in `tauri.conf.json` under `app.security.capabilities`; the main window uses the `"main"` capability.
-- For new features, add tests in `oxcer-core` (in the relevant module: `fs.rs` or `shell.rs`) first; keep Tauri-specific wiring in `src-tauri/src/main.rs` and validate with `cargo tauri dev` when needed.
+- For new features, add tests in `oxcer-core` (in the relevant module: `fs.rs` or `shell.rs`) first; keep Tauri-specific wiring in `apps/desktop-tauri/src-tauri/src/main.rs` and validate with `pnpm tauri dev` when needed.
 
 ## Testing and validation (Sprint 6)
 
@@ -111,7 +112,7 @@ rules:
 
 - **Unit tests (oxcer-core):** `log_event` (serialization, missing metrics, one JSON line per call); LLM cost from token counts and pricing; security/policy log event shape (rule_id, decision). See `oxcer-core/src/telemetry.rs`, `oxcer-core/src/llm_metrics.rs`.
 - **Integration (oxcer-core):** `oxcer-core/tests/sprint8_telemetry_integration.rs` — writes a small session trace (semantic_router, security, llm_client with metrics, orchestrator) via `log_event`, then asserts the session JSONL exists, parses as `LogEvent`s, contains expected components, and at least one event has non-zero tokens/latency.
-- **Integration (Tauri):** `src-tauri/tests/sprint8_recent_sessions_integration.rs` — writes a session file with `oxcer_core::telemetry::log_event`, then calls `telemetry_viewer::list_sessions_from_dir` and `load_session_log_from_dir` and asserts summary and event content.
+- **Integration (Tauri):** `apps/desktop-tauri/src-tauri/tests/sprint8_recent_sessions_integration.rs` — writes a session file with `oxcer_core::telemetry::log_event`, then calls `telemetry_viewer::list_sessions_from_dir` and `load_session_log_from_dir` and asserts summary and event content.
 
 **Manual QA (Recent Sessions UI):**
 
@@ -188,7 +189,7 @@ rules:
 
 #### Slower suite (run before merge / release)
 - [ ] `cargo test --workspace --features test` — Tauri + oxcer-core + oxcer_ffi (~1 min)
-- [ ] Build OxcerLauncher: open in Xcode, Product → Build
+- [ ] Build OxcerLauncher: open `apps/OxcerLauncher/OxcerLauncher.xcodeproj` in Xcode, Product → Build
 - [ ] Run Swift tests: Product → Test (if XCTest target added)
 
 #### Manual QA checklist (before release)
@@ -240,7 +241,7 @@ rules:
 
 1. In Xcode: File → New → Target → Unit Testing Bundle.
 2. Name it `OxcerLauncherTests`, set Host Application = OxcerLauncher.
-3. Add the test files from `OxcerLauncher/OxcerLauncherTests/` to the target.
+3. Add the test files from `apps/OxcerLauncher/OxcerLauncherTests/` to the target.
 4. Run tests: Product → Test (⌘U).
 
 ### Test files provided

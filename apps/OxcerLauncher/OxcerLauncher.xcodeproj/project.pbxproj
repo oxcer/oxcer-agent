@@ -24,11 +24,11 @@
 			);
 			name = "Build Rust dylib";
 			outputPaths = (
-				"$(PROJECT_DIR)/../target/release/liboxcer_ffi.dylib",
+				"$(PROJECT_DIR)/../../target/release/liboxcer_ffi.dylib",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -e\nREPO_ROOT=\"${PROJECT_DIR}/..\"\ncd \"${REPO_ROOT}\" && cargo build -p oxcer_ffi --release\n";
+			shellScript = "set -e\nREPO_ROOT=\"${PROJECT_DIR}/../..\"\ncd \"${REPO_ROOT}\" && cargo build -p oxcer_ffi --release\n";
 			showEnvVarsInLog = 0;
 		};
 /* End PBXShellScriptBuildPhase section */
@@ -113,7 +113,7 @@
 			children = (
 				B20000000000000000000008 /* liboxcer_ffi.dylib (Rust build) */,
 			);
-			path = "../target/release";
+			path = "../../target/release";
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -258,7 +258,7 @@
 				);
 				LIBRARY_SEARCH_PATHS = (
 					"$(PROJECT_DIR)/Libs",
-					"$(PROJECT_DIR)/../target/release",
+					"$(PROJECT_DIR)/../../target/release",
 				);
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.oxcer.launcher;
@@ -288,7 +288,7 @@
 				);
 				LIBRARY_SEARCH_PATHS = (
 					"$(PROJECT_DIR)/Libs",
-					"$(PROJECT_DIR)/../target/release",
+					"$(PROJECT_DIR)/../../target/release",
 				);
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.oxcer.launcher;

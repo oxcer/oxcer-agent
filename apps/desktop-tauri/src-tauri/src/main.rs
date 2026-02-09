@@ -1975,7 +1975,7 @@ fn main() {
                 }
             };
             let plugin_rules = plugin_rules_from_descriptors(&descriptors);
-            let base_yaml = include_str!("../../oxcer-core/policies/default.yaml");
+            let base_yaml = include_str!("../../../oxcer-core/policies/default.yaml");
             let base_config = load_from_yaml(base_yaml.as_bytes());
             let merged_config = merge_rules(base_config, plugin_rules);
             let _ = init_policy_with_config(merged_config);

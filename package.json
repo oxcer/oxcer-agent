@@ -2,21 +2,17 @@
   "name": "oxcer",
   "version": "0.1.0",
   "private": true,
-  "description": "Oxcer macOS backend (Tauri v2). Local agent backend; UI is a native Swift app.",
+  "description": "Oxcer monorepo: core, FFI, and apps (Tauri desktop, macOS SwiftUI launcher).",
   "scripts": {
-    "tauri": "tauri",
-    "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build",
-    "build": "node scripts/build.mjs",
+    "tauri": "pnpm --filter desktop-tauri tauri",
+    "tauri:dev": "pnpm --filter desktop-tauri tauri:dev",
+    "tauri:build": "pnpm --filter desktop-tauri tauri:build",
+    "build": "pnpm --filter desktop-tauri build",
     "lint": "echo \"no lint yet\"",
     "test": "echo \"no tests yet\"",
     "check": "pnpm lint && pnpm test"
   },
-  "devDependencies": {
-    "@tauri-apps/cli": "^2.0.0"
-  },
-  "engines": {
-    "node": ">=22.12.0"
-  },
+  "devDependencies": {},
+  "engines": { "node": ">=22.12.0" },
   "packageManager": "pnpm@10.23.0"
 }

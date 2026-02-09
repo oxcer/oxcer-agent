@@ -9,7 +9,7 @@ Minimal macOS SwiftUI launcher for the Oxcer Rust core. All business logic runs 
 
 ## 1. Building `oxcer_ffi` for macOS
 
-From the **repository root** (parent of `OxcerLauncher/`):
+From the **repository root** (parent of `apps/`):
 
 ```bash
 cargo build --release -p oxcer_ffi
@@ -58,8 +58,8 @@ Config and logs path: if `app_config_dir` is omitted, the Rust side uses the def
 
 If you prefer not to run the Run Script phase:
 
-1. Create `OxcerLauncher/Libs/` if needed.
-2. Copy `target/release/liboxcer_ffi.dylib` into `OxcerLauncher/Libs/`.
+1. Create `apps/OxcerLauncher/Libs/` if needed.
+2. Copy `target/release/liboxcer_ffi.dylib` into `apps/OxcerLauncher/Libs/`.
 3. In Xcode, remove or disable the **“Build Rust dylib”** Run Script phase, and in **Frameworks** and **Embed Libraries** use `Libs/liboxcer_ffi.dylib` instead of the **Rust release** reference.
 
 ## Bundle identifier
