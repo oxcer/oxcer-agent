@@ -189,8 +189,25 @@ final class AppViewModel: ObservableObject {
     // Backend service abstraction over OxcerFFI
     private let backend: OxcerBackend
 
+    /// Ensures we only run the initial workspace + session load once (avoids OOM from repeated onAppear/.task).
+    private var hasPerformedInitialLoad = false
+
+    /// Max number of sessions to keep in memory; avoids OOM with large telemetry dirs.
+    private let maxSessionsCount = 500
+    /// Max number of log events per session to keep in memory.
+    private let maxSessionEventsCount = 2000
+
     init(backend: OxcerBackend = DefaultOxcerBackend()) {
         self.backend = backend
+    }
+
+    /// Call once when the root view appears. Loads workspaces and sessions only the first time.
+    func loadInitialDataIfNeeded() async {
+        guard appConfigDir != nil else { return }
+        guard !hasPerformedInitialLoad else { return }
+        hasPerformedInitialLoad = true
+        await loadWorkspaces()
+        await loadSessions()
     }
 
     // MARK: - Feature view models (unidirectional data flow)
@@ -281,12 +298,13 @@ final class AppViewModel: ObservableObject {
     }
 
     /// Implemented: loads recent sessions list from Rust via OxcerBackend.listSessions.
+    /// Capped to maxSessionsCount to avoid OOM with large telemetry dirs.
     func loadSessions() async {
         isSessionsLoading = true
         guard let dir = appConfigDir else { isSessionsLoading = false; return }
         do {
             let list = try await backend.listSessions(appConfigDir: dir)
-            sessions = list
+            sessions = Array(list.prefix(maxSessionsCount))
             isSessionsLoading = false
         } catch {
             errorMessage = error.localizedDescription
@@ -295,12 +313,13 @@ final class AppViewModel: ObservableObject {
     }
 
     /// Implemented: loads one session's log events via OxcerBackend.loadSessionLog.
+    /// Capped to maxSessionEventsCount to avoid OOM for very long logs.
     func loadSessionLog(sessionId: String) async {
         guard let dir = appConfigDir else { return }
         selectedSessionId = sessionId
         do {
             let events = try await backend.loadSessionLog(sessionId: sessionId, appConfigDir: dir)
-            sessionEvents = events
+            sessionEvents = Array(events.prefix(maxSessionEventsCount))
         } catch {
             sessionEvents = []
             errorMessage = error.localizedDescription
@@ -665,8 +684,8 @@ struct SessionView: View {
                     .fill(OxcerTheme.backgroundPanel)
                     .overlay(
                         Rectangle()
-                            .frame(height: 1)
-                            .fill(OxcerTheme.divider),
+                            .fill(OxcerTheme.divider)
+                            .frame(height: 1),
                         alignment: .bottom
                     )
             )
@@ -847,7 +866,7 @@ struct TaskInputBar: View {
                 // Single source of truth: this TextEditor writes into AppViewModel.taskDescription
                 // via TaskInputViewModel, which AppViewModel.runAgentRequest() then reads to
                 // construct the FFI payload.
-                TextEditor(text: $viewModel.taskDescription)
+                TextEditor(text: viewModel.$taskDescription)
                     .font(.system(.body))
                     .foregroundStyle(OxcerTheme.textPrimary)
                     .scrollContentBackground(.hidden)
@@ -921,29 +940,27 @@ struct TaskInputBar: View {
     }
 }
 
-// MARK: - Event detail (JSON details as monospaced / key-value)
+// MARK: - Event detail (JSON details as monospaced string)
 
 struct EventDetailView: View {
-    let details: AnyCodableValue?
+    /// Raw JSON string from LogEvent.details (UniFFI exposes details as String?).
+    let details: String?
 
     var body: some View {
-        if let d = details {
-            let text = d.jsonString
-            if !text.isEmpty && text != "null" {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Details")
-                        .font(.caption)
+        if let text = details, !text.isEmpty, text != "null" {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Details")
+                    .font(.caption)
+                    .foregroundStyle(OxcerTheme.textSecondary)
+                ScrollView {
+                    Text(text)
+                        .font(.system(.caption, design: .monospaced))
                         .foregroundStyle(OxcerTheme.textSecondary)
-                    ScrollView {
-                        Text(text)
-                            .font(.system(.caption, design: .monospaced))
-                            .foregroundStyle(OxcerTheme.textSecondary)
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(6)
-                    }
-                    .frame(maxHeight: 140)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(6)
                 }
+                .frame(maxHeight: 140)
             }
         }
     }
@@ -1069,13 +1086,13 @@ struct ContentView: View {
             }
         }
         .background(OxcerTheme.backgroundDark)
-        .onAppear {
-            viewModel.appConfigDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
-                .appendingPathComponent("Oxcer").path
-            Task {
-                await viewModel.loadWorkspaces()
-                await viewModel.loadSessions()
+        .task {
+            // Set app config dir once; then run initial load at most once (guards against repeated .task/onAppear and OOM).
+            if viewModel.appConfigDir == nil {
+                viewModel.appConfigDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+                    .appendingPathComponent("Oxcer").path
             }
+            await viewModel.loadInitialDataIfNeeded()
         }
     }
 }

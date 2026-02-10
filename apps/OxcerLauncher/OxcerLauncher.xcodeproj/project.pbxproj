@@ -8,9 +8,10 @@
 
 /* Begin PBXBuildFile section */
 		A896071D2F39AD0E002BC606 /* liboxcer_ffi.dylib in Copy Rust dylib */ = {isa = PBXBuildFile; fileRef = A896071C2F39AD0E002BC606 /* liboxcer_ffi.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		A8E1622D2F3A9C7900D8DB35 /* OxcerBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8E1622C2F3A9C7900D8DB35 /* OxcerBackend.swift */; };
+		A8E162302F3AB20900D8DB35 /* oxcer_ffi.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8E1622E2F3AB20900D8DB35 /* oxcer_ffi.swift */; };
 		B10000000000000000000001 /* OxcerLauncherApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000001 /* OxcerLauncherApp.swift */; };
 		B10000000000000000000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000002 /* ContentView.swift */; };
-		B10000000000000000000003 /* OxcerFFI.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000003 /* OxcerFFI.swift */; };
 		B10000000000000000000005 /* liboxcer_ffi.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = A896071C2F39AD0E002BC606 /* liboxcer_ffi.dylib */; };
 /* End PBXBuildFile section */
 
@@ -31,11 +32,12 @@
 /* Begin PBXFileReference section */
 		A896071C2F39AD0E002BC606 /* liboxcer_ffi.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = liboxcer_ffi.dylib; path = ../../target/release/liboxcer_ffi.dylib; sourceTree = "<group>"; };
 		A8D4D8622F39A95800A4AA93 /* OxcerLauncherTests */ = {isa = PBXFileReference; lastKnownFileType = folder; path = OxcerLauncherTests; sourceTree = "<group>"; };
+		A8E1622C2F3A9C7900D8DB35 /* OxcerBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OxcerBackend.swift; sourceTree = "<group>"; };
+		A8E1622E2F3AB20900D8DB35 /* oxcer_ffi.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = oxcer_ffi.swift; sourceTree = "<group>"; };
+		A8E1622F2F3AB20900D8DB35 /* oxcer_ffiFFI.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = oxcer_ffiFFI.h; sourceTree = "<group>"; };
 		B20000000000000000000001 /* OxcerLauncherApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OxcerLauncherApp.swift; sourceTree = "<group>"; };
 		B20000000000000000000002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
-		B20000000000000000000003 /* OxcerFFI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OxcerFFI.swift; sourceTree = "<group>"; };
 		B20000000000000000000005 /* OxcerLauncher.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OxcerLauncher.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		B20000000000000000000006 /* oxcer_ffi.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = oxcer_ffi.h; sourceTree = "<group>"; };
 		B20000000000000000000007 /* OxcerLauncher-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "OxcerLauncher-Bridging-Header.h"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -57,18 +59,19 @@
 				A8D4D8622F39A95800A4AA93 /* OxcerLauncherTests */,
 				B50000000000000000000002 /* OxcerLauncher */,
 				B50000000000000000000003 /* Products */,
-				B50000000000000000000004 /* Libs */,
+				B50000000000000000000004,
 			);
 			sourceTree = "<group>";
 		};
 		B50000000000000000000002 /* OxcerLauncher */ = {
 			isa = PBXGroup;
 			children = (
+				A8E1622E2F3AB20900D8DB35 /* oxcer_ffi.swift */,
+				A8E1622F2F3AB20900D8DB35 /* oxcer_ffiFFI.h */,
+				A8E1622C2F3A9C7900D8DB35 /* OxcerBackend.swift */,
 				B20000000000000000000001 /* OxcerLauncherApp.swift */,
 				B20000000000000000000002 /* ContentView.swift */,
-				B20000000000000000000003 /* OxcerFFI.swift */,
 				B20000000000000000000007 /* OxcerLauncher-Bridging-Header.h */,
-				B20000000000000000000006 /* oxcer_ffi.h */,
 			);
 			path = OxcerLauncher;
 			sourceTree = "<group>";
@@ -81,7 +84,7 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
-		B50000000000000000000004 /* Libs */ = {
+		B50000000000000000000004 = {
 			isa = PBXGroup;
 			children = (
 				A896071C2F39AD0E002BC606 /* liboxcer_ffi.dylib */,
@@ -163,7 +166,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -e\nREPO_ROOT=\"${PROJECT_DIR}/../..\"\ncd \"${REPO_ROOT}\" && cargo build -p oxcer_ffi --release\n";
+			shellScript = "# 1. Load Rust environment variables if present (Best practice)\nif [ -f \"$HOME/.cargo/env\" ]; then\n    . \"$HOME/.cargo/env\"\nfi\n\n# 2. Manually append PATH just in case (Support for Apple Silicon & Intel Macs)\nexport PATH=\"$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:$PATH\"\n\n# 3. Navigate to the project root (oxcer/)\n# (Move up 2 levels from apps/OxcerLauncher to reach oxcer/)\ncd \"${PROJECT_DIR}/../..\"\n\n# 4. Debug: Print current working directory to the build log\necho \"My Lord, I am currently at: $(pwd)\"\n\n# 5. Execute Rust build (Build fails if this step fails)\ncargo build --release -p oxcer_ffi\n";
 			showEnvVarsInLog = 0;
 		};
 /* End PBXShellScriptBuildPhase section */
@@ -175,7 +178,8 @@
 			files = (
 				B10000000000000000000001 /* OxcerLauncherApp.swift in Sources */,
 				B10000000000000000000002 /* ContentView.swift in Sources */,
-				B10000000000000000000003 /* OxcerFFI.swift in Sources */,
+				A8E1622D2F3A9C7900D8DB35 /* OxcerBackend.swift in Sources */,
+				A8E162302F3AB20900D8DB35 /* oxcer_ffi.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -299,15 +303,14 @@
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../PlugIns",
 				);
-				LIBRARY_SEARCH_PATHS = (
-					"$(PROJECT_DIR)/../../target/release",
-				);
+				LIBRARY_SEARCH_PATHS = "$(PROJECT_DIR)/../../target/release";
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.oxcer.launcher;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -329,15 +332,14 @@
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../PlugIns",
 				);
-				LIBRARY_SEARCH_PATHS = (
-					"$(PROJECT_DIR)/../../target/release",
-				);
+				LIBRARY_SEARCH_PATHS = "$(PROJECT_DIR)/../../target/release";
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.oxcer.launcher;
 				PRODUCT_NAME = "$(TARGET_NAME)";

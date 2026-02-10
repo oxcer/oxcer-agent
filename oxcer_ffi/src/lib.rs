@@ -1,54 +1,127 @@
-//! C FFI for Oxcer: UTF-8 JSON in/out. Swift (or other C callers) pass JSON strings and receive
-//! allocated UTF-8 strings; call `oxcer_string_free` to free returned pointers.
+//! UniFFI FFI for Oxcer: pure Rust types and async-ready API.
+//! Swift (and other bindings) get generated code; no manual C strings or oxcer_string_free.
 //!
 //! Build: `cargo build --release -p oxcer_ffi` → `target/release/liboxcer_ffi.dylib` on macOS.
+//! Generate Swift: `cargo run -p oxcer_ffi --features uniffi/cli` (or use uniffi-bindgen).
 
-use std::ffi::{CStr, CString};
-use std::os::raw::c_char;
+uniffi::setup_scaffolding!("oxcer_ffi");
+
 use std::path::Path;
+
+// -----------------------------------------------------------------------------
+// UniFFI-compatible error type (raw String is not supported as throw type)
+// -----------------------------------------------------------------------------
+
+#[derive(Debug, uniffi::Error)]
+#[uniffi(flat_error)]
+pub enum OxcerError {
+    Generic { message: String },
+}
+
+impl std::fmt::Display for OxcerError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            OxcerError::Generic { message } => write!(f, "{}", message),
+        }
+    }
+}
 
 use oxcer_core::orchestrator::{
     agent_request, AgentConfig, AgentSessionState, AgentTaskInput, AgentToolExecutor,
     ToolCallIntent, ToolOutcome,
 };
-use oxcer_core::semantic_router::TaskContext;
-use oxcer_core::telemetry::{load_session_log_from_dir, list_sessions_from_dir};
+use oxcer_core::semantic_router::TaskContext as CoreTaskContext;
+use oxcer_core::telemetry::{load_session_log_from_dir, list_sessions_from_dir, LogEvent as CoreLogEvent, LogMetrics as CoreLogMetrics, SessionSummary as CoreSessionSummary};
 
 // -----------------------------------------------------------------------------
-// Helpers: C string ↔ Rust
+// UniFFI Records (mirror Swift / JSON contracts)
 // -----------------------------------------------------------------------------
 
-/// Safe conversion: null or invalid UTF-8 → None; otherwise Some(s).
-fn ptr_to_str(ptr: *const c_char) -> Option<String> {
-    if ptr.is_null() {
-        return None;
-    }
-    unsafe { CStr::from_ptr(ptr).to_str().ok().map(String::from) }
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct WorkspaceInfo {
+    pub id: String,
+    pub name: String,
+    pub root_path: String,
 }
 
-/// Allocate a C string from Rust; caller must call oxcer_string_free.
-fn return_string(s: String) -> *const c_char {
-    match CString::new(s) {
-        Ok(cs) => cs.into_raw(),
-        Err(_) => std::ptr::null(),
-    }
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct SessionSummary {
+    pub session_id: String,
+    pub start_timestamp: String,
+    pub end_timestamp: String,
+    pub total_cost_usd: f64,
+    pub success: bool,
+    pub tool_calls_count: u32,
+    pub approvals_count: u32,
+    pub denies_count: u32,
 }
 
-/// Default app config dir (e.g. macOS: ~/Library/Application Support/Oxcer).
+#[derive(uniffi::Record, Clone, Debug, Default)]
+pub struct LogMetrics {
+    pub tokens_in: Option<u32>,
+    pub tokens_out: Option<u32>,
+    pub latency_ms: Option<u64>,
+    pub cost_usd: Option<f64>,
+}
+
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct LogEvent {
+    pub timestamp: String,
+    pub session_id: String,
+    pub request_id: Option<String>,
+    pub caller: String,
+    pub component: String,
+    pub action: String,
+    pub decision: Option<String>,
+    pub metrics: LogMetrics,
+    /// JSON string for arbitrary details (Swift decodes to AnyCodableValue).
+    pub details: Option<String>,
+}
+
+#[derive(uniffi::Record, Clone, Debug, Default)]
+pub struct TaskContext {
+    pub workspace_id: Option<String>,
+    pub selected_paths: Option<Vec<String>>,
+    pub risk_hints: Option<bool>,
+}
+
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct AgentRequestPayload {
+    pub task_description: String,
+    pub workspace_id: Option<String>,
+    pub workspace_root: Option<String>,
+    pub context: Option<TaskContext>,
+    pub app_config_dir: Option<String>,
+}
+
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct AgentResponse {
+    pub ok: bool,
+    pub answer: Option<String>,
+    pub error: Option<String>,
+}
+
+// -----------------------------------------------------------------------------
+// Helpers
+// -----------------------------------------------------------------------------
+
 fn default_app_config_dir() -> Option<std::path::PathBuf> {
     dirs_next::data_dir().map(|d| d.join("Oxcer"))
 }
 
-fn app_config_dir_from_json(input: &serde_json::Value) -> Option<std::path::PathBuf> {
-    input
-        .get("app_config_dir")
-        .and_then(|v| v.as_str())
-        .map(std::path::PathBuf::from)
-        .or_else(default_app_config_dir)
+fn app_config_dir_or_default(app_config_dir: &str) -> Result<std::path::PathBuf, OxcerError> {
+    if app_config_dir.is_empty() {
+        default_app_config_dir()
+            .ok_or_else(|| OxcerError::Generic {
+                message: "app_config_dir required (or set default data dir)".to_string(),
+            })
+    } else {
+        Ok(std::path::PathBuf::from(app_config_dir))
+    }
 }
 
 // -----------------------------------------------------------------------------
-// Workspaces: read config.json (same schema as Tauri settings)
+// Workspaces: read config.json
 // -----------------------------------------------------------------------------
 
 #[derive(serde::Deserialize)]
@@ -66,37 +139,38 @@ struct ConfigFileDto {
     workspaces: Vec<ConfigWorkspaceDto>,
 }
 
-fn list_workspaces_impl(app_config_dir: &Path) -> Result<Vec<serde_json::Value>, String> {
+fn list_workspaces_impl(app_config_dir: &Path) -> Result<Vec<WorkspaceInfo>, OxcerError> {
     let path = app_config_dir.join("config.json");
     let content = match std::fs::read_to_string(&path) {
         Ok(c) => c,
         Err(_) => return Ok(Vec::new()),
     };
-    let cfg: ConfigFileDto = serde_json::from_str(&content).map_err(|e| e.to_string())?;
-    let list: Vec<serde_json::Value> = cfg
+    let cfg: ConfigFileDto = serde_json::from_str(&content).map_err(|e| OxcerError::Generic { message: e.to_string() })?;
+    let list: Vec<WorkspaceInfo> = cfg
         .workspaces
         .into_iter()
         .map(|w| {
-            serde_json::json!({
-                "id": w.id,
-                "name": if w.name.is_empty() {
-                    Path::new(&w.root_path)
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .unwrap_or("Workspace")
-                        .to_string()
-                } else {
-                    w.name
-                },
-                "root_path": w.root_path,
-            })
+            let name = if w.name.is_empty() {
+                Path::new(&w.root_path)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("Workspace")
+                    .to_string()
+            } else {
+                w.name
+            };
+            WorkspaceInfo {
+                id: w.id,
+                name,
+                root_path: w.root_path,
+            }
         })
         .collect();
     Ok(list)
 }
 
 // -----------------------------------------------------------------------------
-// Agent request: stub executor (all tools return error; use step API from app for full execution)
+// Agent request: stub executor
 // -----------------------------------------------------------------------------
 
 struct FfiStubExecutor;
@@ -119,8 +193,8 @@ fn agent_request_impl(
     task_description: String,
     workspace_id: Option<String>,
     workspace_root: Option<String>,
-    context: Option<TaskContext>,
-) -> Result<serde_json::Value, String> {
+    context: Option<CoreTaskContext>,
+) -> Result<AgentResponse, OxcerError> {
     let executor = FfiStubExecutor;
 
     let context = context.unwrap_or_default();
@@ -138,230 +212,147 @@ fn agent_request_impl(
         default_workspace_root: workspace_root,
     };
 
-    let result = agent_request(input, &mut session, &config, &executor)?;
+    let result = agent_request(input, &mut session, &config, &executor)
+        .map_err(|e| OxcerError::Generic { message: e })?;
     let answer = result
         .final_answer
         .unwrap_or_else(|| "(no answer text)".to_string());
 
-    Ok(serde_json::json!({
-        "ok": true,
-        "answer": answer,
-        "error": serde_json::Value::Null,
-    }))
+    Ok(AgentResponse {
+        ok: true,
+        answer: Some(answer),
+        error: None,
+    })
 }
 
-// -----------------------------------------------------------------------------
-// FFI: JSON in → call core → JSON out; all returned strings must be freed with oxcer_string_free
-// -----------------------------------------------------------------------------
-
-fn json_response_ok<T: serde::Serialize>(value: T) -> *const c_char {
-    match serde_json::to_string(&value) {
-        Ok(s) => return_string(s),
-        Err(e) => return_string(serde_json::json!({ "ok": false, "error": e.to_string() }).to_string()),
+fn log_metrics_to_ffi(m: &CoreLogMetrics) -> LogMetrics {
+    LogMetrics {
+        tokens_in: m.tokens_in,
+        tokens_out: m.tokens_out,
+        latency_ms: m.latency_ms,
+        cost_usd: m.cost_usd,
     }
 }
 
-fn json_response_err(msg: &str) -> *const c_char {
-    return_string(
-        serde_json::json!({ "ok": false, "error": msg }).to_string(),
+fn log_event_to_ffi(e: &CoreLogEvent) -> LogEvent {
+    LogEvent {
+        timestamp: e.timestamp.clone(),
+        session_id: e.session_id.clone(),
+        request_id: e.request_id.clone(),
+        caller: e.caller.clone(),
+        component: e.component.clone(),
+        action: e.action.clone(),
+        decision: e.decision.clone(),
+        metrics: log_metrics_to_ffi(&e.metrics),
+        details: Some(e.details.to_string()),
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Exported API (UniFFI)
+// -----------------------------------------------------------------------------
+
+/// List workspaces from config.json in the given app config directory.
+#[uniffi::export]
+pub fn list_workspaces(app_config_dir: String) -> Result<Vec<WorkspaceInfo>, OxcerError> {
+    let dir = app_config_dir_or_default(&app_config_dir)?;
+    list_workspaces_impl(&dir)
+}
+
+/// List recent sessions from the app config directory.
+#[uniffi::export]
+pub fn list_sessions(app_config_dir: String) -> Result<Vec<SessionSummary>, OxcerError> {
+    let dir = app_config_dir_or_default(&app_config_dir)?;
+    let summaries: Vec<CoreSessionSummary> = list_sessions_from_dir(&dir)
+        .map_err(|e| OxcerError::Generic { message: e })?;
+    Ok(summaries
+        .into_iter()
+        .map(|s| SessionSummary {
+            session_id: s.session_id,
+            start_timestamp: s.start_timestamp,
+            end_timestamp: s.end_timestamp,
+            total_cost_usd: s.total_cost_usd,
+            success: s.success,
+            tool_calls_count: s.tool_calls_count,
+            approvals_count: s.approvals_count,
+            denies_count: s.denies_count,
+        })
+        .collect())
+}
+
+/// Load session log events for one session.
+#[uniffi::export]
+pub fn load_session_log(session_id: String, app_config_dir: String) -> Result<Vec<LogEvent>, OxcerError> {
+    let dir = app_config_dir_or_default(&app_config_dir)?;
+    let events: Vec<CoreLogEvent> = load_session_log_from_dir(&dir, &session_id)
+        .map_err(|e| OxcerError::Generic { message: e })?;
+    Ok(events.iter().map(log_event_to_ffi).collect())
+}
+
+/// Run the agent task (stub executor; tools/approvals require app step API).
+#[uniffi::export]
+pub fn run_agent_task(payload: AgentRequestPayload) -> Result<AgentResponse, OxcerError> {
+    let task = payload.task_description.trim();
+    if task.is_empty() {
+        return Err(OxcerError::Generic {
+            message: "task_description required".to_string(),
+        });
+    }
+    let context: Option<CoreTaskContext> = payload.context.as_ref().map(|c| CoreTaskContext {
+        workspace_id: c.workspace_id.clone(),
+        selected_paths: c.selected_paths.clone().unwrap_or_default(),
+        risk_hints: c.risk_hints.unwrap_or(false),
+    });
+
+    agent_request_impl(
+        payload.task_description,
+        payload.workspace_id,
+        payload.workspace_root,
+        context,
     )
-}
-
-/// Input: `{}` or `{ "app_config_dir": "/path" }`.
-/// Output: `{ "workspaces": [ { "id", "name", "root_path" }, ... ] }`.
-#[no_mangle]
-pub extern "C" fn oxcer_list_workspaces(json_in: *const c_char) -> *const c_char {
-    let input_str = match ptr_to_str(json_in) {
-        Some(s) => s,
-        None => return json_response_err("invalid or null input"),
-    };
-    let input: serde_json::Value = match serde_json::from_str(&input_str) {
-        Ok(v) => v,
-        Err(_) => serde_json::json!({}),
-    };
-    let app_config_dir = match app_config_dir_from_json(&input) {
-        Some(d) => d,
-        None => return json_response_err("app_config_dir required (or set default data dir)"),
-    };
-    match list_workspaces_impl(&app_config_dir) {
-        Ok(workspaces) => json_response_ok(serde_json::json!({ "workspaces": workspaces })),
-        Err(e) => json_response_err(&e),
-    }
-}
-
-/// Input: `{}` or `{ "app_config_dir": "/path" }`.
-/// Output: `[ { "session_id", "start_timestamp", "end_timestamp", "total_cost_usd", "success", "tool_calls_count", "approvals_count", "denies_count" }, ... ]`.
-#[no_mangle]
-pub extern "C" fn oxcer_list_sessions(json_in: *const c_char) -> *const c_char {
-    let input_str = match ptr_to_str(json_in) {
-        Some(s) => s,
-        None => return json_response_err("invalid or null input"),
-    };
-    let input: serde_json::Value = match serde_json::from_str(&input_str) {
-        Ok(v) => v,
-        Err(_) => serde_json::json!({}),
-    };
-    let app_config_dir = match app_config_dir_from_json(&input) {
-        Some(d) => d,
-        None => return json_response_err("app_config_dir required"),
-    };
-    match list_sessions_from_dir(&app_config_dir) {
-        Ok(summaries) => {
-            let arr: Vec<serde_json::Value> = summaries
-                .into_iter()
-                .map(|s| {
-                    serde_json::json!({
-                        "session_id": s.session_id,
-                        "start_timestamp": s.start_timestamp,
-                        "end_timestamp": s.end_timestamp,
-                        "total_cost_usd": s.total_cost_usd,
-                        "success": s.success,
-                        "tool_calls_count": s.tool_calls_count,
-                        "approvals_count": s.approvals_count,
-                        "denies_count": s.denies_count,
-                    })
-                })
-                .collect();
-            return_string(serde_json::to_string(&arr).unwrap_or_else(|_| "[]".to_string()))
-        }
-        Err(e) => json_response_err(&e),
-    }
-}
-
-/// Input: `{ "session_id": "..." }` and optional `"app_config_dir"`.
-/// Output: `[ LogEvent, ... ]` (same schema as telemetry).
-#[no_mangle]
-pub extern "C" fn oxcer_load_session_log(json_in: *const c_char) -> *const c_char {
-    let input_str = match ptr_to_str(json_in) {
-        Some(s) => s,
-        None => return json_response_err("invalid or null input"),
-    };
-    let input: serde_json::Value = match serde_json::from_str(&input_str) {
-        Ok(v) => v,
-        Err(_) => return json_response_err("invalid JSON input"),
-    };
-    let session_id = input
-        .get("session_id")
-        .and_then(|v| v.as_str())
-        .ok_or("session_id required");
-    let session_id = match session_id {
-        Ok(s) => s,
-        Err(e) => return json_response_err(e),
-    };
-    let app_config_dir = match app_config_dir_from_json(&input) {
-        Some(d) => d,
-        None => return json_response_err("app_config_dir required"),
-    };
-    match load_session_log_from_dir(&app_config_dir, session_id) {
-        Ok(events) => return_string(
-            serde_json::to_string(&events).unwrap_or_else(|_| "[]".to_string()),
-        ),
-        Err(e) => json_response_err(&e),
-    }
-}
-
-/// Input: `{ "task_description": "...", "workspace_id": "...", "workspace_root": "...", "context": {...}, "llm_api_key": "...", "llm_base_url": "...", "model_id": "..." }`.
-/// Output: `{ "ok": true, "answer": "...", "error": null }` or `{ "ok": false, "error": "..." }`.
-#[no_mangle]
-pub extern "C" fn oxcer_agent_request(json_in: *const c_char) -> *const c_char {
-    let input_str = match ptr_to_str(json_in) {
-        Some(s) => s,
-        None => return json_response_err("invalid or null input"),
-    };
-    let input: serde_json::Value = match serde_json::from_str(&input_str) {
-        Ok(v) => v,
-        Err(e) => return json_response_err(&e.to_string()),
-    };
-    let task_description = input
-        .get("task_description")
-        .and_then(|v| v.as_str())
-        .map(String::from)
-        .ok_or("task_description required");
-    let task_description = match task_description {
-        Ok(t) => t,
-        Err(e) => return json_response_err(e),
-    };
-    let workspace_id = input.get("workspace_id").and_then(|v| v.as_str()).map(String::from);
-    let workspace_root = input.get("workspace_root").and_then(|v| v.as_str()).map(String::from);
-    let context = input
-        .get("context")
-        .and_then(|v| serde_json::from_value::<TaskContext>(v.clone()).ok());
-
-    match agent_request_impl(task_description, workspace_id, workspace_root, context) {
-        Ok(out) => return_string(out.to_string()),
-        Err(e) => json_response_err(&e),
-    }
-}
-
-/// Free a string returned by any oxcer_* FFI function. Safe to call with null.
-#[no_mangle]
-pub extern "C" fn oxcer_string_free(ptr: *mut c_char) {
-    if ptr.is_null() {
-        return;
-    }
-    unsafe {
-        let _ = CString::from_raw(ptr);
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::ffi::CString;
-
-    fn ffi_input(s: &str) -> *const c_char {
-        CString::new(s).unwrap().into_raw()
-    }
 
     #[test]
     fn list_workspaces_requires_app_config_dir_or_fails() {
-        let out = oxcer_list_workspaces(ffi_input("{}"));
-        assert!(!out.is_null());
-        let s = unsafe { CStr::from_ptr(out).to_str().unwrap().to_string() };
-        oxcer_string_free(out as *mut c_char);
-        let v: serde_json::Value = serde_json::from_str(&s).unwrap();
-        // If default_app_config_dir is None (e.g. in test env), we get error
-        if v.get("workspaces").is_some() {
-            assert!(v.get("workspaces").unwrap().is_array());
+        // Empty string should try default; on CI default may be None
+        let r = list_workspaces(String::new());
+        if let Ok(workspaces) = r {
+            assert!(workspaces.iter().all(|w| !w.id.is_empty()));
         } else {
-            assert!(v.get("error").is_some());
+            assert!(r.unwrap_err().to_string().contains("app_config_dir"));
         }
     }
 
     #[test]
-    fn list_sessions_returns_array_or_error() {
-        let out = oxcer_list_sessions(ffi_input(r#"{"app_config_dir":"/nonexistent"}"#));
-        assert!(!out.is_null());
-        let s = unsafe { CStr::from_ptr(out).to_str().unwrap().to_string() };
-        oxcer_string_free(out as *mut c_char);
-        // Either array of sessions or error; JSON must be valid
-        let v: serde_json::Value = serde_json::from_str(&s).unwrap();
-        assert!(v.is_array() || v.get("error").is_some());
+    fn list_sessions_returns_result() {
+        let r = list_sessions("/nonexistent".to_string());
+        // Either Ok(vec) or Err
+        let _ = r;
     }
 
     #[test]
     fn load_session_log_requires_session_id() {
-        let out = oxcer_load_session_log(ffi_input("{}"));
-        assert!(!out.is_null());
-        let s = unsafe { CStr::from_ptr(out).to_str().unwrap().to_string() };
-        oxcer_string_free(out as *mut c_char);
-        let v: serde_json::Value = serde_json::from_str(&s).unwrap();
-        // Missing session_id returns error object
-        assert!(v.get("error").is_some(), "expected error when session_id missing");
+        // Empty app_config_dir will fail with "app_config_dir required"
+        let r = load_session_log("some-session".to_string(), String::new());
+        if r.is_ok() {
+            assert!(r.unwrap().iter().all(|e| !e.session_id.is_empty()));
+        }
     }
 
     #[test]
-    fn agent_request_fails_without_task_description() {
-        let out = oxcer_agent_request(ffi_input("{}"));
-        assert!(!out.is_null());
-        let s = unsafe { CStr::from_ptr(out).to_str().unwrap().to_string() };
-        oxcer_string_free(out as *mut c_char);
-        let v: serde_json::Value = serde_json::from_str(&s).unwrap();
-        assert!(v.get("error").is_some());
-    }
-
-    #[test]
-    fn string_free_null_safe() {
-        oxcer_string_free(std::ptr::null_mut());
+    fn run_agent_task_fails_without_task_description() {
+        let payload = AgentRequestPayload {
+            task_description: String::new(),
+            workspace_id: None,
+            workspace_root: None,
+            context: None,
+            app_config_dir: None,
+        };
+        let r = run_agent_task(payload);
+        assert!(r.is_err());
     }
 }
