@@ -7,11 +7,14 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A80100012F4A00010001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A80100022F4A00020002 /* Assets.xcassets */; };
 		A896071D2F39AD0E002BC606 /* liboxcer_ffi.dylib in Copy Rust dylib */ = {isa = PBXBuildFile; fileRef = A896071C2F39AD0E002BC606 /* liboxcer_ffi.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		A8E1622D2F3A9C7900D8DB35 /* OxcerBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8E1622C2F3A9C7900D8DB35 /* OxcerBackend.swift */; };
 		A8E162302F3AB20900D8DB35 /* oxcer_ffi.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8E1622E2F3AB20900D8DB35 /* oxcer_ffi.swift */; };
 		B10000000000000000000001 /* OxcerLauncherApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000001 /* OxcerLauncherApp.swift */; };
 		B10000000000000000000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000002 /* ContentView.swift */; };
+		B10000000000000000000008 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000008 /* SettingsView.swift */; };
+		B10000000000000000000009 /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000009 /* KeychainHelper.swift */; };
 		B10000000000000000000005 /* liboxcer_ffi.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = A896071C2F39AD0E002BC606 /* liboxcer_ffi.dylib */; };
 /* End PBXBuildFile section */
 
@@ -37,8 +40,11 @@
 		A8E1622F2F3AB20900D8DB35 /* oxcer_ffiFFI.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = oxcer_ffiFFI.h; sourceTree = "<group>"; };
 		B20000000000000000000001 /* OxcerLauncherApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OxcerLauncherApp.swift; sourceTree = "<group>"; };
 		B20000000000000000000002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		B20000000000000000000008 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		B20000000000000000000009 /* KeychainHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainHelper.swift; sourceTree = "<group>"; };
 		B20000000000000000000005 /* OxcerLauncher.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OxcerLauncher.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B20000000000000000000007 /* OxcerLauncher-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "OxcerLauncher-Bridging-Header.h"; sourceTree = "<group>"; };
+		A80100022F4A00020002 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -66,11 +72,14 @@
 		B50000000000000000000002 /* OxcerLauncher */ = {
 			isa = PBXGroup;
 			children = (
+				A80100022F4A00020002 /* Assets.xcassets */,
 				A8E1622E2F3AB20900D8DB35 /* oxcer_ffi.swift */,
 				A8E1622F2F3AB20900D8DB35 /* oxcer_ffiFFI.h */,
 				A8E1622C2F3A9C7900D8DB35 /* OxcerBackend.swift */,
 				B20000000000000000000001 /* OxcerLauncherApp.swift */,
 				B20000000000000000000002 /* ContentView.swift */,
+				B20000000000000000000008 /* SettingsView.swift */,
+				B20000000000000000000009 /* KeychainHelper.swift */,
 				B20000000000000000000007 /* OxcerLauncher-Bridging-Header.h */,
 			);
 			path = OxcerLauncher;
@@ -147,6 +156,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A80100012F4A00010001 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -178,6 +188,8 @@
 			files = (
 				B10000000000000000000001 /* OxcerLauncherApp.swift in Sources */,
 				B10000000000000000000002 /* ContentView.swift in Sources */,
+				B10000000000000000000008 /* SettingsView.swift in Sources */,
+				B10000000000000000000009 /* KeychainHelper.swift in Sources */,
 				A8E1622D2F3A9C7900D8DB35 /* OxcerBackend.swift in Sources */,
 				A8E162302F3AB20900D8DB35 /* oxcer_ffi.swift in Sources */,
 			);

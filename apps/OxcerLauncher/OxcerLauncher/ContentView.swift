@@ -8,39 +8,40 @@ import SwiftUI
 // MARK: - Theme (Toss-inspired)
 
 /// OxcerTheme:
-/// - backgroundDark, backgroundPanel, sidebarBackground
-/// - accent, accentHover
-/// - border, divider
+/// - Semantic colors from Assets (Light/Dark adaptive)
+/// - accent, accentHover (brand colors, work in both modes)
 /// - statusIdle, statusRunning, statusCompleted
-/// - textPrimary, textSecondary, textTertiary, textError
 /// - fastEaseOut (canonical simple transition animation)
 struct OxcerTheme {
-    // Dark backgrounds
-    static let backgroundDark = Color(hex: "050810")
-    static let backgroundPanel = Color(hex: "0A1018")
-    static let sidebarBackground = Color(hex: "0D141C")
+    // Semantic backgrounds (system Light/Dark aware)
+    static let backgroundDark = Color("OxcerBackground")
+    static let backgroundPanel = Color("OxcerPanel")
+    static let sidebarBackground = Color("OxcerSurface")
+    static let cardBackground = Color("OxcerCard")
     
-    // Accent color for primary actions
+    // Accent color for primary actions (brand blue)
     static let accent = Color(hex: "004CFF")
     static let accentHover = Color(hex: "4A7FFF")
     
     // Status colors
-    static let statusIdle = Color.gray.opacity(0.6)
+    static let statusIdle = Color("OxcerTextTertiary")
     static let statusRunning = accent
     static let statusCompleted = Color(hex: "00C853")
     
-    // Text colors
-    static let textPrimary = Color.white.opacity(0.95)
-    static let textSecondary = Color.white.opacity(0.6)
-    static let textTertiary = Color.white.opacity(0.4)
+    // Text colors (semantic)
+    static let textPrimary = Color("OxcerTextPrimary")
+    static let textSecondary = Color("OxcerTextSecondary")
+    static let textTertiary = Color("OxcerTextTertiary")
     static let textError = Color.red.opacity(0.9)
     
-    // Borders and dividers
-    static let divider = Color.white.opacity(0.1)
-    static let border = Color.white.opacity(0.15)
+    // Borders and dividers (semantic)
+    static let divider = Color("OxcerDivider")
+    static let border = Color("OxcerBorder")
+    static let hoverOverlay = Color("OxcerHoverOverlay")
+    /// Text/icon on accent backgrounds (e.g. primary buttons) — white for visibility on blue.
+    static let onAccent = Color("OxcerOnAccent")
     
     // Card styling
-    static let cardBackground = Color(hex: "121820")
     static let cardCornerRadius: CGFloat = 12
     static let inputCornerRadius: CGFloat = 20
     
@@ -199,6 +200,13 @@ final class AppViewModel: ObservableObject {
 
     init(backend: OxcerBackend = DefaultOxcerBackend()) {
         self.backend = backend
+        // Set default once at init so the view's .task never writes @Published (avoids re-render → .task re-run loop).
+        self.appConfigDir = Self.defaultAppConfigDir()
+    }
+
+    private static func defaultAppConfigDir() -> String? {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("Oxcer").path
     }
 
     /// Call once when the root view appears. Loads workspaces and sessions only the first time.
@@ -525,33 +533,30 @@ struct SidebarView: View {
                     }
                     
                     Spacer(minLength: 20)
-                    
-                    // Settings entry
-                    Button {
-                        // TODO: Open settings
-                    } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: "gearshape")
-                                .font(.system(.body))
-                            Text("Settings")
-                                .font(.system(.body))
-                        }
-                        .foregroundStyle(OxcerTheme.textSecondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 10)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(BouncyButtonStyle())
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(Color.clear)
-                    )
                 }
             }
         }
         .frame(width: 240)
-        .background(.ultraThinMaterial)
+        .background(OxcerTheme.sidebarBackground)
+        .safeAreaInset(edge: .bottom) {
+            Button {
+                NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "gearshape")
+                        .font(.system(.body))
+                    Text("Settings")
+                        .font(.system(.body))
+                }
+                .foregroundStyle(OxcerTheme.textSecondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 10)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(BouncyButtonStyle())
+            .background(OxcerTheme.sidebarBackground)
+        }
     }
 }
 
@@ -584,7 +589,7 @@ struct WorkspaceRow: View {
                 .padding(.vertical, 10)
                 .background(
                     RoundedRectangle(cornerRadius: 10)
-                        .fill(isHovered && !isSelected ? Color.white.opacity(0.05) : Color.clear)
+                        .fill(isHovered && !isSelected ? OxcerTheme.hoverOverlay : Color.clear)
                 )
             }
             .contentShape(Rectangle())
@@ -619,7 +624,7 @@ struct SessionRow: View {
             .padding(.vertical, 8)
             .background(
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(isSelected ? OxcerTheme.accent.opacity(0.15) : (isHovered ? Color.white.opacity(0.05) : Color.clear))
+                    .fill(isSelected ? OxcerTheme.accent.opacity(0.15) : (isHovered ? OxcerTheme.hoverOverlay : Color.clear))
             )
             .contentShape(Rectangle())
         }
@@ -657,7 +662,7 @@ struct SessionView: View {
                         if viewModel.status == .running {
                             ProgressView()
                                 .scaleEffect(0.7)
-                                .tint(.white)
+                                .tint(OxcerTheme.onAccent)
                         } else {
                             Image(systemName: "play.fill")
                                 .font(.system(.caption, weight: .semibold))
@@ -665,7 +670,7 @@ struct SessionView: View {
                         Text("Run Task")
                             .font(.system(.subheadline, weight: .medium))
                     }
-                    .foregroundStyle(OxcerTheme.textPrimary)
+                    .foregroundStyle(OxcerTheme.onAccent)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
                     .background(
@@ -891,14 +896,14 @@ struct TaskInputBar: View {
                 if viewModel.isRunning {
                     ProgressView()
                         .scaleEffect(0.8)
-                        .tint(OxcerTheme.textPrimary)
+                        .tint(OxcerTheme.onAccent)
                 } else {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.system(.title3))
                 }
             }
             .buttonStyle(BouncyButtonStyle())
-            .foregroundStyle(OxcerTheme.textPrimary)
+            .foregroundStyle(OxcerTheme.onAccent)
             .frame(width: 36, height: 36)
             .background(
                 Circle()
@@ -1066,6 +1071,9 @@ struct TimelineEventRow: View {
 /// - Introduce additional windows/scenes (e.g., settings, inspector) that also observe AppViewModel.
 struct ContentView: View {
     @StateObject private var viewModel = AppViewModel()
+    @Environment(\.colorScheme) private var colorScheme
+    /// View-level guard so initial load runs at most once even if .task is re-invoked (avoids infinite loop).
+    @State private var initialLoadStarted = false
 
     var body: some View {
         HStack(spacing: 0) {
@@ -1086,12 +1094,10 @@ struct ContentView: View {
             }
         }
         .background(OxcerTheme.backgroundDark)
-        .task {
-            // Set app config dir once; then run initial load at most once (guards against repeated .task/onAppear and OOM).
-            if viewModel.appConfigDir == nil {
-                viewModel.appConfigDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
-                    .appendingPathComponent("Oxcer").path
-            }
+        .animation(.easeInOut(duration: 0.35), value: colorScheme)
+        .task(id: "initialLoad") {
+            guard !initialLoadStarted else { return }
+            initialLoadStarted = true
             await viewModel.loadInitialDataIfNeeded()
         }
     }
