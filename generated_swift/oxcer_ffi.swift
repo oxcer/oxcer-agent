@@ -415,22 +415,6 @@ fileprivate struct FfiConverterUInt32: FfiConverterPrimitive {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-fileprivate struct FfiConverterInt32: FfiConverterPrimitive {
-    typealias FfiType = Int32
-    typealias SwiftType = Int32
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Int32 {
-        return try lift(readInt(&buf))
-    }
-
-    public static func write(_ value: Int32, into buf: inout [UInt8]) {
-        writeInt(&buf, lower(value))
-    }
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
 fileprivate struct FfiConverterUInt64: FfiConverterPrimitive {
     typealias FfiType = UInt64
     typealias SwiftType = UInt64
@@ -1568,6 +1552,31 @@ fileprivate struct FfiConverterSequenceTypeSessionSummary: FfiConverterRustBuffe
         return seq
     }
 }
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeWorkspaceInfo: FfiConverterRustBuffer {
+    typealias SwiftType = [WorkspaceInfo]
+
+    public static func write(_ value: [WorkspaceInfo], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeWorkspaceInfo.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [WorkspaceInfo] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [WorkspaceInfo]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeWorkspaceInfo.read(from: &buf))
+        }
+        return seq
+    }
+}
 private let UNIFFI_RUST_FUTURE_POLL_READY: Int8 = 0
 private let UNIFFI_RUST_FUTURE_POLL_MAYBE_READY: Int8 = 1
 
@@ -1668,8 +1677,8 @@ public func listSessions(appConfigDir: String)throws  -> [SessionSummary] {
 /**
  * List workspaces from config.json in the given app config directory.
  */
-public func listWorkspaces(appConfigDir: String) -> Int32 {
-    return try!  FfiConverterInt32.lift(try! rustCall() {
+public func listWorkspaces(appConfigDir: String)throws  -> [WorkspaceInfo] {
+    return try  FfiConverterSequenceTypeWorkspaceInfo.lift(try rustCallWithError(FfiConverterTypeOxcerError.lift) {
     uniffi_oxcer_ffi_fn_func_list_workspaces(
         FfiConverterString.lower(appConfigDir),$0
     )
@@ -1744,7 +1753,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_oxcer_ffi_checksum_func_list_sessions() != 38949) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_oxcer_ffi_checksum_func_list_workspaces() != 22435) {
+    if (uniffi_oxcer_ffi_checksum_func_list_workspaces() != 8768) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_oxcer_ffi_checksum_func_load_session_log() != 14285) {

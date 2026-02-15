@@ -5,9 +5,16 @@
 //! - `logs/{session_id}.jsonl` (per-session trace),
 //! - `logs/telemetry.jsonl` (rolling, 30-day/10MB retention).
 //!
+//! **Memory bounds:** To prevent runaway memory usage when logs grow large:
+//! - `load_session_log_from_dir` returns at most `MAX_EVENTS_PER_SESSION_LOG` (2000) events,
+//!   preferring the latest (tail), via line-by-line streaming.
+//! - `list_sessions_from_dir` skips files > `MAX_SESSION_FILE_BYTES_FOR_SUMMARY` (50 MB);
+//!   for files between ~768 KB and 50 MB, reads only head + tail chunks.
+//!
 //! **Security:** Callers must pass only scrubbed content in `details` (e.g. via
 //! Sprint 7 prompt scrubbing). Raw secrets must never be written to these logs.
 
+use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 
@@ -17,6 +24,16 @@ const LOG_DIR: &str = "logs";
 const TELEMETRY_FILENAME: &str = "telemetry.jsonl";
 const MAX_AGE_DAYS: i64 = 30;
 const MAX_BYTES: u64 = 10 * 1024 * 1024; // 10MB
+
+/// Maximum number of events returned when loading a session log.
+/// Prevents unbounded memory growth when session files grow large (e.g. long-running sessions).
+/// Matches Swift SessionDetailViewModel maxSessionEventsCount.
+const MAX_EVENTS_PER_SESSION_LOG: usize = 2000;
+
+/// Maximum file size (bytes) we will read when building session summaries.
+/// Files larger than this are skipped to avoid multi-GB allocations during list_sessions.
+/// 50 MB is enough for ~50k–100k typical JSONL events; summaries are approximate for huge files anyway.
+const MAX_SESSION_FILE_BYTES_FOR_SUMMARY: u64 = 50 * 1024 * 1024;
 
 /// Metrics attached to a telemetry event (tokens, latency, cost).
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -203,7 +220,20 @@ pub fn rotate_retention(
     Ok(())
 }
 
+/// Maximum bytes to read from the head of a session file when building a summary.
+/// Used for files larger than this; we read head + tail only to bound memory.
+const SUMMARY_HEAD_READ_BYTES: u64 = 256 * 1024; // 256 KB
+
+/// Maximum bytes to read from the tail of a session file when building a summary.
+const SUMMARY_TAIL_READ_BYTES: u64 = 512 * 1024; // 512 KB
+
 /// List recent sessions from app_config_dir/logs/*.jsonl (excludes telemetry.jsonl).
+///
+/// Per-file memory is bounded:
+/// - Files larger than `MAX_SESSION_FILE_BYTES_FOR_SUMMARY` (50 MB) are skipped with a log.
+/// - Files larger than `SUMMARY_HEAD_READ_BYTES + SUMMARY_TAIL_READ_BYTES` are read partially
+///   (head + tail only); the resulting `SessionSummary` is approximate.
+/// - Smaller files are read in full for accurate summaries.
 pub fn list_sessions_from_dir(app_config_dir: &Path) -> Result<Vec<SessionSummary>, String> {
     let logs_dir = app_config_dir.join(LOG_DIR);
     if !logs_dir.is_dir() {
@@ -226,23 +256,34 @@ pub fn list_sessions_from_dir(app_config_dir: &Path) -> Result<Vec<SessionSummar
             .and_then(|s| s.to_str())
             .unwrap_or("")
             .to_string();
-        let content = match std::fs::read_to_string(&path) {
-            Ok(c) => c,
+
+        let file_size = match std::fs::metadata(&path) {
+            Ok(m) => m.len(),
             Err(_) => continue,
         };
-        let lines: Vec<&str> = content.lines().filter(|s| !s.is_empty()).collect();
-        if lines.is_empty() {
+
+        if file_size > MAX_SESSION_FILE_BYTES_FOR_SUMMARY {
+            eprintln!(
+                "[telemetry] list_sessions: skipping {} ({} MB > {} MB limit)",
+                path.display(),
+                file_size / (1024 * 1024),
+                MAX_SESSION_FILE_BYTES_FOR_SUMMARY / (1024 * 1024)
+            );
             continue;
         }
-        let mut events = Vec::with_capacity(lines.len());
-        for line in &lines {
-            if let Ok(ev) = serde_json::from_str::<LogEvent>(line) {
-                events.push(ev);
+
+        let events = match read_session_events_bounded(&path, file_size) {
+            Ok(ev) => ev,
+            Err(e) => {
+                eprintln!("[telemetry] list_sessions: read {:?}: {}", path, e);
+                continue;
             }
-        }
+        };
+
         if events.is_empty() {
             continue;
         }
+
         let start_timestamp = events.first().map(|e| e.timestamp.clone()).unwrap_or_default();
         let end_timestamp = events.last().map(|e| e.timestamp.clone()).unwrap_or_default();
         let total_cost_usd: f64 = events.iter().filter_map(|e| e.metrics.cost_usd).sum();
@@ -294,7 +335,64 @@ pub fn list_sessions_from_dir(app_config_dir: &Path) -> Result<Vec<SessionSummar
     Ok(summaries)
 }
 
+/// Read events from a session log file with bounded memory.
+/// - Small files: read fully.
+/// - Large files: read head + tail only (summary is approximate).
+fn read_session_events_bounded(path: &Path, file_size: u64) -> Result<Vec<LogEvent>, String> {
+    let threshold = SUMMARY_HEAD_READ_BYTES + SUMMARY_TAIL_READ_BYTES;
+    if file_size <= threshold {
+        read_session_events_full(path)
+    } else {
+        read_session_events_head_tail(path, file_size)
+    }
+}
+
+/// Read the entire session file (small files only).
+fn read_session_events_full(path: &Path) -> Result<Vec<LogEvent>, String> {
+    let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    parse_jsonl_lines(&content)
+}
+
+/// Read only head + tail of a large session file.
+/// The first line of the tail chunk may be a fragment (cut mid-line); parse_jsonl_lines skips it.
+fn read_session_events_head_tail(path: &Path, file_size: u64) -> Result<Vec<LogEvent>, String> {
+    use std::io::{Read, Seek, SeekFrom};
+
+    let mut f = std::fs::File::open(path).map_err(|e| e.to_string())?;
+
+    let mut head_buf = vec![0u8; SUMMARY_HEAD_READ_BYTES as usize];
+    let head_len = f.read(&mut head_buf).map_err(|e| e.to_string())?;
+    head_buf.truncate(head_len);
+    let head_str = String::from_utf8_lossy(&head_buf);
+
+    let tail_start = file_size.saturating_sub(SUMMARY_TAIL_READ_BYTES);
+    f.seek(SeekFrom::Start(tail_start)).map_err(|e| e.to_string())?;
+    let mut tail_buf = vec![0u8; (file_size - tail_start) as usize];
+    f.read_exact(&mut tail_buf).map_err(|e| e.to_string())?;
+    let tail_str = String::from_utf8_lossy(&tail_buf);
+
+    let mut head_events = parse_jsonl_lines(&head_str)?;
+    let tail_events = parse_jsonl_lines(&tail_str)?;
+    head_events.extend(tail_events);
+    Ok(head_events)
+}
+
+/// Parse non-empty lines as LogEvent, skipping malformed lines.
+fn parse_jsonl_lines(content: &str) -> Result<Vec<LogEvent>, String> {
+    let mut events = Vec::new();
+    for line in content.lines().filter(|s| !s.trim().is_empty()) {
+        if let Ok(ev) = serde_json::from_str::<LogEvent>(line.trim()) {
+            events.push(ev);
+        }
+    }
+    Ok(events)
+}
+
 /// Load one session's log events from app_config_dir/logs/{session_id}.jsonl.
+///
+/// Returns at most `MAX_EVENTS_PER_SESSION_LOG` (2000) events, preferring the **latest** (tail).
+/// Uses line-by-line streaming via `BufReader` so the full file is never loaded into memory.
+/// Corrupted or partially written files: skips bad lines, returns best-effort parsed events.
 pub fn load_session_log_from_dir(
     app_config_dir: &Path,
     session_id: &str,
@@ -302,14 +400,40 @@ pub fn load_session_log_from_dir(
     let safe = sanitize_session_id_for_filename(session_id);
     let name = if safe.is_empty() { "default" } else { &safe };
     let path = app_config_dir.join(LOG_DIR).join(format!("{}.jsonl", name));
-    let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    let mut events = Vec::new();
-    for line in content.lines().filter(|s| !s.is_empty()) {
-        if let Ok(ev) = serde_json::from_str::<LogEvent>(line) {
-            events.push(ev);
+    let file = std::fs::File::open(&path).map_err(|e| format!("open {:?}: {}", path, e))?;
+    let reader = BufReader::new(file);
+
+    // Ring buffer: we keep only the last MAX_EVENTS events. Peak memory = O(MAX_EVENTS).
+    let mut tail: VecDeque<LogEvent> = VecDeque::with_capacity(MAX_EVENTS_PER_SESSION_LOG + 1);
+    let mut skipped_lines: u32 = 0;
+
+    for line in reader.lines() {
+        let line = line.map_err(|e| format!("read {:?}: {}", path, e))?;
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        match serde_json::from_str::<LogEvent>(line) {
+            Ok(ev) => {
+                tail.push_back(ev);
+                if tail.len() > MAX_EVENTS_PER_SESSION_LOG {
+                    tail.pop_front();
+                }
+            }
+            Err(_) => {
+                skipped_lines += 1;
+            }
         }
     }
-    Ok(events)
+
+    if skipped_lines > 0 {
+        eprintln!(
+            "[telemetry] load_session_log {:?}: skipped {} malformed line(s)",
+            path, skipped_lines
+        );
+    }
+
+    Ok(tail.into_iter().collect())
 }
 
 #[cfg(test)]
@@ -433,6 +557,117 @@ mod tests {
             let ev: LogEvent = serde_json::from_str(line).unwrap();
             assert_eq!(ev.details.get("index").and_then(|v| v.as_u64()), Some(i as u64));
         }
+    }
+
+    /// load_session_log returns at most MAX_EVENTS and prefers the latest (tail).
+    #[test]
+    fn load_session_log_caps_and_returns_tail() {
+        let tmp = tempfile::tempdir().unwrap();
+        let app_config = tmp.path();
+        std::fs::create_dir_all(app_config.join(LOG_DIR)).unwrap();
+
+        // Write 2500 events
+        for i in 0..2500 {
+            log_event(
+                app_config,
+                "cap-test",
+                None,
+                "agent",
+                "test",
+                "step",
+                Some("ok"),
+                LogMetrics::default(),
+                serde_json::json!({ "index": i }),
+            )
+            .unwrap();
+        }
+
+        let events = load_session_log_from_dir(app_config, "cap-test").unwrap();
+        assert_eq!(
+            events.len(),
+            MAX_EVENTS_PER_SESSION_LOG,
+            "should return at most {} events",
+            MAX_EVENTS_PER_SESSION_LOG
+        );
+        // Should be the latest 2000 (indices 500..2500)
+        let first_idx = events.first().and_then(|e| e.details.get("index").and_then(|v| v.as_u64()));
+        let last_idx = events.last().and_then(|e| e.details.get("index").and_then(|v| v.as_u64()));
+        assert_eq!(first_idx, Some(500), "first event should be index 500 (tail)");
+        assert_eq!(last_idx, Some(2499), "last event should be index 2499");
+    }
+
+    /// load_session_log skips malformed lines and returns best-effort.
+    #[test]
+    fn load_session_log_skips_malformed_lines() {
+        let tmp = tempfile::tempdir().unwrap();
+        let app_config = tmp.path();
+        std::fs::create_dir_all(app_config.join(LOG_DIR)).unwrap();
+
+        let path = session_log_path(app_config, "malformed-test");
+        let valid = r#"{"timestamp":"2024-01-15T00:00:00Z","session_id":"x","caller":"x","component":"x","action":"x","metrics":{},"details":{}}
+{ not valid json }
+{"timestamp":"2024-01-15T00:00:01Z","session_id":"x","caller":"x","component":"x","action":"x","metrics":{},"details":{}}
+"#;
+        std::fs::write(&path, valid).unwrap();
+
+        let events = load_session_log_from_dir(app_config, "malformed-test").unwrap();
+        assert_eq!(events.len(), 2, "should have 2 valid events, skip malformed line");
+    }
+
+    /// list_sessions reads head+tail for files larger than SUMMARY_HEAD+TAIL threshold.
+    #[test]
+    fn list_sessions_head_tail_for_large_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let app_config = tmp.path();
+        std::fs::create_dir_all(app_config.join(LOG_DIR)).unwrap();
+
+        // Create a file > SUMMARY_HEAD_READ_BYTES + SUMMARY_TAIL_READ_BYTES (~768 KB)
+        let path = session_log_path(app_config, "large-session");
+        let padding: String = "x".repeat(500); // ~500 bytes per event
+        let mut lines = Vec::new();
+        for i in 0..2000 {
+            let ev = serde_json::json!({
+                "timestamp": "2024-01-15T00:00:00Z",
+                "session_id": "large-session",
+                "caller": "test",
+                "component": "test",
+                "action": "step",
+                "metrics": {},
+                "details": { "i": i, "pad": padding }
+            });
+            lines.push(serde_json::to_string(&ev).unwrap());
+        }
+        std::fs::write(&path, lines.join("\n")).unwrap();
+
+        let summaries = list_sessions_from_dir(app_config).unwrap();
+        let s = summaries.iter().find(|s| s.session_id == "large-session").unwrap();
+        assert!(!s.start_timestamp.is_empty());
+        assert!(!s.end_timestamp.is_empty());
+    }
+
+    /// list_sessions returns summaries for small session files.
+    #[test]
+    fn list_sessions_bounded_read_small_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let app_config = tmp.path();
+        std::fs::create_dir_all(app_config.join(LOG_DIR)).unwrap();
+
+        log_event(
+            app_config,
+            "list-bounded",
+            None,
+            "agent",
+            "orchestrator",
+            "session_complete",
+            Some("success"),
+            LogMetrics::default(),
+            serde_json::json!({ "outcome": "success" }),
+        )
+        .unwrap();
+
+        let summaries = list_sessions_from_dir(app_config).unwrap();
+        let s = summaries.iter().find(|s| s.session_id == "list-bounded").unwrap();
+        assert!(s.success);
     }
 
     /// Policy decision log shape: rule_id and decision in details (security metrics).

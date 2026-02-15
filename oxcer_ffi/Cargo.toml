@@ -12,15 +12,18 @@ name = "oxcer_ffi"
 oxcer-core = { path = "../oxcer-core" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+tokio = { version = "1", features = ["rt-multi-thread", "fs", "io-util"] }
 uuid = { version = "1.8", features = ["v4"] }
 dirs-next = "2.0"
-uniffi = { version = "0.28", features = ["cli"] }
+uniffi = { version = "0.28", features = ["cli", "tokio"] }
+anyhow = "1.0"
 
 [build-dependencies]
 uniffi = { version = "0.28", features = ["build"] }
 
 [dev-dependencies]
 tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt"] }
 libc = "0.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

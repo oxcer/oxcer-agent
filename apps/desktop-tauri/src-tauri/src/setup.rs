@@ -16,6 +16,7 @@ use std::sync::Arc;
 
 use tauri::AppHandle;
 use tauri::Emitter;
+use tauri::Manager;
 
 use oxcer_core::llm::{ensure_model_present, DownloadProgress};
 
@@ -73,14 +74,14 @@ pub struct SetupStatus {
 
 /// Get setup status for the wizard: whether local model is present, setup complete, and current profile.
 pub fn get_setup_status(app: &AppHandle) -> Result<SetupStatus, String> {
-    let app_config_dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    let app_config_dir = app.path().app_config_dir().map_err(|e: tauri::Error| e.to_string())?;
     let models_dir = app_config_dir.join("models");
     let needs_local_model = !local_model_present(&models_dir);
 
     let state = app
         .try_state::<std::sync::Mutex<AppSettings>>()
         .ok_or_else(|| "Settings not initialized".to_string())?;
-    let settings = state.lock().map_err(|e| e.to_string())?;
+    let settings = state.lock().map_err(|e: std::sync::PoisonError<std::sync::MutexGuard<'_, AppSettings>>| e.to_string())?;
     let setup_complete = settings.llm.setup_complete;
     let profile = settings.llm.profile.clone();
 
@@ -99,7 +100,7 @@ pub fn get_setup_status(app: &AppHandle) -> Result<SetupStatus, String> {
 /// - `llm_download_progress` with `{ file_name, bytes_downloaded, total_bytes }`
 /// - `llm_download_complete` with `{ success: bool, error?: string }`
 pub fn start_model_download(app: AppHandle) -> Result<(), String> {
-    let app_config_dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    let app_config_dir = app.path().app_config_dir().map_err(|e: tauri::Error| e.to_string())?;
     let config_dir = ensure_llm_config_dir(&app_config_dir)?;
     let models_dir = app_config_dir.join("models");
     std::fs::create_dir_all(&models_dir).map_err(|e| format!("Failed to create models dir: {}", e))?;
@@ -140,12 +141,12 @@ pub fn start_model_download(app: AppHandle) -> Result<(), String> {
 
 /// Mark setup as complete and persist the chosen profile (local-only or hybrid).
 pub fn complete_setup(app: &AppHandle, profile: String) -> Result<(), String> {
-    let app_config_dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    let app_config_dir = app.path().app_config_dir().map_err(|e: tauri::Error| e.to_string())?;
     let state = app
         .try_state::<std::sync::Mutex<AppSettings>>()
         .ok_or_else(|| "Settings not initialized".to_string())?;
 
-    let mut guard = state.lock().map_err(|e| e.to_string())?;
+    let mut guard = state.lock().map_err(|e: std::sync::PoisonError<std::sync::MutexGuard<'_, AppSettings>>| e.to_string())?;
     guard.llm.setup_complete = true;
     guard.llm.profile = if profile.is_empty() {
         "local-only".to_string()

@@ -3,9 +3,9 @@
   "productName": "Oxcer",
   "version": "0.1.0",
   "build": {
-    "beforeDevCommand": "pnpm build",
-    "beforeBuildCommand": "pnpm build",
-    "frontendDist": "../dist"
+    "beforeDevCommand": "",
+    "beforeBuildCommand": "",
+    "frontendDist": "./empty-dist"
   },
   "app": {
     "windows": [

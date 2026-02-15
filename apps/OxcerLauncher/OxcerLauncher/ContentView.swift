@@ -93,9 +93,13 @@ struct BouncyButtonStyle: ButtonStyle {
 }
 
 /// Shimmer modifier for skeleton loading states.
+/// Uses Task-driven animation (not repeatForever) so we can cancel when the view disappears.
+/// Pauses animation when app is in background to avoid idle allocation.
 struct ShimmerModifier: ViewModifier {
+    @Environment(\.scenePhase) private var scenePhase
     @State private var phase: CGFloat = -0.6
-    
+    @State private var animationTask: Task<Void, Never>?
+
     func body(content: Content) -> some View {
         content
             .overlay(
@@ -110,7 +114,7 @@ struct ShimmerModifier: ViewModifier {
                         startPoint: .top,
                         endPoint: .bottom
                     )
-                    
+
                     Rectangle()
                         .fill(gradient)
                         .rotationEffect(.degrees(20))
@@ -120,10 +124,33 @@ struct ShimmerModifier: ViewModifier {
             )
             .mask(content)
             .onAppear {
-                withAnimation(.linear(duration: 1.1).repeatForever(autoreverses: false)) {
-                    phase = 1.4
+                startAnimationIfActive()
+            }
+            .onDisappear {
+                animationTask?.cancel()
+                animationTask = nil
+            }
+            .onChange(of: scenePhase) { newPhase in
+                if newPhase != .active {
+                    animationTask?.cancel()
+                    animationTask = nil
+                } else {
+                    startAnimationIfActive()
                 }
             }
+    }
+
+    private func startAnimationIfActive() {
+        guard scenePhase == .active else { return }
+        animationTask = Task { @MainActor in
+            while !Task.isCancelled {
+                withAnimation(.linear(duration: 1.1)) { phase = 1.4 }
+                try? await Task.sleep(nanoseconds: 1_100_000_000)
+                guard !Task.isCancelled else { break }
+                phase = -0.6
+                try? await Task.sleep(nanoseconds: 50_000_000)
+            }
+        }
     }
 }
 
@@ -134,18 +161,15 @@ extension View {
     }
 }
 
-// MARK: - Identifiable for Table selection
+// MARK: - Message (for transactional chat display)
 
-extension SessionSummary: Identifiable {
-    public var id: String { sessionId }
+struct ChatMessage: Identifiable {
+    let id: UUID
+    let role: String // "user" | "assistant"
+    let content: String
 }
 
 // MARK: - Helpers
-
-private func shortSessionId(_ id: String) -> String {
-    if id.count <= 12 { return id }
-    return String(id.prefix(6)) + "…" + String(id.suffix(4))
-}
 
 private func formatTimestamp(_ iso: String) -> String {
     let formatter = ISO8601DateFormatter()
@@ -159,33 +183,64 @@ private func formatTimestamp(_ iso: String) -> String {
     return iso
 }
 
+// MARK: - Download Progress Throttling
+
+/// Throttles download progress callbacks to avoid flooding the main queue during large downloads.
+/// Forwards immediately when progress >= 1.0 (completion). Otherwise limits to ~4 updates/sec.
+private final class DownloadProgressThrottler {
+    private let lock = NSLock()
+    private var lastUpdateTime: CFAbsoluteTime = 0
+    private let interval: CFAbsoluteTime
+    private let handler: (Double, String) -> Void
+
+    init(interval: TimeInterval = 0.25, handler: @escaping (Double, String) -> Void) {
+        self.interval = interval
+        self.handler = handler
+    }
+
+    func forward(progress: Double, message: String) {
+        lock.lock()
+        let now = CFAbsoluteTimeGetCurrent()
+        let shouldForward = progress >= 1.0 || (now - lastUpdateTime) >= interval
+        if shouldForward {
+            lastUpdateTime = now
+        }
+        lock.unlock()
+        if shouldForward {
+            handler(progress, message)
+        }
+    }
+}
+
 // MARK: - App View Model (single source of truth)
 
 /// AppViewModel
-/// Implemented:
-/// - Process/window-scoped composition root: created once per window scene and held for the life of the SwiftUI hierarchy.
-/// - Owns the single source of truth for workspaces, current task, results, recent sessions, and logs.
-/// - Owns the OxcerBackend service and exposes feature-specific view models (sidebar, session, task input) via computed properties.
-/// TODO:
-/// - Extract the raw state into a separate AppStore struct if the app grows significantly.
+/// App-lifetime state only. Heavy per-session data lives in SessionDetailViewModel.
+/// Only one SessionDetailViewModel is alive at a time; switching sessions releases the previous one.
 @MainActor
 final class AppViewModel: ObservableObject {
-    // Workspace + task state
+    // Workspace + task state (app lifetime)
     @Published var workspaces: [WorkspaceInfo] = []
     @Published var selectedWorkspaceId: String?
-    @Published var taskDescription: String = ""
-    @Published var resultText: String = ""
-    @Published var errorMessage: String?
     @Published var isTaskRunning: Bool = false
 
-    // Sessions + logs
-    @Published var sessions: [SessionSummary] = []
-    @Published var selectedSessionId: String?
-    @Published var sessionEvents: [LogEvent] = []
+    /// Lightweight session list for sidebar (app lifetime).
+    /// Capped at maxSessionsCount (100); loadSessions() not called per agent response.
+    @Published var sessions: [SidebarSessionItem] = []
     @Published var isSessionsLoading: Bool = false
+
+    /// Active session detail. Only ONE alive at a time. nil = welcome/empty state.
+    @Published var activeSessionDetail: SessionDetailViewModel?
 
     // App config directory for FFI (set by root view onAppear)
     @Published var appConfigDir: String?
+
+    /// Model download status for First Run installation wizard.
+    @Published var isModelReady: Bool = false
+    @Published var downloadProgress: Double = 0.0
+    @Published var downloadMessage: String = "Initializing..."
+    @Published var loadError: String?
+    @Published var isRetrying: Bool = false
 
     // Backend service abstraction over OxcerFFI
     private let backend: OxcerBackend
@@ -193,13 +248,28 @@ final class AppViewModel: ObservableObject {
     /// Ensures we only run the initial workspace + session load once (avoids OOM from repeated onAppear/.task).
     private var hasPerformedInitialLoad = false
 
-    /// Max number of sessions to keep in memory; avoids OOM with large telemetry dirs.
-    private let maxSessionsCount = 500
-    /// Max number of log events per session to keep in memory.
-    private let maxSessionEventsCount = 2000
+    /// 🔒 GLOBAL LOCK: Persists even if AppViewModel is recreated (e.g. by parent view updates).
+    private static var hasAttemptedInit = false
+    private static let initLock = NSLock()
+    private var isCheckingModel = false
+
+    /// Max number of sessions to keep in memory (lightweight SidebarSessionItem only).
+    /// Aligns with Rust list_sessions_from_dir truncation (100); avoids holding more than backend returns.
+    private let maxSessionsCount = 100
+
+    /// Cancellable task for sessions list load.
+    private var loadSessionsTask: Task<Void, Never>?
+
+    /// Debug: counts loadWorkspaces/loadSessions calls to detect runaway loops.
+    private var callCount = 0
+
+    /// Idempotency guard: limits initial workspace/session load to exactly once.
+    private var isLoadingInitialData = false
 
     init(backend: OxcerBackend = DefaultOxcerBackend()) {
         self.backend = backend
+        // Warm-up: first FFI call triggers dylib load and static runtime init (pays 17GB VMS cost upfront).
+        // _ = backend.ping()
         // Set default once at init so the view's .task never writes @Published (avoids re-render → .task re-run loop).
         self.appConfigDir = Self.defaultAppConfigDir()
     }
@@ -209,7 +279,58 @@ final class AppViewModel: ObservableObject {
             .appendingPathComponent("Oxcer").path
     }
 
+    /// Model preparation + initial data load. Call from .task or Retry button.
+    /// Safe to retry after failure; idempotent when already ready.
+    /// isModelReady flips to true only after ensureLocalModel confirms file integrity (lazy engine load).
+    func checkAndPrepareModel() async {
+        if isModelReady { return }
+
+        AppViewModel.initLock.lock()
+        if AppViewModel.hasAttemptedInit {
+            AppViewModel.initLock.unlock()
+            return
+        }
+        AppViewModel.initLock.unlock()
+
+        if isCheckingModel { return }
+        isCheckingModel = true
+        defer { isCheckingModel = false }
+
+        loadError = nil
+        isRetrying = true
+        downloadMessage = "Initializing..."
+
+        guard let dir = appConfigDir else {
+            loadError = "Configuration directory not available."
+            isRetrying = false
+            return
+        }
+
+        do {
+            let throttler = DownloadProgressThrottler(interval: 0.25) { [weak self] progress, message in
+                DispatchQueue.main.async {
+                    self?.downloadProgress = progress
+                    self?.downloadMessage = message
+                }
+            }
+            try await backend.ensureLocalModel(appConfigDir: dir, onProgress: throttler.forward)
+            isModelReady = true
+            isRetrying = false
+            AppViewModel.hasAttemptedInit = true
+
+            if !hasPerformedInitialLoad {
+                hasPerformedInitialLoad = true
+                await loadWorkspaces()
+            }
+        } catch {
+            loadError = error.localizedDescription
+            downloadMessage = "Critical error during setup."
+            isRetrying = false
+        }
+    }
+
     /// Call once when the root view appears. Loads workspaces and sessions only the first time.
+    /// Prefer checkAndPrepareModel() from .task to benefit from the strict guard against re-entry.
     func loadInitialDataIfNeeded() async {
         guard appConfigDir != nil else { return }
         guard !hasPerformedInitialLoad else { return }
@@ -218,130 +339,87 @@ final class AppViewModel: ObservableObject {
         await loadSessions()
     }
 
-    // MARK: - Feature view models (unidirectional data flow)
-
-    /// Sidebar-specific view model constructed from the single source of truth.
-    var sidebarViewModel: SidebarViewModel {
-        SidebarViewModel(
-            workspaces: workspaces,
-            selectedWorkspaceId: selectedWorkspaceId,
-            sessions: sessions,
-            selectedSessionId: selectedSessionId,
-            isSessionsLoading: isSessionsLoading,
-            selectWorkspace: { [weak self] id in
-                // Intent: user selected a workspace in the sidebar.
-                self?.selectedWorkspaceId = id
-            },
-            refreshSessions: { [weak self] in
-                guard let self else { return }
-                Task { await self.loadSessions() }
-            },
-            selectSession: { [weak self] id in
-                guard let self else { return }
-                Task { await self.loadSessionLog(sessionId: id) }
-            }
-        )
+    /// Start new chat: release previous SessionDetailViewModel (frees messages + sessionEvents).
+    func startNewChat() {
+        activeSessionDetail?.cancelLoad()
+        activeSessionDetail = nil
     }
 
-    /// Session (main panel) view model derived from root state.
-    var sessionViewModel: SessionViewModel {
-        let currentName: String
-        if let id = selectedWorkspaceId,
-           let workspace = workspaces.first(where: { $0.id == id }) {
-            currentName = workspace.name
-        } else {
-            currentName = "No workspace selected"
+    /// Send message: ensure we have an active session, append user message, run agent.
+    func sendMessage(_ text: String) {
+        print("[UI] SEND triggered at \(Date()) with prompt length: \(text.count)")
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        if activeSessionDetail == nil {
+            activeSessionDetail = SessionDetailViewModel(sessionId: nil)
         }
-        let status: TaskStatus
-        if isTaskRunning {
-            status = .running
-        } else if !resultText.isEmpty || errorMessage != nil {
-            status = .completed
-        } else {
-            status = .idle
-        }
-        return SessionViewModel(
-            currentWorkspaceName: currentName,
-            status: status,
-            taskDescription: taskDescription,
-            resultText: resultText,
-            errorMessage: errorMessage,
-            sessionEvents: sessionEvents,
-            runTask: { [weak self] in
-                guard let self else { return }
-                Task { await self.runAgentRequest() }
-            }
-        )
+        guard let detail = activeSessionDetail else { return }
+        detail.appendMessage(ChatMessage(id: UUID(), role: "user", content: trimmed))
+        Task { await runAgentRequest(taskText: trimmed) }
     }
 
-    /// Task-input (bottom bar) view model, exposing a binding to the single taskDescription source.
-    var taskInputViewModel: TaskInputViewModel {
-        TaskInputViewModel(
-            taskDescription: Binding(
-                get: { self.taskDescription },
-                set: { self.taskDescription = $0 }
-            ),
-            isRunning: isTaskRunning,
-            runTask: { [weak self] in
-                guard let self else { return }
-                Task { await self.runAgentRequest() }
-            }
-        )
+    /// Explicit user-initiated refresh. Cancels any in-flight load and reloads the session list.
+    /// Call from Refresh button; NOT called automatically after agent responses.
+    func refreshSessions() {
+        loadSessionsTask?.cancel()
+        loadSessionsTask = Task { await loadSessions() }
+    }
+
+    /// Select session: release previous, create new SessionDetailViewModel, load its log.
+    func selectSession(_ sessionId: String) {
+        activeSessionDetail?.cancelLoad()
+        activeSessionDetail = nil
+        let detail = SessionDetailViewModel(sessionId: sessionId)
+        activeSessionDetail = detail
+        detail.loadSessionLog(sessionId: sessionId, appConfigDir: appConfigDir, backend: backend)
     }
 
     // MARK: - Data loading (FFI via backend service)
 
-    /// Implemented: loads workspaces from Rust via OxcerBackend.listWorkspaces, preserves original behavior.
+    /// Loads workspaces from backend. Hidden Singleton: auto-selects first workspace when present,
+    /// then loads sessions. Rest of app implicitly uses selectedWorkspaceId.
+    /// Idempotency: runs at most once per app launch (isLoadingInitialData guard).
+    /// ISOLATION: smoke test body — FFI returns Int32 (42).
     func loadWorkspaces() async {
-        guard let dir = appConfigDir else { return }
         do {
-            let list = try await backend.listWorkspaces(appConfigDir: dir)
-            workspaces = list
-            if selectedWorkspaceId == nil, let first = list.first {
-                selectedWorkspaceId = first.id
-            }
+            let result = try await backend.listWorkspaces(appConfigDir: "")
+            print("FFI SMOKE TEST SUCCESS: \(result)")
         } catch {
-            errorMessage = error.localizedDescription
+            // Non-chat error; could log or show in UI
         }
     }
 
-    /// Implemented: loads recent sessions list from Rust via OxcerBackend.listSessions.
-    /// Capped to maxSessionsCount to avoid OOM with large telemetry dirs.
+    /// Loads recent sessions from backend; maps to lightweight SidebarSessionItem.
+    /// Invoked: (1) from loadWorkspaces during initial load, (2) explicit Refresh, (3) after first response in new chat.
+    /// During initial load, called only from loadWorkspaces (when isLoadingInitialData is true).
     func loadSessions() async {
+        callCount += 1
+        print("[FFI CALL DEBUG] \(#function) called \(callCount) times")
         isSessionsLoading = true
-        guard let dir = appConfigDir else { isSessionsLoading = false; return }
+        defer { isSessionsLoading = false }
+        guard let dir = appConfigDir else { return }
         do {
             let list = try await backend.listSessions(appConfigDir: dir)
-            sessions = Array(list.prefix(maxSessionsCount))
-            isSessionsLoading = false
+            guard !Task.isCancelled else { return }
+            sessions = Array(list.prefix(maxSessionsCount).map { SidebarSessionItem.from($0) })
         } catch {
-            errorMessage = error.localizedDescription
-            isSessionsLoading = false
+            // Ignore cancellation; defer will reset isSessionsLoading
         }
     }
 
-    /// Implemented: loads one session's log events via OxcerBackend.loadSessionLog.
-    /// Capped to maxSessionEventsCount to avoid OOM for very long logs.
-    func loadSessionLog(sessionId: String) async {
-        guard let dir = appConfigDir else { return }
-        selectedSessionId = sessionId
-        do {
-            let events = try await backend.loadSessionLog(sessionId: sessionId, appConfigDir: dir)
-            sessionEvents = Array(events.prefix(maxSessionEventsCount))
-        } catch {
-            sessionEvents = []
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    /// Implemented: runs the agent request via OxcerBackend.runAgentTask, same payload as before.
-    /// The `taskDescription` property here is the single source bound to TaskInputViewModel.
-    func runAgentRequest() async {
-        let task = taskDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+    /// Runs the agent request. Appends response to activeSessionDetail.
+    /// IMPORTANT: Does NOT call ensureLocalModel — model must already be ready (gated by checkAndPrepareModel + isModelReady).
+    ///
+    /// **Session list refresh:** Does NOT reload the full session list on every response.
+    /// - Refreshes only when this was a new chat (first response); backend creates the session on first request.
+    /// - For subsequent messages in the same chat: no refresh. User can use explicit Refresh to update.
+    func runAgentRequest(taskText: String) async {
+        let task = taskText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !task.isEmpty else { return }
         isTaskRunning = true
-        errorMessage = nil
-        resultText = ""
+
+        let wasNewChat = activeSessionDetail?.sessionId == nil
+
         let wsId = selectedWorkspaceId
         let wsRoot = workspaces.first(where: { $0.id == wsId })?.rootPath
         let context = TaskContext(workspaceId: wsId, selectedPaths: nil, riskHints: nil)
@@ -352,395 +430,241 @@ final class AppViewModel: ObservableObject {
             context: context,
             appConfigDir: appConfigDir
         )
+
         do {
             let response = try await backend.runAgentTask(payload: payload)
-            resultText = response.answer ?? ""
-            if let err = response.error, !err.isEmpty {
-                errorMessage = err
+            let answer = response.answer ?? ""
+            let errorText = response.error
+            if let detail = activeSessionDetail {
+                if let err = errorText, !err.isEmpty {
+                    detail.appendMessage(ChatMessage(id: UUID(), role: "assistant", content: "Error: \(err)"))
+                } else if !answer.isEmpty {
+                    detail.appendMessage(ChatMessage(id: UUID(), role: "assistant", content: answer))
+                }
             }
             isTaskRunning = false
-            await loadSessions()
+
+            // Refresh session list only after first response of a new chat (backend creates session then).
+            // Subsequent responses in the same chat do NOT trigger full telemetry scan.
+            if wasNewChat {
+                await loadSessions()
+            }
         } catch {
-            errorMessage = error.localizedDescription
-            resultText = ""
+            activeSessionDetail?.appendMessage(ChatMessage(id: UUID(), role: "assistant", content: "Error: \(error.localizedDescription)"))
             isTaskRunning = false
         }
     }
 }
 
-// MARK: - Feature view models (value types for SwiftUI)
-
-/// SidebarViewModel
-/// Implemented:
-/// - Feature-scoped, created on-demand from AppViewModel, does not outlive the window scene that owns AppViewModel.
-/// - Exposes read-only workspace/session lists and selection state, plus intent closures for user actions.
-/// - Does NOT talk to the backend directly; instead, it calls into AppViewModel via its intent closures.
-/// TODO:
-/// - Extend with additional sidebar sections (e.g., favorites, pinned sessions) without touching root logic.
-struct SidebarViewModel {
-    // Read-only data for the sidebar UI.
-    let workspaces: [WorkspaceInfo]
-    let selectedWorkspaceId: String?
-    let sessions: [SessionSummary]
-    let selectedSessionId: String?
-    let isSessionsLoading: Bool
-
-    // Intents from the sidebar into the app.
-    let selectWorkspace: (String?) -> Void
-    let refreshSessions: () -> Void
-    let selectSession: (String) -> Void
-}
-
-/// SessionViewModel
-/// Implemented:
-/// - Feature-scoped, derived entirely from AppViewModel state (read-only from the UI perspective).
-/// - Does not own or mutate any state directly; exposes a single runTask() intent.
-/// - Contains all data needed to render the main panel (current workspace, status, result, logs).
-/// TODO:
-/// - Add richer timeline structures (grouped events, filters) without coupling to FFI.
-struct SessionViewModel {
-    let currentWorkspaceName: String
-    let status: TaskStatus
-    let taskDescription: String
-    let resultText: String
-    let errorMessage: String?
-    let sessionEvents: [LogEvent]
-
-    let runTask: () -> Void
-}
-
-/// TaskInputViewModel
-/// Implemented:
-/// - Feature-scoped, owns a Binding into AppViewModel.taskDescription plus a runTask() intent.
-/// - Acts as the only writer for the task input from the UI side; the FFI payload reads the same string from AppViewModel.
-/// TODO:
-/// - Add support for additional metadata (e.g., risk hints, file selections) without breaking the input bar API.
-struct TaskInputViewModel {
-    @Binding var taskDescription: String
-    let isRunning: Bool
-    let runTask: () -> Void
-}
-
-// MARK: - Sidebar View
+// MARK: - Sidebar View (ChatGPT-style)
+// Receives data and closures directly to avoid computed view model re-creation.
 
 struct SidebarView: View {
-    let viewModel: SidebarViewModel
-    @Namespace private var selectionNamespace
-    
+    let sessions: [SidebarSessionItem]
+    let selectedSessionId: String?
+    let isSessionsLoading: Bool
+    let startNewChat: () -> Void
+    let refreshSessions: () -> Void
+    let selectSession: (String) -> Void
+
     var body: some View {
         VStack(spacing: 0) {
-            // App logo + name
-            HStack(spacing: 10) {
-                Image(systemName: "sparkles")
-                    .font(.title2)
-                    .foregroundStyle(OxcerTheme.accent)
-                Text("Oxcer")
-                    .font(.system(.title2, design: .rounded, weight: .semibold))
-                    .foregroundStyle(OxcerTheme.textPrimary)
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            
-            Divider()
-                .background(OxcerTheme.divider)
-            
-            ScrollView {
-                VStack(spacing: 0) {
-                    // Workspaces section
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Workspaces")
-                            .font(.system(.subheadline, weight: .medium))
-                            .foregroundStyle(OxcerTheme.textSecondary)
-                            .padding(.horizontal, 20)
-                            .padding(.top, 20)
-                            .padding(.bottom, 8)
-                        
-                        VStack(spacing: 4) {
-                            if viewModel.workspaces.isEmpty {
-                                Text("No workspaces")
-                                    .font(.caption)
-                                    .foregroundStyle(OxcerTheme.textTertiary)
-                                    .padding(.horizontal, 20)
-                                    .padding(.vertical, 8)
-                            } else {
-                                ForEach(viewModel.workspaces, id: \.id) { workspace in
-                                    WorkspaceRow(
-                                        workspace: workspace,
-                                        isSelected: viewModel.selectedWorkspaceId == workspace.id,
-                                        namespace: selectionNamespace
-                                    ) {
-                                        withAnimation(OxcerTheme.snappy) {
-                                            viewModel.selectWorkspace(workspace.id)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    
-                    // Recent Sessions section
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text("Recent Sessions")
-                                .font(.system(.subheadline, weight: .medium))
-                                .foregroundStyle(OxcerTheme.textSecondary)
-                            Spacer()
-                            Button {
-                                viewModel.refreshSessions()
-                            } label: {
-                                Image(systemName: "arrow.clockwise")
-                                    .font(.caption)
-                                    .foregroundStyle(OxcerTheme.textSecondary)
-                            }
-                            .buttonStyle(BouncyButtonStyle(scale: 0.9, dimmingOpacity: 0.25))
-                            .disabled(viewModel.isSessionsLoading)
-                        }
-                        .padding(.horizontal, 20)
-                        .padding(.top, 20)
-                        .padding(.bottom, 8)
-                        
-                        if viewModel.isSessionsLoading {
-                            // Skeleton loading state with shimmer effect while sessions load.
-                            VStack(spacing: 6) {
-                                ForEach(0..<3, id: \.self) { _ in
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .fill(OxcerTheme.cardBackground.opacity(0.6))
-                                        .frame(height: 28)
-                                        .shimmering()
-                                        .padding(.horizontal, 20)
-                                }
-                            }
-                            .padding(.vertical, 4)
-                        } else {
-                            if viewModel.sessions.isEmpty {
-                                Text("No sessions")
-                                    .font(.caption)
-                                    .foregroundStyle(OxcerTheme.textTertiary)
-                                    .padding(.horizontal, 20)
-                                    .padding(.vertical, 8)
-                            } else {
-                                ForEach(viewModel.sessions.prefix(5), id: \.id) { session in
-                                    SessionRow(
-                                        session: session,
-                                        isSelected: viewModel.selectedSessionId == session.sessionId
-                                    ) {
-                                        viewModel.selectSession(session.sessionId)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    
-                    Spacer(minLength: 20)
-                }
-            }
-        }
-        .frame(width: 240)
-        .background(OxcerTheme.sidebarBackground)
-        .safeAreaInset(edge: .bottom) {
+            // New Chat button (top)
             Button {
-                NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+                startNewChat()
             } label: {
                 HStack(spacing: 10) {
-                    Image(systemName: "gearshape")
-                        .font(.system(.body))
-                    Text("Settings")
-                        .font(.system(.body))
+                    Image(systemName: "square.and.pencil")
+                        .font(.system(.body, weight: .medium))
+                    Text("New Chat")
+                        .font(.system(.body, weight: .medium))
                 }
-                .foregroundStyle(OxcerTheme.textSecondary)
+                .foregroundStyle(OxcerTheme.textPrimary)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 10)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(OxcerTheme.accent.opacity(0.15))
+                )
                 .contentShape(Rectangle())
             }
             .buttonStyle(BouncyButtonStyle())
+            .padding(.horizontal, 12)
+            .padding(.top, 12)
+            .padding(.bottom, 8)
+
+            // Sessions list (scrollable)
+            if isSessionsLoading {
+                VStack(spacing: 6) {
+                    ForEach(0..<5, id: \.self) { _ in
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(OxcerTheme.cardBackground.opacity(0.6))
+                            .frame(height: 36)
+                            .shimmering()
+                            .padding(.horizontal, 12)
+                    }
+                }
+                .padding(.vertical, 8)
+            } else {
+                List(sessions, selection: Binding(
+                    get: { selectedSessionId.flatMap { Set([$0]) } ?? [] },
+                    set: { ids in
+                        if let id = ids.first {
+                            selectSession(id)
+                        } else {
+                            startNewChat()
+                        }
+                    }
+                )) { session in
+                    SessionListRow(session: session)
+                        .tag(session.id)
+                }
+                .listStyle(.sidebar)
+                .scrollContentBackground(.hidden)
+                .background(Color.clear)
+            }
+
+            Spacer(minLength: 0)
+
+            // Bottom: User profile + Settings
+            VStack(spacing: 0) {
+                Divider()
+                    .background(OxcerTheme.divider)
+
+                HStack(spacing: 12) {
+                    Circle()
+                        .fill(OxcerTheme.accent.opacity(0.3))
+                        .frame(width: 32, height: 32)
+                        .overlay(
+                            Text("O")
+                                .font(.system(.subheadline, weight: .semibold))
+                                .foregroundStyle(OxcerTheme.accent)
+                        )
+
+                    Text("Oxcer User")
+                        .font(.system(.subheadline))
+                        .foregroundStyle(OxcerTheme.textPrimary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+
+                    Spacer(minLength: 0)
+
+                    Button {
+                        refreshSessions()
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(.body))
+                            .foregroundStyle(OxcerTheme.textSecondary)
+                    }
+                    .buttonStyle(BouncyButtonStyle(scale: 0.92, dimmingOpacity: 0.2))
+                    .disabled(isSessionsLoading)
+
+                    SettingsLink {
+                        Image(systemName: "gearshape")
+                            .font(.system(.body))
+                            .foregroundStyle(OxcerTheme.textSecondary)
+                    }
+                    .buttonStyle(BouncyButtonStyle(scale: 0.92, dimmingOpacity: 0.2))
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+            }
             .background(OxcerTheme.sidebarBackground)
         }
+        .frame(minWidth: 220)
+        .background(OxcerTheme.sidebarBackground)
     }
 }
 
-struct WorkspaceRow: View {
-    let workspace: WorkspaceInfo
-    let isSelected: Bool
-    let namespace: Namespace.ID
-    let action: () -> Void
-    @State private var isHovered = false
-    
+/// List row for session in sidebar (used with List selection).
+private struct SessionListRow: View {
+    let session: SidebarSessionItem
+
     var body: some View {
-        Button(action: action) {
-            ZStack(alignment: .leading) {
-                if isSelected {
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(OxcerTheme.accent.opacity(0.18))
-                        .matchedGeometryEffect(id: "workspaceSelection", in: namespace)
-                }
-                
-                HStack(spacing: 10) {
-                    Circle()
-                        .fill(isSelected ? OxcerTheme.accent : OxcerTheme.textTertiary)
-                        .frame(width: 6, height: 6)
-                    Text(workspace.name)
-                        .font(.system(.body))
-                        .foregroundStyle(isSelected ? OxcerTheme.textPrimary : OxcerTheme.textSecondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 10)
-                .background(
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(isHovered && !isSelected ? OxcerTheme.hoverOverlay : Color.clear)
-                )
-            }
-            .contentShape(Rectangle())
+        VStack(alignment: .leading, spacing: 2) {
+            Text(session.title)
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(OxcerTheme.textPrimary)
+                .lineLimit(1)
+            Text(formatTimestamp(session.createdAt))
+                .font(.system(.caption2))
+                .foregroundStyle(OxcerTheme.textTertiary)
+                .lineLimit(1)
         }
-        .buttonStyle(BouncyButtonStyle())
-        .onHover { hovering in
-            withAnimation(OxcerTheme.snappy) {
-                isHovered = hovering
-            }
-        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 6)
+        .padding(.horizontal, 4)
     }
 }
 
-struct SessionRow: View {
-    let session: SessionSummary
-    let isSelected: Bool
-    let action: () -> Void
-    @State private var isHovered = false
-    
+// MARK: - Detail View (Chat History / Empty State)
+
+/// When sessionDetail is nil: welcome/empty state. When non-nil: chat + session log from that view model.
+struct DetailView: View {
+    let sessionDetail: SessionDetailViewModel?
+    let isTaskRunning: Bool
+    let onSend: (String) -> Void
+
     var body: some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(shortSessionId(session.sessionId))
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(isSelected ? OxcerTheme.textPrimary : OxcerTheme.textSecondary)
-                Text(formatTimestamp(session.startTimestamp))
-                    .font(.system(.caption2))
-                    .foregroundStyle(OxcerTheme.textTertiary)
+        ZStack(alignment: .bottom) {
+            if let detail = sessionDetail {
+                ChatDetailContent(sessionDetail: detail)
+            } else {
+                emptyStateView
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 20)
-            .padding(.vertical, 8)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(isSelected ? OxcerTheme.accent.opacity(0.15) : (isHovered ? OxcerTheme.hoverOverlay : Color.clear))
-            )
-            .contentShape(Rectangle())
+
+            ChatInputBar(isRunning: isTaskRunning, onSend: onSend)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 24)
         }
-        .buttonStyle(BouncyButtonStyle())
-        .onHover { hovering in
-            withAnimation(OxcerTheme.snappy) {
-                isHovered = hovering
-            }
-        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color("OxcerBackground"))
     }
+
+    private var emptyStateView: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 56))
+                .foregroundStyle(OxcerTheme.accent.opacity(0.8))
+            Text("How can I help you?")
+                .font(.system(.title2, design: .rounded, weight: .medium))
+                .foregroundStyle(OxcerTheme.textSecondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
 }
 
-// MARK: - Session View (Main Panel)
+/// Observes SessionDetailViewModel so it re-renders when messages/sessionEvents change.
+private struct ChatDetailContent: View {
+    @ObservedObject var sessionDetail: SessionDetailViewModel
 
-struct SessionView: View {
-    let viewModel: SessionViewModel
-    
     var body: some View {
-        VStack(spacing: 0) {
-            // Header
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(viewModel.currentWorkspaceName)
-                        .font(.system(.headline, weight: .semibold))
-                        .foregroundStyle(OxcerTheme.textPrimary)
-                    TaskStatusBadge(status: viewModel.status)
-                }
-                
-                Spacer()
-                
-                Button {
-                    viewModel.runTask()
-                } label: {
-                    HStack(spacing: 6) {
-                        if viewModel.status == .running {
-                            ProgressView()
-                                .scaleEffect(0.7)
-                                .tint(OxcerTheme.onAccent)
-                        } else {
-                            Image(systemName: "play.fill")
-                                .font(.system(.caption, weight: .semibold))
-                        }
-                        Text("Run Task")
-                            .font(.system(.subheadline, weight: .medium))
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 16) {
+                ForEach(sessionDetail.messages) { msg in
+                    if msg.role == "user" {
+                        TaskBubble(text: msg.content)
+                    } else {
+                        ResultBubble(text: msg.content, isError: msg.content.hasPrefix("Error:"))
                     }
-                    .foregroundStyle(OxcerTheme.onAccent)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(
-                        Capsule()
-                            .fill(OxcerTheme.accent)
-                    )
                 }
-                .buttonStyle(BouncyButtonStyle())
-                .disabled(viewModel.taskDescription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || viewModel.status == .running)
-                .keyboardShortcut(.return, modifiers: .command)
+                if !sessionDetail.sessionEvents.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Session Log")
+                            .font(.system(.caption, weight: .medium))
+                            .foregroundStyle(OxcerTheme.textSecondary)
+                        ForEach(sessionDetail.sessionEvents, id: \.self) { event in
+                            LogEventBubble(event: event)
+                        }
+                    }
+                }
+                Spacer(minLength: 100)
             }
             .padding(.horizontal, 24)
-            .padding(.vertical, 16)
-            .background(
-                Rectangle()
-                    .fill(OxcerTheme.backgroundPanel)
-                    .overlay(
-                        Rectangle()
-                            .fill(OxcerTheme.divider)
-                            .frame(height: 1),
-                        alignment: .bottom
-                    )
-            )
-            
-            // Timeline / Log area
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    // Current task description bubble
-                    if !viewModel.taskDescription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        TaskBubble(text: viewModel.taskDescription)
-                            .transition(.opacity.combined(with: .move(edge: .bottom)))
-                            .animation(OxcerTheme.snappy, value: viewModel.taskDescription)
-                    }
-                    
-                    // Result or error
-                    if !viewModel.resultText.isEmpty {
-                        ResultBubble(text: viewModel.resultText, isError: false)
-                            .transition(.opacity.combined(with: .move(edge: .bottom)))
-                            .animation(OxcerTheme.snappy, value: viewModel.resultText)
-                    }
-                    
-                    if let error = viewModel.errorMessage {
-                        ResultBubble(text: error, isError: true)
-                            .transition(.opacity.combined(with: .move(edge: .bottom)))
-                            .animation(OxcerTheme.snappy, value: error)
-                    }
-                    
-                    // TODO: Log entries will appear here as they stream in
-                    // For now, show placeholder if we have session events
-                    if !viewModel.sessionEvents.isEmpty {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Session Log")
-                                .font(.system(.caption, weight: .medium))
-                                .foregroundStyle(OxcerTheme.textSecondary)
-                                .padding(.horizontal, 16)
-                            
-                            ForEach(viewModel.sessionEvents.prefix(3), id: \.timestamp) { event in
-                                LogEventBubble(event: event)
-                            }
-                        }
-                    }
-                    
-                    Spacer(minLength: 20)
-                }
-                .padding(.horizontal, 24)
-                .padding(.vertical, 20)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.vertical, 24)
         }
-        .background(OxcerTheme.backgroundPanel)
     }
 }
 
@@ -846,102 +770,6 @@ struct LogEventBubble: View {
             RoundedRectangle(cornerRadius: 8)
                 .fill(OxcerTheme.cardBackground.opacity(0.5))
         )
-    }
-}
-
-// MARK: - Task Input Bar
-
-struct TaskInputBar: View {
-    let viewModel: TaskInputViewModel
-    @FocusState private var isFocused: Bool
-    
-    var body: some View {
-        HStack(spacing: 12) {
-            // Multi-line text field
-            ZStack(alignment: .topLeading) {
-                if viewModel.taskDescription.isEmpty {
-                    Text("Describe what you want Oxcer to do…")
-                        .font(.system(.body))
-                        .foregroundStyle(OxcerTheme.textTertiary)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
-                        .allowsHitTesting(false)
-                }
-                
-                // Single source of truth: this TextEditor writes into AppViewModel.taskDescription
-                // via TaskInputViewModel, which AppViewModel.runAgentRequest() then reads to
-                // construct the FFI payload.
-                TextEditor(text: viewModel.$taskDescription)
-                    .font(.system(.body))
-                    .foregroundStyle(OxcerTheme.textPrimary)
-                    .scrollContentBackground(.hidden)
-                    .background(Color.clear)
-                    .frame(minHeight: 44, maxHeight: 120)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .focused($isFocused)
-                    .onSubmit {
-                        if !viewModel.taskDescription
-                            .trimmingCharacters(in: .whitespacesAndNewlines)
-                            .isEmpty && !viewModel.isRunning {
-                            viewModel.runTask()
-                        }
-                    }
-            }
-            
-            // Run button
-            Button {
-                viewModel.runTask()
-            } label: {
-                if viewModel.isRunning {
-                    ProgressView()
-                        .scaleEffect(0.8)
-                        .tint(OxcerTheme.onAccent)
-                } else {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(.title3))
-                }
-            }
-            .buttonStyle(BouncyButtonStyle())
-            .foregroundStyle(OxcerTheme.onAccent)
-            .frame(width: 36, height: 36)
-            .background(
-                Circle()
-                    .fill(OxcerTheme.accent)
-            )
-            .disabled(
-                viewModel.taskDescription
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                    .isEmpty || viewModel.isRunning
-            )
-            .keyboardShortcut(.return, modifiers: .command)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(
-            RoundedRectangle(cornerRadius: OxcerTheme.inputCornerRadius)
-                .fill(OxcerTheme.cardBackground)
-                .overlay(
-                    RoundedRectangle(cornerRadius: OxcerTheme.inputCornerRadius)
-                        .stroke(
-                            isFocused
-                            ? OxcerTheme.accent.opacity(0.5)
-                            : OxcerTheme.border,
-                            lineWidth: isFocused ? 2 : 1
-                        )
-                )
-        )
-        .scaleEffect(isFocused ? 1.01 : 1.0)
-        .shadow(
-            color: isFocused ? OxcerTheme.accent.opacity(0.25) : Color.clear,
-            radius: 8,
-            x: 0,
-            y: 4
-        )
-        .animation(OxcerTheme.snappy, value: isFocused)
-        .padding(.horizontal, 24)
-        .padding(.vertical, 16)
-        .background(OxcerTheme.backgroundPanel)
     }
 }
 
@@ -1053,57 +881,71 @@ struct TimelineEventRow: View {
     }
 }
 
-// MARK: - Main ContentView
+// MARK: - Root View (stable container for one-time init)
 
-/// ContentView (root)
-/// Implemented:
-/// - Owns a single @StateObject AppViewModel used as the source of truth for all subviews.
-/// - Sets AppViewModel.appConfigDir on appear so FFI calls know where to read/write.
-/// - Constructs SidebarViewModel, SessionViewModel, and TaskInputViewModel from AppViewModel state
-///   and passes them down so that views depend only on their feature-specific view model.
-///   - Workspace selection in SidebarView calls SidebarViewModel.selectWorkspace(_:) which mutates
-///     AppViewModel.selectedWorkspaceId; SessionViewModel then reflects that change via its derived
-///     currentWorkspaceName property.
-///   - TaskInputBar binds to TaskInputViewModel.taskDescription, which writes into
-///     AppViewModel.taskDescription; AppViewModel.runAgentRequest() reads the same value
-///     to build the AgentRequestPayload for the Rust FFI.
-/// TODO:
-/// - Introduce additional windows/scenes (e.g., settings, inspector) that also observe AppViewModel.
-struct ContentView: View {
+/// Top-level container created exactly once per window. Owns AppViewModel and runs the
+/// one-time model init .task here so it is not re-triggered when NavigationSplitView/detail
+/// or chat input focus changes.
+struct RootView: View {
     @StateObject private var viewModel = AppViewModel()
-    @Environment(\.colorScheme) private var colorScheme
-    /// View-level guard so initial load runs at most once even if .task is re-invoked (avoids infinite loop).
-    @State private var initialLoadStarted = false
 
     var body: some View {
-        HStack(spacing: 0) {
-            // Left Sidebar
-            SidebarView(viewModel: viewModel.sidebarViewModel)
-            
-            Divider()
-                .background(OxcerTheme.divider)
-            
-            // Main content area
-            VStack(spacing: 0) {
-                SessionView(viewModel: viewModel.sessionViewModel)
-                
-                Divider()
-                    .background(OxcerTheme.divider)
-                
-                TaskInputBar(viewModel: viewModel.taskInputViewModel)
+        ContentView(viewModel: viewModel)
+            .task(id: "global_model_init") {
+                await viewModel.checkAndPrepareModel()
             }
-        }
-        .background(OxcerTheme.backgroundDark)
-        .animation(.easeInOut(duration: 0.35), value: colorScheme)
-        .task(id: "initialLoad") {
-            guard !initialLoadStarted else { return }
-            initialLoadStarted = true
-            await viewModel.loadInitialDataIfNeeded()
+    }
+}
+
+// MARK: - Main ContentView
+
+/// ContentView — ChatGPT-style NavigationSplitView layout. Receives viewModel from RootView.
+/// Typing in ChatInputBar triggers ZERO updates here; only sendMessage does.
+/// No .task(id: "global_model_init") here; it lives on RootView only.
+struct ContentView: View {
+    @ObservedObject var viewModel: AppViewModel
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        ZStack {
+            // Main app content
+            NavigationSplitView {
+                SidebarView(
+                    sessions: viewModel.sessions,
+                    selectedSessionId: viewModel.activeSessionDetail?.sessionId,
+                    isSessionsLoading: viewModel.isSessionsLoading,
+                    startNewChat: { viewModel.startNewChat() },
+                    refreshSessions: { viewModel.refreshSessions() },
+                    selectSession: { viewModel.selectSession($0) }
+                )
+            } detail: {
+                DetailView(
+                    sessionDetail: viewModel.activeSessionDetail,
+                    isTaskRunning: viewModel.isTaskRunning,
+                    onSend: { text in viewModel.sendMessage(text) }
+                )
+            }
+            .disabled(!viewModel.isModelReady)
+            .blur(radius: viewModel.isModelReady ? 0 : 5)
+            .background(OxcerTheme.backgroundDark)
+            .animation(.easeInOut(duration: 0.35), value: colorScheme)
+
+            // First Run model installation wizard overlay
+            if !viewModel.isModelReady {
+                ModelDownloadOverlay(
+                    progress: viewModel.downloadProgress,
+                    message: viewModel.downloadMessage,
+                    loadError: viewModel.loadError,
+                    onRetry: { Task { await viewModel.checkAndPrepareModel() } }
+                )
+                .transition(.opacity.animation(.easeInOut))
+                .zIndex(100)
+            }
         }
     }
 }
 
 #Preview {
-    ContentView()
+    ContentView(viewModel: AppViewModel())
         .frame(width: 1200, height: 800)
 }

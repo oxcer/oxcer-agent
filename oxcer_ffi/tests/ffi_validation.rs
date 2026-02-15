@@ -38,8 +38,8 @@ fn list_workspaces_roundtrip_valid_config() {
     assert_eq!(workspaces[1].id, "ws2");
 }
 
-#[test]
-fn run_agent_task_empty_task_returns_error() {
+#[tokio::test]
+async fn run_agent_task_empty_task_returns_error() {
     let payload = AgentRequestPayload {
         task_description: String::new(),
         workspace_id: None,
@@ -47,13 +47,13 @@ fn run_agent_task_empty_task_returns_error() {
         context: None,
         app_config_dir: None,
     };
-    let r = run_agent_task(payload);
+    let r = run_agent_task(payload).await;
     assert!(r.is_err());
     assert!(r.unwrap_err().to_string().contains("task_description"));
 }
 
-#[test]
-fn run_agent_task_valid_task_succeeds() {
+#[tokio::test]
+async fn run_agent_task_valid_task_succeeds() {
     let payload = AgentRequestPayload {
         task_description: "list files in workspace".to_string(),
         workspace_id: None,
@@ -61,7 +61,7 @@ fn run_agent_task_valid_task_succeeds() {
         context: None,
         app_config_dir: Some("/tmp".to_string()),
     };
-    let r = run_agent_task(payload);
+    let r = run_agent_task(payload).await;
     let response = r.expect("run_agent_task should succeed for empty-plan path");
     assert!(response.ok);
     assert!(response.answer.is_some());

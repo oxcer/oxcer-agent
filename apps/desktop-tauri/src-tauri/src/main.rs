@@ -78,8 +78,9 @@ use oxcer::settings::{
 fn check_cost_threshold_and_alert(app: &AppHandle, session_id: &str, session_cost_usd: f64) {
     let threshold = app
         .try_state::<Mutex<AppSettings>>()
-        .and_then(|s| s.lock().ok())
-        .map(|s| s.observability.max_session_cost_usd)
+        .and_then(|state| {
+            state.lock().ok().map(|guard| guard.observability.max_session_cost_usd)
+        })
         .unwrap_or(0.5);
     if session_cost_usd <= threshold {
         return;
@@ -1129,7 +1130,7 @@ fn cmd_shell_run(
     };
     let catalog = app
         .try_state::<Arc<shell::CommandCatalog>>()
-        .map(|s| s.clone())
+        .map(|state| state.inner().clone())
         .unwrap_or_else(|| Arc::new(shell::default_catalog()));
     shell::shell_run(
         shell_caller_from_policy(policy_caller),
@@ -1323,7 +1324,7 @@ fn cmd_approve_and_execute(
             };
             let catalog = app
                 .try_state::<Arc<shell::CommandCatalog>>()
-                .map(|s| s.clone())
+                .map(|state| state.inner().clone())
                 .unwrap_or_else(|| Arc::new(shell::default_catalog()));
             let result = shell::shell_run(
                 shell::ShellCaller::Agent,
@@ -1753,8 +1754,8 @@ fn cmd_scrub_payload_for_llm(
     workspace_root: Option<String>,
 ) -> Result<String, String> {
     let mut opts = oxcer_core::data_sensitivity::ClassifierOptions::default();
-    opts.workspace_root = workspace_root;
     opts.normalize_paths = workspace_root.is_some();
+    opts.workspace_root = workspace_root;
     let sid = session_id.as_deref().unwrap_or("");
     let (result, audit_entry) = prompt_sanitizer::scrub_for_llm_call_audit(&raw_payload, &opts, sid);
     if let Ok(app_config_dir) = app.path().app_config_dir() {
@@ -1779,6 +1780,7 @@ fn cmd_agent_step(
 ) -> Result<OrchestratorAction, String> {
     let store = app.state::<AgentSessionStore>();
     let (default_ws_id, default_ws_root) = default_workspace_from_app(&app);
+    let context_workspace_id = input.context.workspace_id.clone();
 
     let action = if let (Some(result), Some(session)) = (last_result.as_ref(), store.get(&session_id)) {
         let out = next_action(session, Some(result.clone())).map_err(|e| e.to_string())?;
@@ -1791,10 +1793,9 @@ fn cmd_agent_step(
         }
         out
     } else if last_result.is_none() {
-        let capabilities = app
-            .try_state::<Mutex<oxcer_core::plugins::CapabilityRegistry>>()
-            .and_then(|s| s.lock().ok())
-            .map(|reg| reg.list().to_vec());
+    let capabilities = app
+        .try_state::<Mutex<oxcer_core::plugins::CapabilityRegistry>>()
+        .and_then(|state| state.lock().ok().map(|guard| guard.list().to_vec()));
         let input_with_task = RouterInput {
             task_description: task.clone(),
             capabilities: capabilities.or(input.capabilities),
@@ -1822,14 +1823,15 @@ fn cmd_agent_step(
             let tokens_in_approx = (input_length_chars / 4).max(1) as u32;
             let selected_model = app
                 .try_state::<Mutex<AppSettings>>()
-                .and_then(|s| s.lock().ok())
-                .and_then(|s| {
-                    let id = s.default_model_id.clone();
-                    if id.is_empty() {
-                        None
-                    } else {
-                        Some(id)
-                    }
+                .and_then(|state| {
+                    state.lock().ok().and_then(|guard| {
+                        let id = guard.default_model_id.clone();
+                        if id.is_empty() {
+                            None
+                        } else {
+                            Some(id)
+                        }
+                    })
                 });
             let details = serde_json::json!({
                 "category": category_for_log(router_output.category),
@@ -1873,16 +1875,15 @@ fn cmd_agent_step(
             session.router_output.as_ref(),
             app.path().app_config_dir(),
         ) {
-            let workspace_id = input
-                .context
-                .workspace_id
+            let workspace_id = context_workspace_id
                 .as_deref()
                 .or(default_ws_id.as_deref())
                 .unwrap_or("");
             let selected_model = app
                 .try_state::<Mutex<AppSettings>>()
-                .and_then(|s| s.lock().ok())
-                .map(|s| s.default_model_id.clone())
+                .and_then(|state| {
+                    state.lock().ok().map(|guard| guard.default_model_id.clone())
+                })
                 .filter(|s| !s.is_empty());
             let log = AgentSessionLog::from_completed_session(
                 &session_id,
@@ -2024,7 +2025,7 @@ fn main() {
                 }
             };
             let plugin_rules = plugin_rules_from_descriptors(&descriptors);
-            let base_yaml = include_str!("../../../oxcer-core/policies/default.yaml");
+            let base_yaml = include_str!("../../../../oxcer-core/policies/default.yaml");
             let base_config = load_from_yaml(base_yaml.as_bytes());
             let merged_config = merge_rules(base_config, plugin_rules);
             let _ = init_policy_with_config(merged_config);

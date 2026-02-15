@@ -10,13 +10,32 @@ import Foundation
 /// Implemented:
 /// - Thin async/await wrappers over the UniFFI-generated global functions (listWorkspaces, listSessions, etc.).
 /// - Mirrors the Rust-facing contracts without changing any payloads or signatures.
-/// TODO:
-/// - Add additional methods as new backend capabilities are exposed from Rust.
+///
+/// ensureLocalModel semantics:
+/// - Idempotent: if the model is already available, returns quickly without re-downloading or reallocating.
+/// - Safe to retry after failure: call again to attempt a clean download.
+/// - Throws with a user-friendly description on unrecoverable failure (no network, disk full, etc.).
 protocol OxcerBackend {
-    func listWorkspaces(appConfigDir: String) async throws -> [WorkspaceInfo]
+    /// Zero-cost FFI warm-up. Triggers dylib load and static runtime init. Call first in AppViewModel.init.
+    func ping() -> String
+    func ensureLocalModel(appConfigDir: String, onProgress: @escaping (Double, String) -> Void) async throws
+    func listWorkspaces(appConfigDir: String) async throws -> Int32
     func listSessions(appConfigDir: String) async throws -> [SessionSummary]
     func loadSessionLog(sessionId: String, appConfigDir: String) async throws -> [LogEvent]
     func runAgentTask(payload: AgentRequestPayload) async throws -> AgentResponse
+}
+
+/// Wraps a closure as a DownloadCallback for the Rust FFI.
+private final class SwiftDownloadCallback: DownloadCallback {
+    let onProgressHandler: (Double, String) -> Void
+
+    init(onProgress: @escaping (Double, String) -> Void) {
+        self.onProgressHandler = onProgress
+    }
+
+    func onProgress(progress: Double, message: String) {
+        onProgressHandler(progress, message)
+    }
 }
 
 /// DefaultOxcerBackend
@@ -24,9 +43,18 @@ protocol OxcerBackend {
 /// - Forwards calls to UniFFI-generated functions (global listWorkspaces, listSessions, etc.) using Swift concurrency.
 /// - Offloads blocking FFI work to a detached task so the main actor stays responsive.
 struct DefaultOxcerBackend: OxcerBackend {
-    func listWorkspaces(appConfigDir: String) async throws -> [WorkspaceInfo] {
-        try await Task.detached(priority: .userInitiated) {
-            try await listWorkspaces(appConfigDir: appConfigDir)
+    func ping() -> String {
+        OxcerLauncher.ping()
+    }
+
+    func ensureLocalModel(appConfigDir: String, onProgress: @escaping (Double, String) -> Void) async throws {
+        let callback = SwiftDownloadCallback(onProgress: onProgress)
+        try await OxcerLauncher.ensureLocalModel(appConfigDir: appConfigDir, callback: callback)
+    }
+
+    func listWorkspaces(appConfigDir: String) async throws -> Int32 {
+        return await Task.detached(priority: .userInitiated) {
+            OxcerLauncher.listWorkspaces(appConfigDir: appConfigDir)
         }.value
     }
 
@@ -52,10 +80,18 @@ struct DefaultOxcerBackend: OxcerBackend {
 // MARK: - Mock Implementation (For SwiftUI Previews)
 
 struct MockOxcerBackend: OxcerBackend {
-    func listWorkspaces(appConfigDir: String) async throws -> [WorkspaceInfo] {
-        [
-            WorkspaceInfo(id: "mock-1", name: "Demo Workspace", rootPath: "/Users/demo/project")
-        ]
+    func ping() -> String {
+        "pong"
+    }
+
+    func ensureLocalModel(appConfigDir: String, onProgress: @escaping (Double, String) -> Void) async throws {
+        onProgress(0.0, "Starting download...")
+        try await Task.sleep(nanoseconds: 100_000_000) // 0.1s
+        onProgress(1.0, "Model Ready!")
+    }
+
+    func listWorkspaces(appConfigDir: String) async throws -> Int32 {
+        42
     }
 
     func listSessions(appConfigDir: String) async throws -> [SessionSummary] {

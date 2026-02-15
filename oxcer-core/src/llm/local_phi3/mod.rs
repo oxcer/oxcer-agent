@@ -2,6 +2,11 @@
 //!
 //! All inference is done via in-process function calls (runtime: stub, later llama.cpp/GGUF or
 //! ONNX Runtime). Weights and tokenizer are loaded from the filesystem.
+//!
+//! **Singleton use:** This engine loads ~2–3GB into memory. Launchers (FFI, Tauri) must create
+//! it once (e.g. via [crate::llm::bootstrap::create_engine_for_profile]) and reuse the same
+//! `Arc<dyn LlmEngine>` for all generation calls. Do not call `LocalPhi3Engine::new()` in a loop
+//! or on every request.
 
 mod loader;
 mod runtime;
@@ -46,11 +51,18 @@ impl LocalPhi3Engine {
 
 impl LlmEngine for LocalPhi3Engine {
     fn generate(&self, prompt: &str, params: &GenerationParams) -> Result<String, LlmError> {
+        println!(
+            "[Rust] creating request context at {:?}",
+            std::time::SystemTime::now()
+        );
+
         // Tokenize prompt
         let encoding = self.tokenizer.encode(prompt, true).map_err(|e| {
             LlmError::GenerationFailed(format!("Tokenization failed: {}", e))
         })?;
         let input_ids: Vec<u32> = encoding.get_ids().to_vec();
+
+        println!("[Rust] request context created");
 
         if input_ids.is_empty() {
             return Ok(String::new());

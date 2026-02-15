@@ -11,11 +11,13 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
 dirs-next = "2"
+futures-util = "0.3"
 mime_guess = "2"
 regex = "1"
-reqwest = { version = "0.12", features = ["json", "blocking"] }
+reqwest = { version = "0.12", features = ["json", "blocking", "stream", "rustls-tls"] }
 thiserror = "1"
 tokenizers = "0.19"
+tokio = { version = "1", features = ["fs", "io-util", "rt", "time"] }
 
 [dev-dependencies]
 tempfile = "3"
