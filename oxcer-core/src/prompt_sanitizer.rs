@@ -330,7 +330,7 @@ pub fn scrub_for_llm_call_audit(
 }
 
 /// Converts an absolute path to workspace-relative for LLM context. Use when building
-/// file snippets so the prompt never contains full user paths (e.g. `/Users/j/proj/src/foo.rs` → `./src/foo.rs`).
+/// file snippets so the prompt never contains full user paths (e.g. `/Users/j/proj/src/foo.rs` -> `./src/foo.rs`).
 pub fn to_workspace_relative_path(absolute_path: &str, workspace_root: &str) -> String {
     let abs = absolute_path.trim_end_matches('/');
     let root = workspace_root.trim_end_matches('/');
@@ -415,7 +415,7 @@ pub fn build_and_scrub_for_llm(
 // Public API: prepare model input (task + optional file contents)
 // -----------------------------------------------------------------------------
 
-/// Input to the sanitizer when building model prompt (task + optional path→content).
+/// Input to the sanitizer when building model prompt (task + optional path->content).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SanitizeForLlmInput {
     /// User task or message (will be sanitized for secrets).
@@ -571,7 +571,7 @@ mod tests {
         assert!(!out.contains("192.168"));
     }
 
-    /// One never-send pattern (AWS key) in payload → NeverSend, not threshold.
+    /// One never-send pattern (AWS key) in payload -> NeverSend, not threshold.
     #[test]
     fn scrub_for_llm_call_err_never_send_on_aws_key_in_long_payload() {
         let mut s = "Explain the following code.\n\n".to_string();
@@ -607,7 +607,7 @@ mod tests {
         assert!(matches!(r, Err(ScrubbingError::NeverSendToLlm { finding_kind: k, .. }) if k == "jwt_or_oauth_token"));
     }
 
-    /// Payload with only medium-sensitivity patterns but ≥50% redacted → TooMuchSensitiveData.
+    /// Payload with only medium-sensitivity patterns but ≥50% redacted -> TooMuchSensitiveData.
     #[test]
     fn scrub_for_llm_call_err_when_too_much_redacted() {
         let long_blob = "A".repeat(200);

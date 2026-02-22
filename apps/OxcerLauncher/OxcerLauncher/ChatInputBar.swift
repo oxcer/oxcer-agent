@@ -30,7 +30,7 @@ struct ChatInputBar: View {
                     // Case 1: Shift + Enter -> Insert Newline Manually
                     if press.modifiers.contains(.shift) {
                         localText.append("\n")
-                        return .handled // 🛑 Stop system from doing weird things
+                        return .handled // Stop system from doing weird things
                     }
 
                     // Case 2: Enter Only -> Send Message

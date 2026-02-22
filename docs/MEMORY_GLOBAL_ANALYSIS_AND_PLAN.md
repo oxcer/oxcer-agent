@@ -33,7 +33,7 @@ pub fn load_session_log_from_dir(...) -> Result<Vec<LogEvent>, String> {
 
 ---
 
-## 2. Rust → FFI: `load_session_log` returns full `Vec<LogEvent>`
+## 2. Rust -> FFI: `load_session_log` returns full `Vec<LogEvent>`
 
 **File:** `oxcer_ffi/src/lib.rs` (lines 454–459)
 
@@ -93,7 +93,7 @@ for entry in dir_entries {
 summaries.truncate(100);
 ```
 
-- **How memory grows:** For **each** session file: one full `String` (entire file) + full `Vec<LogEvent>` for that file. One 500 MB session file → ~500 MB + parsed events. With 100 sessions we iterate 100 times; we don’t hold all at once, but each iteration can be huge.
+- **How memory grows:** For **each** session file: one full `String` (entire file) + full `Vec<LogEvent>` for that file. One 500 MB session file -> ~500 MB + parsed events. With 100 sessions we iterate 100 times; we don’t hold all at once, but each iteration can be huge.
 - **Lifetime:** Request (one call to list_sessions).
 - **Bounded?** **Partially.** Output is capped at 100 summaries, but **input** per file is unbounded. One giant session file can still cause a multi‑GB spike.
 
@@ -111,7 +111,7 @@ do {
 }
 ```
 
-- **How memory grows:** Every agent reply triggers `loadSessions()` → Rust `list_sessions_from_dir` → full read of every session file again. Long chat = many responses = repeated full scans and allocations.
+- **How memory grows:** Every agent reply triggers `loadSessions()` -> Rust `list_sessions_from_dir` -> full read of every session file again. Long chat = many responses = repeated full scans and allocations.
 - **Lifetime:** Request (per response), but **frequency** is high.
 - **Bounded?** **No.** Single call can be huge (see 4); and it’s invoked repeatedly.
 
@@ -148,7 +148,7 @@ return RustBuffer(bytes: writer)  // writer is [UInt8], full copy
 
 - **How memory grows:** Every `lower()` of a large value (e.g. `AgentRequestPayload` with large `task_description`, or `[LogEvent]`) builds a `[UInt8]` writer then copies it into a RustBuffer. Two full copies (Swift array + Rust buffer).
 - **Lifetime:** Request.
-- **Bounded?** Depends on payload. For `load_session_log` return value, buffer size = serialized full `[LogEvent]` → unbounded (same as 1–3).
+- **Bounded?** Depends on payload. For `load_session_log` return value, buffer size = serialized full `[LogEvent]` -> unbounded (same as 1–3).
 
 ---
 
@@ -227,7 +227,7 @@ let decoded = self.tokenizer.decode(&output_ids, true)?;
 Ok(decoded)  // String, can be long
 ```
 
-- **How memory grows:** Prompt string, `input_ids`, `output_ids`, and decoded `String` all in memory for the duration of the call. Large context → large allocations.
+- **How memory grows:** Prompt string, `input_ids`, `output_ids`, and decoded `String` all in memory for the duration of the call. Large context -> large allocations.
 - **Lifetime:** Request.
 - **Bounded?** Only by model/token limits; no explicit cap in this layer.
 
@@ -311,7 +311,7 @@ for line in &lines {
 details: Some(e.details.to_string()),
 ```
 
-- **How memory grows:** Each `LogEvent`’s `details` (serde_json::Value) is converted to String. Large JSON → large string per event. Combined with unbounded event count this multiplies.
+- **How memory grows:** Each `LogEvent`’s `details` (serde_json::Value) is converted to String. Large JSON -> large string per event. Combined with unbounded event count this multiplies.
 - **Lifetime:** Request (during load_session_log).
 - **Bounded?** **No** (event count unbounded).
 
@@ -496,7 +496,7 @@ details: Some(e.details.to_string()),
 | 2 | oxcer_ffi load_session_log | Full Vec returned to FFI | Request | No | Cap in Rust (1) | HIGH |
 | 3 | oxcer_ffi.swift FfiConverterSequenceTypeLogEvent.read | Full [LogEvent] decoded | Request | No | Cap in Rust so buffer small | HIGH |
 | 4 | telemetry.rs list_sessions_from_dir | Full file per session | Request | No | Cap per-file read size or skip huge files | HIGH |
-| 5 | ContentView runAgentRequest → loadSessions() | Reload all sessions every response | Request (repeated) | No | Remove or throttle loadSessions() after response | HIGH |
+| 5 | ContentView runAgentRequest -> loadSessions() | Reload all sessions every response | Request (repeated) | No | Remove or throttle loadSessions() after response | HIGH |
 | 6 | downloader.rs on_progress per chunk | Many format! + callback | Request | Yes | Throttle in Rust | MEDIUM |
 | 7–8 | FFI lower/Data(rustBuffer:) | Copies; decode full | Request | Depends | Bound payload size (Rust caps) | LOW/MEDIUM |
 | 9 | sessions / SidebarSessionItem | Small list | App | Yes | Optional: match Rust 100 cap | LOW |

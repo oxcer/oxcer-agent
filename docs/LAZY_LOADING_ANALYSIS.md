@@ -65,10 +65,10 @@ pub fn new(model_root: &Path) -> Result<Self, LlmError> {
 
 **Current flow:**
 ```
-App launch → RootView .task → checkAndPrepareModel() → ensure_local_model()
-    → ensure_local_model_impl()
-        → if files exist: LocalPhi3Engine::new()  [IMMEDIATE]
-        → if not: download → LocalPhi3Engine::new()  [IMMEDIATE after download]
+App launch -> RootView .task -> checkAndPrepareModel() -> ensure_local_model()
+    -> ensure_local_model_impl()
+        -> if files exist: LocalPhi3Engine::new()  [IMMEDIATE]
+        -> if not: download -> LocalPhi3Engine::new()  [IMMEDIATE after download]
 ```
 
 The model/engine is loaded **as soon as files are present**, before any user inference. There is no lazy path.

@@ -27,12 +27,12 @@ Guidelines for maintaining `oxcer-core` modules: security/policy_engine, data_se
 |----------------|----------------|----------|-----------|
 | "What is Rust?" | SimpleQa | CheapModel | Short, ends with ?, no tool/code markers |
 | "Fix the bug in main.rs" (with selected_paths) | Code | CheapModel | Code markers or selected paths; short |
-| Long code task (≥planning_length_threshold chars) | Planning | ExpensiveModel | Length over threshold → planning |
+| Long code task (≥planning_length_threshold chars) | Planning | ExpensiveModel | Length over threshold -> planning |
 | "I need a plan and strategy for refactoring" | Planning | ExpensiveModel | Planning keywords |
 | "list files", "delete foo.txt" | ToolsHeavy | ToolsOnly (if prefer_tools_only) or CheapModel | Tool verbs |
 | "Do something useful" (no markers) | Code | CheapModel | Default fallback |
 
-**Behavior contract:** Routing order: 1) tool verbs → ToolsHeavy, 2) many paths → ToolsHeavy, 3) planning/long → Planning, 4) code markers → Code, 5) simple_qa → SimpleQa, 6) default → Code. When changing thresholds or keywords, update both the policy table and tests.
+**Behavior contract:** Routing order: 1) tool verbs -> ToolsHeavy, 2) many paths -> ToolsHeavy, 3) planning/long -> Planning, 4) code markers -> Code, 5) simple_qa -> SimpleQa, 6) default -> Code. When changing thresholds or keywords, update both the policy table and tests.
 
 ### Orchestrator (tools-only flows)
 

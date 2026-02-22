@@ -7,6 +7,7 @@ on:
     branches: [main]
 
 jobs:
+  # Job 1: JS + Rust cross-platform check (Linux, fast)
   test-and-check:
     runs-on: ubuntu-latest
 
@@ -30,10 +31,97 @@ jobs:
 
       - name: pnpm check
         run: pnpm check
-        # Or: pnpm lint — change the command above if you prefer lint-only.
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cargo check (workspace)
         run: cargo check --workspace
+
+      - name: Cargo test (oxcer_ffi)
+        # Tests the Rust-side FFI contract including list_workspaces_impl unit tests.
+        # Also catches stale #[cfg(test)] code that references wrong return types.
+        run: cargo test -p oxcer_ffi
+
+  # Job 2: UniFFI binding freshness check (macOS only -- requires dylib build)
+  #
+  # Purpose: ensures the committed oxcer_ffi.swift is exactly what uniffi-bindgen
+  # would generate from the current Rust source. A divergence means someone
+  # changed a Rust FFI signature without regenerating the Swift bindings --
+  # the exact root cause of the 88 GB virtual-memory incident.
+  #
+  # If this job fails, run: ./scripts/regen-ffi.sh
+  uniffi-binding-freshness:
+    runs-on: macos-latest
+    needs: test-and-check
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo registry and build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-ffi-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-ffi-
+
+      - name: Build oxcer_ffi dylib (release)
+        run: cargo build --release -p oxcer_ffi
+
+      - name: Generate fresh Swift bindings into /tmp/uniffi_fresh
+        run: |
+          mkdir -p /tmp/uniffi_fresh
+          cargo run --bin uniffi-bindgen -- generate \
+            --library target/release/liboxcer_ffi.dylib \
+            --language swift \
+            --out-dir /tmp/uniffi_fresh
+
+      - name: Compare fresh bindings against committed file
+        # The committed file is the single source of truth.
+        # If it differs from what bindgen produces today, the build fails.
+        run: |
+          COMMITTED=apps/OxcerLauncher/OxcerLauncher/oxcer_ffi.swift
+          FRESH=/tmp/uniffi_fresh/oxcer_ffi.swift
+
+          if ! diff -q "$FRESH" "$COMMITTED" > /dev/null 2>&1; then
+            echo ""
+            echo "[ERROR] FFI bindings are STALE."
+            echo "  The committed Swift bindings do not match what uniffi-bindgen"
+            echo "  produces from the current Rust source."
+            echo ""
+            echo "  This is the root cause of the 88 GB virtual-memory incident."
+            echo "  A type mismatch between Rust return type and Swift decoder"
+            echo "  can cause Swift to misread a 4-byte integer as a RustBuffer"
+            echo "  header, treating garbage bytes as an array length."
+            echo ""
+            echo "  To fix, run from the repo root:"
+            echo "    ./scripts/regen-ffi.sh"
+            echo ""
+            echo "  Diff (fresh vs committed):"
+            diff "$FRESH" "$COMMITTED" || true
+            exit 1
+          fi
+
+          echo "[OK] UniFFI Swift bindings are fresh and match the Rust source."
+
+      - name: Verify checksum consistency (sanity check)
+        # Extracts the hardcoded checksum for list_workspaces from the committed
+        # Swift file and confirms it is non-zero. The real mismatch detection
+        # happens at app startup via uniffiEnsureInitialized(), but this gives
+        # an earlier signal in CI.
+        run: |
+          COMMITTED=apps/OxcerLauncher/OxcerLauncher/oxcer_ffi.swift
+          CHECKSUM=$(grep 'checksum_func_list_workspaces' "$COMMITTED" | grep -oE '[0-9]+' | head -1)
+          if [ -z "$CHECKSUM" ] || [ "$CHECKSUM" -eq 0 ]; then
+            echo "[ERROR] Could not extract a non-zero checksum for list_workspaces from $COMMITTED"
+            exit 1
+          fi
+          echo "[OK] list_workspaces checksum in committed bindings: $CHECKSUM"

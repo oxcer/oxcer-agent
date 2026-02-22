@@ -1,6 +1,6 @@
 # Deep Scan: Settings, Local LLM, and Data Flow
 
-Structural overview of where Settings and Local LLM (Phi-3) live, how config is persisted, what is exposed to Swift via FFI, and the SwiftUI → ViewModel → Rust data flow.
+Structural overview of where Settings and Local LLM (Phi-3) live, how config is persisted, what is exposed to Swift via FFI, and the SwiftUI -> ViewModel -> Rust data flow.
 
 ---
 
@@ -20,9 +20,9 @@ So: the **canonical** settings type is **`AppSettings`** in the **Tauri crate** 
 
 - `workspace_directories: Vec<WorkspaceDirectory>` (id, name, path)
 - `default_model_id: String`
-- `advanced: AdvancedSettings` → `allow_destructive_fs_without_hitl: bool`
-- `observability: ObservabilityOptions` → `max_session_cost_usd: f64`
-- `llm: LlmSetup` → `setup_complete: bool`, `profile: String` (e.g. `"local-only"`, `"hybrid"`)
+- `advanced: AdvancedSettings` -> `allow_destructive_fs_without_hitl: bool`
+- `observability: ObservabilityOptions` -> `max_session_cost_usd: f64`
+- `llm: LlmSetup` -> `setup_complete: bool`, `profile: String` (e.g. `"local-only"`, `"hybrid"`)
 
 ### 1.2 How is it saved to disk?
 
@@ -40,12 +40,12 @@ Legacy migration: if `config.json` is missing, `load()` tries `settings.json` an
 **No.**
 
 - **`oxcer_ffi`** (UniFFI) only exports:
-  - `list_workspaces(app_config_dir)` → reads `config.json` and returns **only** `Vec<WorkspaceInfo>` (id, name, root_path). No full config, no save.
+  - `list_workspaces(app_config_dir)` -> reads `config.json` and returns **only** `Vec<WorkspaceInfo>` (id, name, root_path). No full config, no save.
   - `list_sessions`, `load_session_log`, `run_agent_task` — none of these read or write `AppSettings`.
 - **Tauri** exposes settings to the **web frontend** via:
-  - `cmd_settings_get` → `AppSettings`
-  - `cmd_settings_save(app, settings: AppSettings)` → `()`
-  - `get_config` → raw `config.json` as `serde_json::Value`
+  - `cmd_settings_get` -> `AppSettings`
+  - `cmd_settings_save(app, settings: AppSettings)` -> `()`
+  - `get_config` -> raw `config.json` as `serde_json::Value`
 
 Those Tauri commands are **not** available to the Swift app; Swift talks only to **oxcer_ffi** (the dylib).
 
@@ -91,7 +91,7 @@ So: **model format** is **GGUF** (file `model.gguf`); **inference** is **stub** 
 
 ---
 
-## 3. Data Flow: SwiftUI → ViewModel → Rust FFI → Core
+## 3. Data Flow: SwiftUI -> ViewModel -> Rust FFI -> Core
 
 ### 3.1 High-level
 
@@ -115,10 +115,10 @@ oxcer_core (list_workspaces_impl, list_sessions, load_session_log, agent_request
 
 | UI action | ViewModel | Backend method | FFI function | Rust |
 |-----------|-----------|----------------|---------------|------|
-| Load workspaces | `loadWorkspaces()` | `listWorkspaces(appConfigDir:)` | `listWorkspaces(appConfigDir:)` | `list_workspaces` → read `config.json` → `Vec<WorkspaceInfo>` |
-| Load sessions | `loadSessions()` | `listSessions(appConfigDir:)` | `listSessions(appConfigDir:)` | `list_sessions` → read session dirs → `Vec<SessionSummary>` |
-| Load session log | `loadSessionLog(sessionId:)` | `loadSessionLog(sessionId:appConfigDir:)` | `loadSessionLog(sessionId:appConfigDir:)` | `load_session_log` → `Vec<LogEvent>` |
-| Run task | Submit task | `runAgentTask(payload:)` | `runAgentTask(payload:)` | `run_agent_task` → `agent_request_impl` with **stub** executor → `AgentResponse` (no real tools/LLM) |
+| Load workspaces | `loadWorkspaces()` | `listWorkspaces(appConfigDir:)` | `listWorkspaces(appConfigDir:)` | `list_workspaces` -> read `config.json` -> `Vec<WorkspaceInfo>` |
+| Load sessions | `loadSessions()` | `listSessions(appConfigDir:)` | `listSessions(appConfigDir:)` | `list_sessions` -> read session dirs -> `Vec<SessionSummary>` |
+| Load session log | `loadSessionLog(sessionId:)` | `loadSessionLog(sessionId:appConfigDir:)` | `loadSessionLog(sessionId:appConfigDir:)` | `load_session_log` -> `Vec<LogEvent>` |
+| Run task | Submit task | `runAgentTask(payload:)` | `runAgentTask(payload:)` | `run_agent_task` -> `agent_request_impl` with **stub** executor -> `AgentResponse` (no real tools/LLM) |
 
 ### 3.3 What is **not** in the flow (yet)
 

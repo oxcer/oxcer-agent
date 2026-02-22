@@ -312,7 +312,7 @@ pub fn expand_template(
 }
 
 // -----------------------------------------------------------------------------
-// Parameter validation and binding → BoundCommand
+// Parameter validation and binding -> BoundCommand
 // -----------------------------------------------------------------------------
 
 /// Validates params against the command spec and resolves workspace-scoped
@@ -418,7 +418,7 @@ pub fn validate_and_bind_params(
         replacements.insert(param_spec.name.clone(), s);
     }
 
-    // Resolve workspace_id → workspace path for {{workspace}} placeholder
+    // Resolve workspace_id -> workspace path for {{workspace}} placeholder
     if spec.args_template.iter().any(|t| t == "{{workspace}}") {
         let wid = replacements.get("workspace_id").ok_or_else(|| ShellError {
             kind: ShellErrorKind::InvalidParams,

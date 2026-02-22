@@ -15,9 +15,9 @@
 //! Pseudocode flow:
 //! 1. Build PolicyRequest from incoming command (caller, tool_type, operation, target)
 //! 2. Call evaluate(request)
-//! 3. DENY → short-circuit, return error, log the decision
-//! 4. ALLOW → execute underlying tool/command
-//! 5. REQUIRE_APPROVAL → trigger HITL approval flow before proceeding
+//! 3. DENY -> short-circuit, return error, log the decision
+//! 4. ALLOW -> execute underlying tool/command
+//! 5. REQUIRE_APPROVAL -> trigger HITL approval flow before proceeding
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -761,7 +761,7 @@ mod tests {
         assert!(taken.is_none(), "expired request must not be retrievable");
     }
 
-    /// Approved → command can execute (store yields record for execution).
+    /// Approved -> command can execute (store yields record for execution).
     #[test]
     fn pending_approvals_store_approved_record_retrievable() {
         let store = PendingApprovalsStore::with_timeout_secs(60);

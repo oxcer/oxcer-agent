@@ -19,7 +19,7 @@ protocol OxcerBackend {
     /// Zero-cost FFI warm-up. Triggers dylib load and static runtime init. Call first in AppViewModel.init.
     func ping() -> String
     func ensureLocalModel(appConfigDir: String, onProgress: @escaping (Double, String) -> Void) async throws
-    func listWorkspaces(appConfigDir: String) async throws -> Int32
+    func listWorkspaces(appConfigDir: String) async throws -> [WorkspaceInfo]
     func listSessions(appConfigDir: String) async throws -> [SessionSummary]
     func loadSessionLog(sessionId: String, appConfigDir: String) async throws -> [LogEvent]
     func runAgentTask(payload: AgentRequestPayload) async throws -> AgentResponse
@@ -40,8 +40,10 @@ private final class SwiftDownloadCallback: DownloadCallback {
 
 /// DefaultOxcerBackend
 /// Implemented:
-/// - Forwards calls to UniFFI-generated functions (global listWorkspaces, listSessions, etc.) using Swift concurrency.
-/// - Offloads blocking FFI work to a detached task so the main actor stays responsive.
+/// - Forwards calls to UniFFI-generated functions using Swift concurrency.
+/// - Synchronous FFI functions (listWorkspaces, listSessions, loadSessionLog) are called
+///   directly with `try`; no Task.detached needed as they return quickly.
+/// - Asynchronous FFI functions (ensureLocalModel, runAgentTask) are called with `try await`.
 struct DefaultOxcerBackend: OxcerBackend {
     func ping() -> String {
         OxcerLauncher.ping()
@@ -52,28 +54,20 @@ struct DefaultOxcerBackend: OxcerBackend {
         try await OxcerLauncher.ensureLocalModel(appConfigDir: appConfigDir, callback: callback)
     }
 
-    func listWorkspaces(appConfigDir: String) async throws -> Int32 {
-        return await Task.detached(priority: .userInitiated) {
-            OxcerLauncher.listWorkspaces(appConfigDir: appConfigDir)
-        }.value
+    func listWorkspaces(appConfigDir: String) async throws -> [WorkspaceInfo] {
+        try OxcerLauncher.listWorkspaces(appConfigDir: appConfigDir)
     }
 
     func listSessions(appConfigDir: String) async throws -> [SessionSummary] {
-        try await Task.detached(priority: .userInitiated) {
-            try await listSessions(appConfigDir: appConfigDir)
-        }.value
+        try OxcerLauncher.listSessions(appConfigDir: appConfigDir)
     }
 
     func loadSessionLog(sessionId: String, appConfigDir: String) async throws -> [LogEvent] {
-        try await Task.detached(priority: .userInitiated) {
-            try await loadSessionLog(sessionId: sessionId, appConfigDir: appConfigDir)
-        }.value
+        try OxcerLauncher.loadSessionLog(sessionId: sessionId, appConfigDir: appConfigDir)
     }
 
     func runAgentTask(payload: AgentRequestPayload) async throws -> AgentResponse {
-        try await Task.detached(priority: .userInitiated) {
-            try await runAgentTask(payload: payload)
-        }.value
+        try await OxcerLauncher.runAgentTask(payload: payload)
     }
 }
 
@@ -90,8 +84,8 @@ struct MockOxcerBackend: OxcerBackend {
         onProgress(1.0, "Model Ready!")
     }
 
-    func listWorkspaces(appConfigDir: String) async throws -> Int32 {
-        42
+    func listWorkspaces(appConfigDir: String) async throws -> [WorkspaceInfo] {
+        []
     }
 
     func listSessions(appConfigDir: String) async throws -> [SessionSummary] {

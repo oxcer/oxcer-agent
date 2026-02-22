@@ -23,7 +23,7 @@
   - `cargo check --workspace`
   - `cargo test --workspace --features test` (the `test` feature enables Tauri’s mock context for the `oxcer` binary tests).
 
-- **Routine:** Modify core → run `cargo test` in `oxcer-core` → then run `pnpm tauri dev` when you need to exercise the backend.
+- **Routine:** Modify core -> run `cargo test` in `oxcer-core` -> then run `pnpm tauri dev` when you need to exercise the backend.
 
 ## Tauri context and `cargo test`
 
@@ -45,11 +45,11 @@
 
 - **Unit tests (oxcer-core):**
   - **semantic_router::route_task:** Various prompts/contexts assert category + strategy (simple_qa, tools_heavy, delete file X + high-risk, planning, cheap vs expensive by length, tools_only prefer).
-  - **Orchestrator:** Simple QA path (LlmGenerate step), tools-only list/delete (FsListDir/FsDelete intents), state machine (agent_step → NeedTool then Ok → Complete).
+  - **Orchestrator:** Simple QA path (LlmGenerate step), tools-only list/delete (FsListDir/FsDelete intents), state machine (agent_step -> NeedTool then Ok -> Complete).
   - **prompt_sanitizer:** Sensitive paths (ssh, aws, .pem), non-sensitive paths, redaction of JWTs and API-key prefixes, sensitive file placeholder in sanitize_for_llm.
 - **Integration tests (oxcer-core/tests/agent_flow_integration.rs):**
-  - **Agent tools-only delete:** "delete file X" → route_task → ToolsHeavy + ToolsOnly + high-risk; start_session → FsDelete intent; policy evaluate(AgentOrchestrator, Fs, Delete) → RequireApproval.
-  - **Cheap vs expensive routing:** Simple QA → CheapModel; long multi-step "plan" task → ExpensiveModel.
+  - **Agent tools-only delete:** "delete file X" -> route_task -> ToolsHeavy + ToolsOnly + high-risk; start_session -> FsDelete intent; policy evaluate(AgentOrchestrator, Fs, Delete) -> RequireApproval.
+  - **Cheap vs expensive routing:** Simple QA -> CheapModel; long multi-step "plan" task -> ExpensiveModel.
 
 Run: `cargo test -p oxcer-core` (unit + integration).
 
@@ -57,9 +57,9 @@ Run: `cargo test -p oxcer-core` (unit + integration).
 
 - **Classifier (data_sensitivity):** Unit tests for High (AWS keys, API keys, PEM, `.ssh/id_rsa` paths), Medium (IPs, ports, long base64), Low (normal code, workspace path normalization). See `oxcer-core/src/data_sensitivity.rs` `#[cfg(test)]`.
 - **Scrubber:** Placeholders inserted and surrounding text preserved; `redacted_length / original_length` threshold triggers block (ScrubbedAndBlocked or NeverSendToLlm). See `oxcer-core/src/prompt_sanitizer.rs` tests.
-- **Env filtering:** Synthetic env map → high-risk keys absent in `filter_env_for_child` output. See `oxcer-core/src/env_filter.rs` tests.
-- **Policy data_sensitivity:** Rules with `data_sensitivity: { max_level, require_approval_if }`; high-sensitivity payload → Denied or ApprovalRequired per config. See `oxcer-core/src/security/policy_config.rs` and `oxcer-core/tests/sprint7_integration.rs`.
-- **Integration (sprint7_integration.rs):** Sensitive file content → scrubbed payload has `[REDACTED: ...]`, no raw secret; too much sensitive data → scrubber returns Err; policy max_level Medium + High content → Denied.
+- **Env filtering:** Synthetic env map -> high-risk keys absent in `filter_env_for_child` output. See `oxcer-core/src/env_filter.rs` tests.
+- **Policy data_sensitivity:** Rules with `data_sensitivity: { max_level, require_approval_if }`; high-sensitivity payload -> Denied or ApprovalRequired per config. See `oxcer-core/src/security/policy_config.rs` and `oxcer-core/tests/sprint7_integration.rs`.
+- **Integration (sprint7_integration.rs):** Sensitive file content -> scrubbed payload has `[REDACTED: ...]`, no raw secret; too much sensitive data -> scrubber returns Err; policy max_level Medium + High content -> Denied.
 
 **Implementation notes:** Classifier uses regex + `OnceLock` pre-compiled patterns for speed. Policy rules are in YAML (`policies/default.yaml`); data_sensitivity rules can be extended there. Scrubbing is in the core path: all LLM calls go through `scrub_for_llm_call` / `scrub_for_llm_call_audit` (e.g. via `cmd_scrub_payload_for_llm`); no per-provider bypass.
 
@@ -104,7 +104,7 @@ rules:
     description: "IPv4 with optional port"
 ```
 
-- **Loader:** `load_rules_from_yaml(yaml)` → `Vec<DataSensitivityRuleConfig>`; each rule has `id`, `level`, `pattern`, `never_send`, `description`.
+- **Loader:** `load_rules_from_yaml(yaml)` -> `Vec<DataSensitivityRuleConfig>`; each rule has `id`, `level`, `pattern`, `never_send`, `description`.
 - **Compilation:** Not yet wired; future: compile each `pattern` into `Regex` and cache by `id`.
 - **Fallback:** On parse failure, use built-in rules from `data_sensitivity::RULES`.
 
@@ -126,7 +126,7 @@ rules:
 
 ## Sprint 9 – Plugin System
 
-- **Unit tests (oxcer-core):** `oxcer-core/tests/sprint9_plugin_system.rs` — invalid YAML skipped, dangerous plugin requires approval, plugin telemetry (plugin_start/plugin_end), git_status E2E (load → catalog → policy → tool_hints).
+- **Unit tests (oxcer-core):** `oxcer-core/tests/sprint9_plugin_system.rs` — invalid YAML skipped, dangerous plugin requires approval, plugin telemetry (plugin_start/plugin_end), git_status E2E (load -> catalog -> policy -> tool_hints).
 - **Capability registry:** `for_category`, `for_tag`, `matching_ids_for_task`; indexed lookups for scale.
 - **Manual QA (git_status E2E):** See [docs/PLUGIN_SYSTEM.md](PLUGIN_SYSTEM.md#manual-qa-checklist-git_status-e2e) for the step-by-step checklist.
 
@@ -139,9 +139,9 @@ rules:
 |-----------|---------------|---------------|-----------------|
 | **Security / policy** | Path blocklist, command blacklist, caller-specific rules (UI vs Agent), data_sensitivity | Wrong deny/allow/approval, blocklist bypass, path expansion bugs | Unit + integration |
 | **Semantic router** | Category (SimpleQa, ToolsHeavy, Planning), strategy (Cheap/Expensive/ToolsOnly), flags (requires_high_risk_approval) | Misrouting, missing high-risk flag | Unit |
-| **Orchestrator** | start_session → plan, next_action state machine, agent_request loop | Empty plan, step error not propagated, ApprovalPending loop | Unit + integration |
+| **Orchestrator** | start_session -> plan, next_action state machine, agent_request loop | Empty plan, step error not propagated, ApprovalPending loop | Unit + integration |
 | **Tools** | FsListDir, FsDelete, LlmGenerate intents; heuristic planner | Wrong intent for task, empty plan when no heuristic | Unit |
-| **Telemetry** | log_event → JSONL, list_sessions_from_dir, load_session_log_from_dir | Session file missing, parse errors, wrong summary fields | Unit + integration |
+| **Telemetry** | log_event -> JSONL, list_sessions_from_dir, load_session_log_from_dir | Session file missing, parse errors, wrong summary fields | Unit + integration |
 | **Data sensitivity** | Classify (High/Medium/Low), scrub placeholders, NeverSendToLlm | Secrets leaked, false positives | Unit |
 | **Prompt sanitizer** | Redact JWTs, API keys, sensitive paths | Raw secrets in LLM payload | Unit |
 | **Env filter** | filter_env_for_child removes high-risk keys | Secrets in child process env | Unit |
@@ -159,13 +159,13 @@ rules:
 |-----------|---------------|---------------|-----------------|
 | **JSON contracts** | oxcer_list_workspaces, oxcer_list_sessions, oxcer_load_session_log, oxcer_agent_request | Invalid input JSON, missing fields, wrong output shape | Unit (Rust) |
 | **Memory** | oxcer_string_free, null input handling | Leak, double-free, null deref | Unit (Rust) |
-| **Error propagation** | Rust Err → `{ "ok": false, "error": "..." }` | Panic, wrong error shape | Unit (Rust) |
+| **Error propagation** | Rust Err -> `{ "ok": false, "error": "..." }` | Panic, wrong error shape | Unit (Rust) |
 
 #### 1.4 SwiftUI OxcerLauncher
 | Component | Key behaviors | Failure modes | Best covered by |
 |-----------|---------------|---------------|-----------------|
-| **Workspace loading** | loadWorkspaces → OxcerFFI.listWorkspaces | Empty config, broken JSON, wrong path | Unit (XCTest) |
-| **Task execution** | runAgentRequest → OxcerFFI.agentRequest | Empty task, FFI error, UI not updating | Unit (mocked FFI) |
+| **Workspace loading** | loadWorkspaces -> OxcerFFI.listWorkspaces | Empty config, broken JSON, wrong path | Unit (XCTest) |
+| **Task execution** | runAgentRequest -> OxcerFFI.agentRequest | Empty task, FFI error, UI not updating | Unit (mocked FFI) |
 | **Recent Sessions** | loadSessions, loadSessionLog | No logs, corrupted JSONL, large file | Unit (mocked data) |
 | **UI state** | isRunning, errorMessage, resultText | Race conditions, stale state | Manual QA |
 
@@ -174,7 +174,7 @@ rules:
 |---------|---------------|---------------|-----------------|
 | **Config** | config.json schema, workspaces array | Malformed YAML/JSON, missing root_path | Integration |
 | **Logs** | logs/{session_id}.jsonl, telemetry.jsonl | Retention, sanitization, parse errors | Integration |
-| **Error handling** | Err propagation from Rust → FFI → Swift | Swallowed errors, wrong user message | Integration + Manual |
+| **Error handling** | Err propagation from Rust -> FFI -> Swift | Swallowed errors, wrong user message | Integration + Manual |
 | **Performance** | Large session logs, many workspaces | UI freeze, OOM | Manual QA |
 
 ---
@@ -189,18 +189,18 @@ rules:
 
 #### Slower suite (run before merge / release)
 - [ ] `cargo test --workspace --features test` — Tauri + oxcer-core + oxcer_ffi (~1 min)
-- [ ] Build OxcerLauncher: open `apps/OxcerLauncher/OxcerLauncher.xcodeproj` in Xcode, Product → Build
-- [ ] Run Swift tests: Product → Test (if XCTest target added)
+- [ ] Build OxcerLauncher: open `apps/OxcerLauncher/OxcerLauncher.xcodeproj` in Xcode, Product -> Build
+- [ ] Run Swift tests: Product -> Test (if XCTest target added)
 
 #### Manual QA checklist (before release)
 - [ ] **Launch:** OxcerLauncher opens; no crash; app config dir created
 - [ ] **Workspace:** Load workspaces from config.json; select workspace; empty config shows "No workspaces"
 - [ ] **Task:** Enter task "What is Rust?"; Run Task; result or stub error shown; no crash
-- [ ] **Task (validation):** Empty task → Run disabled; whitespace-only → Run disabled
+- [ ] **Task (validation):** Empty task -> Run disabled; whitespace-only -> Run disabled
 - [ ] **Recent Sessions:** Tab loads; empty state shows "Select a session"; after a session, list shows entries
-- [ ] **Recent Sessions (detail):** Select session; timeline shows events; expand row → JSON details
-- [ ] **Recent Sessions (edge):** Corrupted JSONL line → app does not crash; large log (>1000 events) → scrolls
-- [ ] **FFI error:** Temporarily pass invalid app_config_dir → error message shown in UI
+- [ ] **Recent Sessions (detail):** Select session; timeline shows events; expand row -> JSON details
+- [ ] **Recent Sessions (edge):** Corrupted JSONL line -> app does not crash; large log (>1000 events) -> scrolls
+- [ ] **FFI error:** Temporarily pass invalid app_config_dir -> error message shown in UI
 
 ---
 
@@ -239,10 +239,10 @@ rules:
 
 ### Adding an XCTest target
 
-1. In Xcode: File → New → Target → Unit Testing Bundle.
+1. In Xcode: File -> New -> Target -> Unit Testing Bundle.
 2. Name it `OxcerLauncherTests`, set Host Application = OxcerLauncher.
 3. Add the test files from `apps/OxcerLauncher/OxcerLauncherTests/` to the target.
-4. Run tests: Product → Test (⌘U).
+4. Run tests: Product -> Test (⌘U).
 
 ### Test files provided
 
@@ -275,12 +275,12 @@ Passing malformed JSON or missing required fields causes Rust to return `{ "ok":
 
 - [ ] **Launch:** App opens; no crash; `~/Library/Application Support/Oxcer` exists or is created.
 - [ ] **Workspace tab:** Load workspaces; empty config shows "No workspaces (config at…)".
-- [ ] **Workspace tab:** Valid config.json with workspaces → picker shows entries; select one.
-- [ ] **Task tab:** Empty task → Run disabled; whitespace-only → Run disabled.
-- [ ] **Task tab:** Valid task → Run Task; stub executor path shows error or answer (FFI uses stub).
-- [ ] **Recent Sessions:** Tab loads; empty logs → "Select a session"; Refresh works.
-- [ ] **Recent Sessions:** After a session exists → list shows entry; select → timeline loads.
-- [ ] **Recent Sessions:** Corrupted JSONL line → app does not crash; bad lines skipped.
+- [ ] **Workspace tab:** Valid config.json with workspaces -> picker shows entries; select one.
+- [ ] **Task tab:** Empty task -> Run disabled; whitespace-only -> Run disabled.
+- [ ] **Task tab:** Valid task -> Run Task; stub executor path shows error or answer (FFI uses stub).
+- [ ] **Recent Sessions:** Tab loads; empty logs -> "Select a session"; Refresh works.
+- [ ] **Recent Sessions:** After a session exists -> list shows entry; select -> timeline loads.
+- [ ] **Recent Sessions:** Corrupted JSONL line -> app does not crash; bad lines skipped.
 
 ---
 

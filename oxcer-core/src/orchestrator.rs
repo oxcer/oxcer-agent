@@ -5,7 +5,7 @@
 //! - **SessionState**: Per-session task machine (router_output, plan, step_index, tool_traces).
 //! - **ToolCallIntent**: One tool call (FsListDir, FsDelete, LlmGenerate, etc.); runner executes via Command Router.
 //! - **StepResult**: Outcome of one tool execution (Ok, Err, ApprovalPending).
-//! - **Flow**: `start_session` → build plan from router; `agent_step` / `next_action` advance state; executor runs tools and feeds results back.
+//! - **Flow**: `start_session` -> build plan from router; `agent_step` / `next_action` advance state; executor runs tools and feeds results back.
 //! - **agent_request**: Sync loop over agent_step + executor (blocks until complete). FFI uses stub executor; Tauri uses real commands.
 //!
 //! ## Agent as untrusted client
@@ -22,7 +22,7 @@
 //! Responsibilities:
 //! - Call Semantic Router (`route_task`) to get strategy (cheap / expensive / tools_only).
 //! - Execute per strategy: ToolsOnly (deterministic planner), CheapModel (single LLM), ExpensiveModel (planning + tool steps).
-//! - All tool execution goes through Command Router → Security Policy Engine → Approval.
+//! - All tool execution goes through Command Router -> Security Policy Engine -> Approval.
 //!
 //! Entrypoints:
 //! - `agent_request`: run to completion with an executor; returns `AgentTaskResult`.
@@ -365,7 +365,7 @@ fn build_plan_tools_only(
 
     let mut intents = Vec::new();
 
-    // "list files (in workspace)" / "list dir" / "ls" → single FsListDir
+    // "list files (in workspace)" / "list dir" / "ls" -> single FsListDir
     if task_lower.contains("list files")
         || task_lower.contains("list dir")
         || task_lower.contains("list the files")
@@ -380,7 +380,7 @@ fn build_plan_tools_only(
         return intents;
     }
 
-    // "delete X" / "remove X" → single FsDelete (always goes through policy + approval)
+    // "delete X" / "remove X" -> single FsDelete (always goes through policy + approval)
     let delete_prefixes = ["delete ", "remove ", "rm "];
     for prefix in delete_prefixes {
         if task_lower.starts_with(prefix) || task_lower.contains(&format!(" {} ", prefix.trim())) {
@@ -817,7 +817,7 @@ mod tests {
         }
     }
 
-    /// Tools-only: "delete file X" → orchestrator emits single FsDelete intent.
+    /// Tools-only: "delete file X" -> orchestrator emits single FsDelete intent.
     #[test]
     fn start_session_tools_only_delete_emits_fs_delete() {
         let input = RouterInput {
@@ -847,7 +847,7 @@ mod tests {
         assert!(first.is_some());
     }
 
-    /// State machine: tools-only delete — first step returns NeedTool(FsDelete), then Ok result → Complete.
+    /// State machine: tools-only delete — first step returns NeedTool(FsDelete), then Ok result -> Complete.
     #[test]
     fn orchestrator_tools_only_delete_state_machine() {
         let mut session = SessionState::new("s1".to_string(), "delete bar.txt".to_string());

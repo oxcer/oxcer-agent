@@ -123,20 +123,20 @@ pub struct RouterInput {
 // Heuristics (first pass — deterministic, no LLM)
 // -----------------------------------------------------------------------------
 
-/// Explicit tool verbs → ToolsHeavy + requires_high_risk_approval.
+/// Explicit tool verbs -> ToolsHeavy + requires_high_risk_approval.
 const TOOL_VERBS: &[&str] = &[
     "list files", "list dir", "open file", "read file", "write file", "delete", "remove",
     "rename", "move", "copy", "rm ", "mv ", "cp ", "shell command", "run script", "run command",
     "chmod", "execute",
 ];
 
-/// Code markers → Code; length then picks Cheap vs Expensive.
+/// Code markers -> Code; length then picks Cheap vs Expensive.
 const CODE_MARKERS: &[&str] = &[
     "fn ", "fn(", "class ", "import ", "export ", "use ", "def ", ".rs", ".ts", ".py",
     ".js", ".tsx", ".swift", ".go", ".rs\"", ".ts\"", "function ", "impl ",
 ];
 
-/// Planning keywords → Planning.
+/// Planning keywords -> Planning.
 const PLANNING_KEYWORDS: &[&str] = &[
     "plan", "steps", "strategy", "design", "architecture", "break down",
     "what order", "how should we", "first then finally",
@@ -159,7 +159,7 @@ fn has_planning_keywords(task: &str) -> bool {
     contains_any_lower(task, PLANNING_KEYWORDS)
 }
 
-/// Short task with no file/tool verbs → SimpleQa + CheapModel.
+/// Short task with no file/tool verbs -> SimpleQa + CheapModel.
 /// v1 conservative: "What is Rust?" etc. are treated as borderline (language/code-adjacent) and return false so they route to Planning.
 fn looks_like_simple_qa(task: &str, context: &TaskContext) -> bool {
     let t = task.trim();
@@ -170,7 +170,7 @@ fn looks_like_simple_qa(task: &str, context: &TaskContext) -> bool {
         return false;
     }
     let lower = t.to_lowercase();
-    // Borderline: language names often imply code context → route to Planning.
+    // Borderline: language names often imply code context -> route to Planning.
     if lower.starts_with("what is ") && (lower.contains("rust") || lower.contains("python") || lower.contains("code")) {
         return false;
     }
@@ -228,7 +228,7 @@ pub fn route_task(
         allow_model_tools_mix: true, // default allow
     };
 
-    // 1) Explicit tool verbs → ToolsHeavy + requires_high_risk_approval
+    // 1) Explicit tool verbs -> ToolsHeavy + requires_high_risk_approval
     if has_tool_verbs(task) {
         let strategy = if config.prefer_tools_only && task.len() < 300 {
             Strategy::ToolsOnly
@@ -243,7 +243,7 @@ pub fn route_task(
         };
     }
 
-    // 2) Many selected paths + short task → ToolsHeavy
+    // 2) Many selected paths + short task -> ToolsHeavy
     if context.selected_paths.len() >= 3 && task.len() < 150 {
         let strategy = if config.prefer_tools_only {
             Strategy::ToolsOnly
@@ -258,7 +258,7 @@ pub fn route_task(
         };
     }
 
-    // 3) Planning keywords or long task → Planning + ExpensiveModel
+    // 3) Planning keywords or long task -> Planning + ExpensiveModel
     if task.len() >= config.planning_length_threshold || has_planning_keywords(task) {
         return RouterDecision {
             category: TaskCategory::Planning,
@@ -268,7 +268,7 @@ pub fn route_task(
         };
     }
 
-    // 4) Code markers or selected_paths → Code only when task is long enough (v1 conservative: short code-ish → Planning).
+    // 4) Code markers or selected_paths -> Code only when task is long enough (v1 conservative: short code-ish -> Planning).
     let code_related = has_code_markers(task) || !context.selected_paths.is_empty();
     if code_related && task.len() >= 25 {
         let strategy = if task.len() >= config.planning_length_threshold {
@@ -284,7 +284,7 @@ pub fn route_task(
         };
     }
 
-    // 5) Simple Q&A (short, no file/tool verbs); v1 conservative: e.g. "What is Rust?" treated as borderline → Planning.
+    // 5) Simple Q&A (short, no file/tool verbs); v1 conservative: e.g. "What is Rust?" treated as borderline -> Planning.
     if looks_like_simple_qa(task, context) {
         return RouterDecision {
             category: TaskCategory::SimpleQa,
@@ -386,7 +386,7 @@ mod tests {
         assert!(out.flags.requires_high_risk_approval);
     }
 
-    /// POLICY (v1 conservative): Short code-ish prompt with one selected_path is borderline → Planning.
+    /// POLICY (v1 conservative): Short code-ish prompt with one selected_path is borderline -> Planning.
     /// Code is reserved for clearly longer code tasks (task len ≥ 25) or multiple paths.
     #[test]
     fn route_task_code_cheap() {
@@ -453,7 +453,7 @@ mod tests {
     }
 
     /// POLICY (v1 conservative): route(&RouterInput) uses same heuristics as route_task. "What is Rust?"
-    /// is borderline (language name) → Planning, not SimpleQa.
+    /// is borderline (language name) -> Planning, not SimpleQa.
     #[test]
     fn route_from_router_input() {
         let input = RouterInput {
@@ -467,7 +467,7 @@ mod tests {
         assert_eq!(out.strategy, Strategy::ExpensiveModel);
     }
 
-    /// "delete file X" → ToolsHeavy, high-risk flag, and with prefer_tools_only → ToolsOnly.
+    /// "delete file X" -> ToolsHeavy, high-risk flag, and with prefer_tools_only -> ToolsOnly.
     #[test]
     fn route_task_delete_file_x_tools_heavy_high_risk() {
         let out = route_task(
@@ -490,7 +490,7 @@ mod tests {
         assert_eq!(out_prefer.strategy, Strategy::ToolsOnly);
     }
 
-    /// Long multi-step task with "plan" language → Planning + ExpensiveModel.
+    /// Long multi-step task with "plan" language -> Planning + ExpensiveModel.
     #[test]
     fn route_task_long_plan_expensive() {
         let out = route_task(

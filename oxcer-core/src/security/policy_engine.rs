@@ -282,7 +282,7 @@ mod tests {
         let safe_path = "/tmp/workspace/file.txt".to_string();
 
         run_table_test(&[
-            // ─── DENY (path blocklist, command blacklist) ─────────────────────
+            // --- DENY (path blocklist, command blacklist) ---
             PolicyTestCase {
                 caller: PolicyCaller::Ui,
                 tool_type: ToolType::Fs,
@@ -325,7 +325,7 @@ mod tests {
                 expected_decision: PolicyDecisionKind::Deny,
                 expected_reason: |r| matches!(r, ReasonCode::ShellCommandBlacklisted),
             },
-            // ─── REQUIRE_APPROVAL (risk-based, agent) ──────────────────────────
+            // --- REQUIRE_APPROVAL (risk-based, agent) ---
             PolicyTestCase {
                 caller: PolicyCaller::Ui,
                 tool_type: ToolType::Fs,
@@ -368,7 +368,7 @@ mod tests {
                 expected_decision: PolicyDecisionKind::RequireApproval,
                 expected_reason: |r| matches!(r, ReasonCode::AgentExecRequiresApproval),
             },
-            // ─── ALLOW (UI low-risk, Agent read) ───────────────────────────────
+            // --- ALLOW (UI low-risk, Agent read) ---
             PolicyTestCase {
                 caller: PolicyCaller::Ui,
                 tool_type: ToolType::Fs,
@@ -410,7 +410,7 @@ mod tests {
                 expected_decision: PolicyDecisionKind::Allow,
                 expected_reason: |r| matches!(r, ReasonCode::ExplicitAllow),
             },
-            // ─── Agent vs UI asymmetry: same op, different callers ──────────────
+            // --- Agent vs UI asymmetry: same op, different callers ---
             PolicyTestCase {
                 caller: PolicyCaller::InternalSystem,
                 tool_type: ToolType::Fs,
@@ -421,7 +421,7 @@ mod tests {
                 expected_decision: PolicyDecisionKind::Allow,
                 expected_reason: |r| matches!(r, ReasonCode::InternalSystem),
             },
-            // ─── DEFAULT_DENY ──────────────────────────────────────────────────
+            // --- DEFAULT_DENY ---
             PolicyTestCase {
                 caller: PolicyCaller::AgentOrchestrator,
                 tool_type: ToolType::Other,
@@ -436,7 +436,7 @@ mod tests {
         ]);
     }
 
-    // ─── Static deny rules ───────────────────────────────────────────────────
+    // --- Static deny rules ---
 
     #[test]
     fn path_blocklist_ssh_denied() {
@@ -501,7 +501,7 @@ mod tests {
         assert!(matches!(dec.reason_code, ReasonCode::ShellCommandBlacklisted));
     }
 
-    // ─── Risk-based rules ────────────────────────────────────────────────────
+    // --- Risk-based rules ---
 
     #[test]
     fn destructive_fs_delete_requires_approval() {
@@ -542,7 +542,7 @@ mod tests {
         ));
     }
 
-    // ─── Caller-sensitive policies (Agent = untrusted client) ─────────────────
+    // --- Caller-sensitive policies (Agent = untrusted client) ---
 
     /// Agent trying a destructive FS operation must get REQUIRE_APPROVAL.
     /// Verifies the "Agent = untrusted client" invariant: agents never bypass
@@ -652,7 +652,7 @@ mod tests {
         }
     }
 
-    // ─── Default-deny ───────────────────────────────────────────────────────
+    // --- Default-deny ---
 
     #[test]
     fn default_deny_unknown_operation() {

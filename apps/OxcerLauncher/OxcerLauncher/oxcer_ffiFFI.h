@@ -288,7 +288,7 @@ RustBuffer uniffi_oxcer_ffi_fn_func_list_sessions(RustBuffer app_config_dir, Rus
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_FN_FUNC_LIST_WORKSPACES
 #define UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_FN_FUNC_LIST_WORKSPACES
-int32_t uniffi_oxcer_ffi_fn_func_list_workspaces(RustBuffer _app_config_dir, RustCallStatus *_Nonnull out_status
+RustBuffer uniffi_oxcer_ffi_fn_func_list_workspaces(RustBuffer app_config_dir, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_FN_FUNC_LOAD_SESSION_LOG

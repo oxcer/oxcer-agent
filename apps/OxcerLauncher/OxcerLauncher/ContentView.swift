@@ -248,7 +248,7 @@ final class AppViewModel: ObservableObject {
     /// Ensures we only run the initial workspace + session load once (avoids OOM from repeated onAppear/.task).
     private var hasPerformedInitialLoad = false
 
-    /// 🔒 GLOBAL LOCK: Persists even if AppViewModel is recreated (e.g. by parent view updates).
+    /// GLOBAL LOCK: Persists even if AppViewModel is recreated (e.g. by parent view updates).
     private static var hasAttemptedInit = false
     private static let initLock = NSLock()
     private var isCheckingModel = false

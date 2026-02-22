@@ -61,7 +61,7 @@ Mapped from FFI `SessionSummary` in `loadSessions()`.
 - `selectSession(id)`: `activeSessionDetail = nil`; create new `SessionDetailViewModel(sessionId: id)`; set `activeSessionDetail`; call `loadSessionLog` on it
 - `sendMessage(text)`: if `activeSessionDetail == nil`, create new empty `SessionDetailViewModel(sessionId: nil)`; append user message; `runAgentRequest` appends response to `activeSessionDetail`
 - `runAgentRequest`: append assistant message to `activeSessionDetail`
-- `loadSessions`: map FFI `[SessionSummary]` → `[SidebarSessionItem]`
+- `loadSessions`: map FFI `[SessionSummary]` -> `[SidebarSessionItem]`
 
 ---
 
@@ -88,16 +88,16 @@ Mapped from FFI `SessionSummary` in `loadSessions()`.
 ## 4. Data Flow
 
 ```
-Backend.listSessions() → [SessionSummary] (FFI)
-    → map to [SidebarSessionItem] → AppViewModel.sessions
+Backend.listSessions() -> [SessionSummary] (FFI)
+    -> map to [SidebarSessionItem] -> AppViewModel.sessions
 
-Backend.loadSessionLog(sessionId) → [LogEvent]
-    → SessionDetailViewModel.sessionEvents (not AppViewModel)
+Backend.loadSessionLog(sessionId) -> [LogEvent]
+    -> SessionDetailViewModel.sessionEvents (not AppViewModel)
 
 User sends message:
-    AppViewModel.sendMessage → activeSessionDetail.appendMessage (user)
-    → runAgentRequest → backend.runAgentTask
-    → activeSessionDetail.appendMessage (assistant)
+    AppViewModel.sendMessage -> activeSessionDetail.appendMessage (user)
+    -> runAgentRequest -> backend.runAgentTask
+    -> activeSessionDetail.appendMessage (assistant)
 ```
 
 ---
@@ -106,5 +106,5 @@ User sends message:
 
 - **App lifetime:** sessions (lightweight SidebarSessionItem), workspaces, backend, model ready state
 - **Session lifetime:** ONE SessionDetailViewModel with messages + sessionEvents
-- **On startNewChat:** `activeSessionDetail = nil` → previous VM deallocated
-- **On selectSession:** `activeSessionDetail = nil` then new VM → previous VM deallocated
+- **On startNewChat:** `activeSessionDetail = nil` -> previous VM deallocated
+- **On selectSession:** `activeSessionDetail = nil` then new VM -> previous VM deallocated

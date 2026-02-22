@@ -4,7 +4,7 @@
 
 Oxcer supports a YAML-defined plugin system for extending capabilities without recompiling. All plugin execution goes through:
 
-- **Command Router** → **Security Policy Engine** → Approval (where applicable) → tool
+- **Command Router** -> **Security Policy Engine** -> Approval (where applicable) -> tool
 - No plugin bypasses data sensitivity filters (Sprint 7).
 
 ---
@@ -34,11 +34,11 @@ Result: `shell.git_status` is available as a command and can be invoked like any
 
 For each plugin, `plugin_rules_from_descriptors()` generates a policy rule from the `security` block:
 
-- `tool_type` → policy match
-- `operations` → for shell, mapped to `exec` (invocations always use Exec)
-- `dangerous` → if true, rule action is `RequireApproval`; otherwise `Allow`
-- `require_approval` → explicit override
-- `risk_level` → policy metadata
+- `tool_type` -> policy match
+- `operations` -> for shell, mapped to `exec` (invocations always use Exec)
+- `dangerous` -> if true, rule action is `RequireApproval`; otherwise `Allow`
+- `require_approval` -> explicit override
+- `risk_level` -> policy metadata
 
 Plugin rules are prepended to the base policy. For `shell.git_status` (operations: read, dangerous: false), the rule allows execution without approval.
 

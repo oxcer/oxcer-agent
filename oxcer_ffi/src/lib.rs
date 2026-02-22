@@ -1,7 +1,7 @@
 //! UniFFI FFI for Oxcer: pure Rust types and async-ready API.
 //! Swift (and other bindings) get generated code; no manual C strings or oxcer_string_free.
 //!
-//! Build: `cargo build --release -p oxcer_ffi` → `target/release/liboxcer_ffi.dylib` on macOS.
+//! Build: `cargo build --release -p oxcer_ffi` -> `target/release/liboxcer_ffi.dylib` on macOS.
 //! Generate Swift: `cargo run -p oxcer_ffi --features uniffi/cli` (or use uniffi-bindgen).
 
 uniffi::setup_scaffolding!("oxcer_ffi");
@@ -321,35 +321,35 @@ struct ConfigFileDto {
 }
 
 fn list_workspaces_impl(app_config_dir: &Path) -> Result<Vec<WorkspaceInfo>, OxcerError> {
-    let _ = app_config_dir;
-    // ISOLATION: nuclear isolation of list_workspaces
-    // let path = app_config_dir.join("config.json");
-    // let content = match std::fs::read_to_string(&path) {
-    //     Ok(c) => c,
-    //     Err(_) => return Ok(Vec::new()),
-    // };
-    // let cfg: ConfigFileDto = serde_json::from_str(&content).map_err(|e| OxcerError::Generic { message: e.to_string() })?;
-    // let list: Vec<WorkspaceInfo> = cfg
-    //     .workspaces
-    //     .into_iter()
-    //     .map(|w| {
-    //         let name = if w.name.is_empty() {
-    //             Path::new(&w.root_path)
-    //                 .file_name()
-    //                 .and_then(|n| n.to_str())
-    //                 .unwrap_or("Workspace")
-    //                 .to_string()
-    //         } else {
-    //             w.name
-    //         };
-    //         WorkspaceInfo {
-    //             id: w.id,
-    //             name,
-    //             root_path: w.root_path,
-    //         }
-    //     })
-    //     .collect();
-    Ok(Vec::new())
+    let path = app_config_dir.join("config.json");
+    let content = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(_) => return Ok(Vec::new()),
+    };
+    let cfg: ConfigFileDto = serde_json::from_str(&content).map_err(|e| OxcerError::Generic {
+        message: format!("list_workspaces: parse config.json: {}", e),
+    })?;
+    let list: Vec<WorkspaceInfo> = cfg
+        .workspaces
+        .into_iter()
+        .map(|w| {
+            let name = if w.name.is_empty() {
+                Path::new(&w.root_path)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("Workspace")
+                    .to_string()
+            } else {
+                w.name
+            };
+            WorkspaceInfo {
+                id: w.id,
+                name,
+                root_path: w.root_path,
+            }
+        })
+        .collect();
+    Ok(list)
 }
 
 // -----------------------------------------------------------------------------
@@ -443,13 +443,13 @@ pub fn ping() -> String {
 }
 
 /// List workspaces from config.json in the given app config directory.
+/// Returns an empty vec if config.json is absent. Propagates I/O and parse errors.
 #[uniffi::export]
-pub fn list_workspaces(_app_config_dir: String) -> i32 {
-    // ISOLATION: primitive return type to test marshalling
-    // let dir = app_config_dir_or_default(&app_config_dir)?;
-    // list_workspaces_impl(&dir)
-    42
+pub fn list_workspaces(app_config_dir: String) -> Result<Vec<WorkspaceInfo>, OxcerError> {
+    let dir = app_config_dir_or_default(&app_config_dir)?;
+    list_workspaces_impl(&dir)
 }
+
 
 /// List recent sessions from the app config directory.
 #[uniffi::export]
@@ -580,27 +580,102 @@ pub async fn run_agent_task(payload: AgentRequestPayload) -> Result<AgentRespons
 mod tests {
     use super::*;
 
+    // -------------------------------------------------------------------------
+    // list_workspaces (exported) — Stage 4: live implementation via config.json
+    // -------------------------------------------------------------------------
+
     #[test]
-    fn list_workspaces_requires_app_config_dir_or_fails() {
-        // Empty string should try default; on CI default may be None
-        let r = list_workspaces(String::new());
-        if let Ok(workspaces) = r {
-            assert!(workspaces.iter().all(|w| !w.id.is_empty()));
-        } else {
-            assert!(r.unwrap_err().to_string().contains("app_config_dir"));
-        }
+    fn list_workspaces_empty_dir_returns_empty_vec() {
+        let dir = tempfile::tempdir().unwrap();
+        let result = list_workspaces(dir.path().display().to_string()).unwrap();
+        assert!(result.is_empty());
     }
+
+    #[test]
+    fn list_workspaces_reads_config_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = r#"{"workspaces":[{"id":"ws-1","name":"Alpha","root_path":"/tmp/alpha"}]}"#;
+        std::fs::write(dir.path().join("config.json"), config).unwrap();
+        let result = list_workspaces(dir.path().display().to_string()).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].id, "ws-1");
+        assert_eq!(result[0].name, "Alpha");
+        assert_eq!(result[0].root_path, "/tmp/alpha");
+    }
+
+    // -------------------------------------------------------------------------
+    // list_workspaces_impl — lower-level unit tests (called by the exported fn)
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn list_workspaces_impl_reads_config_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = r#"{"workspaces":[{"id":"ws-1","name":"Alpha","root_path":"/tmp/alpha"}]}"#;
+        std::fs::write(dir.path().join("config.json"), config).unwrap();
+
+        let result = list_workspaces_impl(dir.path()).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].id, "ws-1");
+        assert_eq!(result[0].name, "Alpha");
+        assert_eq!(result[0].root_path, "/tmp/alpha");
+    }
+
+    #[test]
+    fn list_workspaces_impl_missing_config_returns_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let result = list_workspaces_impl(dir.path()).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn list_workspaces_impl_multiple_workspaces() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = r#"{"workspaces":[
+            {"id":"ws-1","name":"Alpha","root_path":"/tmp/alpha"},
+            {"id":"ws-2","name":"Beta","root_path":"/tmp/beta"}
+        ]}"#;
+        std::fs::write(dir.path().join("config.json"), config).unwrap();
+
+        let result = list_workspaces_impl(dir.path()).unwrap();
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[1].id, "ws-2");
+    }
+
+    #[test]
+    fn list_workspaces_impl_malformed_json_returns_err() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("config.json"), b"not json").unwrap();
+        let result = list_workspaces_impl(dir.path());
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("parse config.json"));
+    }
+
+    #[test]
+    fn list_workspaces_impl_entry_missing_root_path_fails_parse() {
+        // ConfigWorkspaceDto.root_path has no serde(default), so a missing field
+        // fails the entire deserialization (the error surfaces as OxcerError).
+        let dir = tempfile::tempdir().unwrap();
+        let config = r#"{"workspaces":[{"id":"ws-no-path"}]}"#;
+        std::fs::write(dir.path().join("config.json"), config).unwrap();
+        let result = list_workspaces_impl(dir.path());
+        assert!(result.is_err(), "expected Err for missing root_path field");
+    }
+
+    // -------------------------------------------------------------------------
+    // Other existing FFI contract tests
+    // -------------------------------------------------------------------------
 
     #[test]
     fn list_sessions_returns_result() {
         let r = list_sessions("/nonexistent".to_string());
-        // Either Ok(vec) or Err
-        let _ = r;
+        let _ = r; // Either Ok([]) or Err — both are valid.
     }
 
     #[test]
     fn load_session_log_requires_session_id() {
-        // Empty app_config_dir will fail with "app_config_dir required"
         let r = load_session_log("some-session".to_string(), String::new());
         if r.is_ok() {
             assert!(r.unwrap().iter().all(|e| !e.session_id.is_empty()));

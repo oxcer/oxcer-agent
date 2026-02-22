@@ -20,7 +20,7 @@ OxcerLauncherApp
 ```
 
 **Lifetime notes:**
-- **RootWindowContent** uses `.id(appTheme)` → when theme changes, SwiftUI treats it as a new view identity. RootView and its `@StateObject` AppViewModel are discarded and recreated. Good: releases all ViewModel state on theme change.
+- **RootWindowContent** uses `.id(appTheme)` -> when theme changes, SwiftUI treats it as a new view identity. RootView and its `@StateObject` AppViewModel are discarded and recreated. Good: releases all ViewModel state on theme change.
 - **AppViewModel** lives from RootView creation until RootView is destroyed (window close or theme change). Effectively **app/window lifetime**.
 - **DefaultOxcerBackend** is created in `AppViewModel.init(backend: DefaultOxcerBackend())` — one per AppViewModel. No global singleton.
 - **DetailView** is always in the hierarchy (NavigationSplitView detail pane). It never disappears; there is no "navigate away" that would release its state.
@@ -81,7 +81,7 @@ LazyVStack(alignment: .leading, spacing: 16) {
 - **Item size:** `ChatMessage` small; `LogEvent` larger due to `details: String?`
 - **Identity issue:** `ForEach(sessionEvents, id: \.timestamp)` — timestamps can repeat. Non-unique ids hurt SwiftUI diffing and can cause extra churn/retention.
 - **LazyVStack:** Only materializes visible rows; off-screen views are released. Data arrays stay in memory.
-- **LogEvent.details:** Can hold large JSON strings. 2000 events × variable-size details → significant memory.
+- **LogEvent.details:** Can hold large JSON strings. 2000 events × variable-size details -> significant memory.
 
 ### 3.3 Combined retention
 

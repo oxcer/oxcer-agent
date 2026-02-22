@@ -1,46 +1,100 @@
 //  OxcerFFITests.swift
 //  OxcerLauncherTests
 //
-//  XCTest for FFI layer: workspace loading, session listing, error propagation.
-//  Requires: Add OxcerLauncherTests target, set Host Application = OxcerLauncher,
-//  and add this file to the test target.
+//  XCTest suite for the FFI layer — Stage 4 (live contract).
+//
+//  The virtual-memory sentinel is the primary guard against a recurrence of the
+//  88 GB reservation bug caused by FFI type confusion (i32 read as RustBuffer).
 
+import Darwin // mach_task_basic_info
 import XCTest
 @testable import OxcerLauncher
 
-final class OxcerFFITests: XCTestCase {
+// MARK: - Memory utility
 
-    /// Happy path: valid config.json with workspaces returns list.
+/// Returns the process virtual address space size in bytes via mach_task_basic_info.
+/// Not a substitute for Instruments, but fast enough for a regression sentinel.
+private func currentVirtualMemoryBytes() -> UInt64 {
+    var info = mach_task_basic_info()
+    var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size / MemoryLayout<integer_t>.size)
+    let result = withUnsafeMutablePointer(to: &info) {
+        $0.withMemoryRebound(to: integer_t.self, capacity: 1) {
+            task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO), $0, &count)
+        }
+    }
+    return result == KERN_SUCCESS ? info.virtual_size : 0
+}
+
+// MARK: - Stage 4: Live contract
+//
+// Rust: pub fn list_workspaces(dir: String) -> Result<Vec<WorkspaceInfo>, OxcerError>
+// Reads config.json from the supplied directory via list_workspaces_impl().
+
+final class OxcerFFIStage4Tests: XCTestCase {
+
     func testListWorkspaces_validConfig_returnsWorkspaces() throws {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("oxcer_test_\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        let config = """
-        {"workspaces":[{"id":"ws1","name":"Test","root_path":"/tmp/proj"}]}
-        """
-        try config.write(to: tmp.appendingPathComponent("config.json"), atomically: true, encoding: .utf8)
-        let dir = tmp.path
+        let config = #"{"workspaces":[{"id":"ws1","name":"Test","root_path":"/tmp/proj"}]}"#
+        try config.write(to: tmp.appendingPathComponent("config.json"),
+                         atomically: true, encoding: .utf8)
 
-        let list = try OxcerFFI.listWorkspaces(appConfigDir: dir)
+        let list = try listWorkspaces(appConfigDir: tmp.path)
         XCTAssertEqual(list.count, 1)
         XCTAssertEqual(list[0].id, "ws1")
         XCTAssertEqual(list[0].name, "Test")
         XCTAssertEqual(list[0].rootPath, "/tmp/proj")
     }
 
-    /// Empty or missing config returns empty list (no throw).
-    func testListWorkspaces_emptyConfig_returnsEmpty() throws {
+    func testListWorkspaces_missingConfig_returnsEmpty() throws {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("oxcer_test_\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmp) }
-        // No config.json — listWorkspaces returns [] (or empty)
-        let dir = tmp.path
-        let list = try OxcerFFI.listWorkspaces(appConfigDir: dir)
+
+        let list = try listWorkspaces(appConfigDir: tmp.path)
         XCTAssertTrue(list.isEmpty)
     }
+
+    func testListWorkspaces_malformedJson_throws() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("oxcer_test_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        try "not json".write(to: tmp.appendingPathComponent("config.json"),
+                             atomically: true, encoding: .utf8)
+
+        XCTAssertThrowsError(try listWorkspaces(appConfigDir: tmp.path))
+    }
+
+    /// Virtual-memory sentinel.
+    ///
+    /// Measures virtual address space growth across the FFI call.
+    /// Growth over 50 MB signals type confusion (the original bug reserved ~88 GB).
+    func testVirtualMemorySentinel_stage4() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("oxcer_test_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let limitBytes: UInt64 = 50 * 1024 * 1024
+        let before = currentVirtualMemoryBytes()
+        _ = try listWorkspaces(appConfigDir: tmp.path)
+        let after = currentVirtualMemoryBytes()
+        let growth = after > before ? after - before : 0
+        XCTAssertLessThan(growth, limitBytes,
+            "Virtual memory grew by \(growth / 1024 / 1024) MB. " +
+            "Threshold is 50 MB. Possible FFI type confusion — " +
+            "check that the Swift bindings were regenerated after the last Rust change.")
+    }
+}
+
+// MARK: - Existing FFI contract tests (unchanged)
+
+final class OxcerFFIContractTests: XCTestCase {
 
     /// Invalid payload to agentRequest throws (e.g. empty task handled by Rust).
     func testAgentRequest_invalidPayload_propagatesError() {
@@ -62,19 +116,19 @@ final class OxcerFFITests: XCTestCase {
             .appendingPathComponent("oxcer_test_\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmp) }
-        let dir = tmp.path
-        let list = try OxcerFFI.listSessions(appConfigDir: dir)
+        let list = try OxcerFFI.listSessions(appConfigDir: tmp.path)
         XCTAssertTrue(list.isEmpty)
     }
 
-    /// loadSessionLog with empty sessionId — Rust uses "default" as filename; may succeed or fail.
-    /// Passing clearly invalid session_id that maps to nonexistent file should throw.
+    /// loadSessionLog with clearly invalid session_id should throw.
     func testLoadSessionLog_nonexistentSession_throws() throws {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("oxcer_test_\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmp) }
-        // No session file exists
-        XCTAssertThrowsError(try OxcerFFI.loadSessionLog(sessionId: "nonexistent-session-12345", appConfigDir: tmp.path)) { _ in }
+        XCTAssertThrowsError(
+            try OxcerFFI.loadSessionLog(sessionId: "nonexistent-session-12345",
+                                        appConfigDir: tmp.path)
+        )
     }
 }

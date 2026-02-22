@@ -20,11 +20,11 @@ Settings file: `config.json` under the app config directory (e.g. `~/Library/App
 
 | UI control | config.json field | type |
 |------------|-------------------|------|
-| "Allow destructive file operations" checkbox (Settings → Advanced) | `security.destructive_fs.enabled` | bool |
+| "Allow destructive file operations" checkbox (Settings -> Advanced) | `security.destructive_fs.enabled` | bool |
 | Workspace list item id | `workspaces[].id` | string |
 | Workspace list item display name | `workspaces[].name` | string |
 | Workspace list item path | `workspaces[].root_path` | string |
-| Default model dropdown (Settings → Basic) | `model.default_id` | string |
+| Default model dropdown (Settings -> Basic) | `model.default_id` | string |
 
 The default model selection is used by the Agent Orchestrator (Sprint 6) for model backend choice when the Semantic Router selects `cheap_model` or `expensive_model`. See `docs/AGENT_ORCHESTRATOR.md`.
 

@@ -7,7 +7,7 @@
 //! final authority for all privileged actions.
 //!
 //! Policies are defined as data (YAML/JSON); see `policy_config` and
-//! `policies/default.yaml`. Invalid policy → secure default (default-deny).
+//! `policies/default.yaml`. Invalid policy -> secure default (default-deny).
 
 pub mod policy_config;
 pub mod policy_engine;

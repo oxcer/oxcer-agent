@@ -1,7 +1,7 @@
 //! Policy definition & configuration: data-driven policies (YAML/JSON).
 //!
 //! Policies are expressed as data instead of hard-coding. The loader validates
-//! the schema and fails safely: invalid policy → secure default (default-deny).
+//! the schema and fails safely: invalid policy -> secure default (default-deny).
 
 use serde::{Deserialize, Serialize};
 
@@ -236,7 +236,7 @@ pub fn load_from_yaml_result(bytes: &[u8]) -> LoadResult {
 }
 
 /// Validates policy config. Rejects configs that could weaken security.
-/// Invalid policy → caller must use default_policy() (fail-safe).
+/// Invalid policy -> caller must use default_policy() (fail-safe).
 fn validate(cfg: &PolicyConfig) -> LoadResultOf<()> {
     if cfg.rules.is_empty() {
         return Err(PolicyLoadError::Validation("rules must not be empty".into()));
@@ -749,7 +749,7 @@ rules:
         assert_eq!(cfg.rules[1].action, PolicyAction::Deny);
     }
 
-    /// Unknown action values (allow_all, typoed approve) cause parse failure → secure fallback.
+    /// Unknown action values (allow_all, typoed approve) cause parse failure -> secure fallback.
     #[test]
     fn unknown_action_falls_back_to_secure_default() {
         let yaml = br#"
@@ -765,7 +765,7 @@ rules:
         assert_not_more_permissive(&cfg);
     }
 
-    /// Typoed action (approve instead of require_approval) causes parse failure → secure fallback.
+    /// Typoed action (approve instead of require_approval) causes parse failure -> secure fallback.
     #[test]
     fn typoed_action_falls_back_to_secure_default() {
         let yaml = br#"
@@ -796,7 +796,7 @@ rules:
         assert!(result.is_err(), "empty match + allow must be rejected");
     }
 
-    /// Missing required fields (no match) → validation fails or parse fails → secure fallback.
+    /// Missing required fields (no match) -> validation fails or parse fails -> secure fallback.
     #[test]
     fn missing_match_falls_back() {
         let yaml = br#"
@@ -810,7 +810,7 @@ rules:
         assert_not_more_permissive(&cfg);
     }
 
-    /// Invalid path/command patterns (wrong type) cause parse failure → secure fallback.
+    /// Invalid path/command patterns (wrong type) cause parse failure -> secure fallback.
     #[test]
     fn invalid_path_patterns_type_falls_back() {
         let yaml = br#"

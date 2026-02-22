@@ -1,7 +1,7 @@
 //! Plugin system (Sprint 9): YAML-defined extensions for shell commands, FS indexers, and agent tools.
 //!
 //! All plugin execution paths go through:
-//! - Command Router → Security Policy Engine → Approval (where applicable) → tool
+//! - Command Router -> Security Policy Engine -> Approval (where applicable) -> tool
 //! - No plugin bypasses data sensitivity filters (Sprint 7).
 
 mod capability_registry;

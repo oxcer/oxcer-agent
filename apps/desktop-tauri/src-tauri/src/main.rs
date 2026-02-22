@@ -7,14 +7,14 @@
 //! **Invariant:** The Agent Orchestrator (and any AI agent) must NEVER call
 //! FS/Shell/Web tools directly. All privileged operations MUST go through:
 //!
-//!   Command Router → Security Policy Engine → optional HITL Approval → tool
+//!   Command Router -> Security Policy Engine -> optional HITL Approval -> tool
 //!
 //! This module is the ONLY surface for FS/Shell operations. The `invoke_handler`
 //! below registers the sole commands (`cmd_fs_*`, `cmd_shell_run`). There are
 //! no direct `fs::` or `shell::` Tauri commands — those modules are called
 //! internally only AFTER policy evaluation. Agents invoke these commands with
 //! `caller: "agent_orchestrator"`; the policy engine enforces stricter rules
-//! (e.g. write/exec → REQUIRE_APPROVAL) for agents.
+//! (e.g. write/exec -> REQUIRE_APPROVAL) for agents.
 //!
 //! Oxcer's primary UI is a native Swift app. The Tauri backend currently uses a
 //! hidden window but can be evolved into a tray app or pure daemon if needed.
@@ -827,7 +827,7 @@ fn cmd_fs_rename(
 
     if policy_caller == PolicyCaller::AgentOrchestrator {
         let request_id = Uuid::new_v4().to_string();
-        let summary = format!("Rename {} → {}", rel_path, new_rel_path);
+        let summary = format!("Rename {} -> {}", rel_path, new_rel_path);
         let store = app.state::<PendingApprovalsStore>();
         let record = store.create_record(
             request_id.clone(),
@@ -880,7 +880,7 @@ fn cmd_fs_rename(
     }
     if decision.decision == PolicyDecisionKind::RequireApproval {
         let request_id = Uuid::new_v4().to_string();
-        let summary = format!("Rename {} → {}", rel_path, new_rel_path);
+        let summary = format!("Rename {} -> {}", rel_path, new_rel_path);
         let store = app.state::<PendingApprovalsStore>();
         let record = store.create_record(
             request_id.clone(),
@@ -918,7 +918,7 @@ fn cmd_fs_rename(
     .map_err(RouterError::from)?;
     emit_destructive_op_executed(
         &app,
-        &format!("Renamed {} → {} in \"{}/\". (Destructive operations enabled in Settings.)", rel_path, new_rel_path, workspace_id),
+        &format!("Renamed {} -> {} in \"{}/\". (Destructive operations enabled in Settings.)", rel_path, new_rel_path, workspace_id),
     );
     Ok(())
 }
@@ -960,7 +960,7 @@ fn cmd_fs_move(
 
     if policy_caller == PolicyCaller::AgentOrchestrator {
         let request_id = Uuid::new_v4().to_string();
-        let summary = format!("Move {} → {}/{}", rel_path, dest_workspace_root, dest_rel_path);
+        let summary = format!("Move {} -> {}/{}", rel_path, dest_workspace_root, dest_rel_path);
         let store = app.state::<PendingApprovalsStore>();
         let record = store.create_record(
             request_id.clone(),
@@ -1015,7 +1015,7 @@ fn cmd_fs_move(
     }
     if decision.decision == PolicyDecisionKind::RequireApproval {
         let request_id = Uuid::new_v4().to_string();
-        let summary = format!("Move {} → {}/{}", rel_path, dest_workspace_root, dest_rel_path);
+        let summary = format!("Move {} -> {}/{}", rel_path, dest_workspace_root, dest_rel_path);
         let store = app.state::<PendingApprovalsStore>();
         let record = store.create_record(
             request_id.clone(),
@@ -1055,7 +1055,7 @@ fn cmd_fs_move(
     .map_err(RouterError::from)?;
     emit_destructive_op_executed(
         &app,
-        &format!("Moved {} → \"{}/{}\". (Destructive operations enabled in Settings.)", rel_path, dest_workspace_id, dest_rel_path),
+        &format!("Moved {} -> \"{}/{}\". (Destructive operations enabled in Settings.)", rel_path, dest_workspace_id, dest_rel_path),
     );
     Ok(())
 }
@@ -1285,7 +1285,7 @@ fn cmd_approve_and_execute(
             .map_err(RouterError::from)?;
             emit_destructive_op_executed(
                 &app,
-                &format!("Renamed {} → {} in \"{}/\". (Destructive operations enabled in Settings.)", rel_path, new_rel_path, workspace_id),
+                &format!("Renamed {} -> {} in \"{}/\". (Destructive operations enabled in Settings.)", rel_path, new_rel_path, workspace_id),
             );
             Ok(serde_json::json!({ "success": true }))
         }
@@ -1308,7 +1308,7 @@ fn cmd_approve_and_execute(
             .map_err(RouterError::from)?;
             emit_destructive_op_executed(
                 &app,
-                &format!("Moved {} → \"{}/{}\". (Destructive operations enabled in Settings.)", rel_path, dest_workspace_id, dest_rel_path),
+                &format!("Moved {} -> \"{}/{}\". (Destructive operations enabled in Settings.)", rel_path, dest_workspace_id, dest_rel_path),
             );
             Ok(serde_json::json!({ "success": true }))
         }
@@ -1769,7 +1769,7 @@ fn cmd_scrub_payload_for_llm(
 
 /// Agent step: run Semantic Router + Orchestrator; return next action (ToolCall, Complete, or AwaitingApproval).
 /// The frontend executes tool intents via existing commands (cmd_fs_*, cmd_shell_run) with caller "agent_orchestrator",
-/// then passes the result back as last_result and calls this again. All tool execution goes through Command Router → Policy → Approval.
+/// then passes the result back as last_result and calls this again. All tool execution goes through Command Router -> Policy -> Approval.
 #[tauri::command]
 fn cmd_agent_step(
     app: AppHandle,
@@ -2038,7 +2038,7 @@ fn main() {
             let capability_registry = build_capability_registry(&descriptors);
             handle.manage(std::sync::Mutex::new(capability_registry));
 
-            // App menu: Oxcer (Quit); in debug builds also View → Toggle Developer Tools
+            // App menu: Oxcer (Quit); in debug builds also View -> Toggle Developer Tools
             let quit = PredefinedMenuItem::quit(handle, None)?;
             let app_sub = SubmenuBuilder::new(handle, "Oxcer")
                 .item(&quit)
