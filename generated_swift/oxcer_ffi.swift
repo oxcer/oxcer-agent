@@ -415,6 +415,22 @@ fileprivate struct FfiConverterUInt32: FfiConverterPrimitive {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterInt32: FfiConverterPrimitive {
+    typealias FfiType = Int32
+    typealias SwiftType = Int32
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Int32 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: Int32, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterUInt64: FfiConverterPrimitive {
     typealias FfiType = UInt64
     typealias SwiftType = UInt64
@@ -671,6 +687,258 @@ public func FfiConverterTypeAgentResponse_lift(_ buf: RustBuffer) throws -> Agen
 #endif
 public func FfiConverterTypeAgentResponse_lower(_ value: AgentResponse) -> RustBuffer {
     return FfiConverterTypeAgentResponse.lower(value)
+}
+
+
+/**
+ * Input for one orchestrator step. Swift passes the serialised session and the
+ * result of the previous tool execution. On the first call, session_json and
+ * last_result_json should be empty / None.
+ */
+public struct FfiAgentStep {
+    /**
+     * JSON-serialised AgentSessionState. Pass empty string on the first call.
+     */
+    public var sessionJson: String
+    /**
+     * Original task description (used to hydrate AgentTaskInput).
+     */
+    public var taskDescription: String
+    /**
+     * JSON-serialised StepResult from the previous tool execution. None for first call.
+     */
+    public var lastResultJson: String?
+    /**
+     * JSON-serialised AgentConfig. None uses defaults (recommended for Xcode runs).
+     */
+    public var configJson: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * JSON-serialised AgentSessionState. Pass empty string on the first call.
+         */sessionJson: String, 
+        /**
+         * Original task description (used to hydrate AgentTaskInput).
+         */taskDescription: String, 
+        /**
+         * JSON-serialised StepResult from the previous tool execution. None for first call.
+         */lastResultJson: String?, 
+        /**
+         * JSON-serialised AgentConfig. None uses defaults (recommended for Xcode runs).
+         */configJson: String?) {
+        self.sessionJson = sessionJson
+        self.taskDescription = taskDescription
+        self.lastResultJson = lastResultJson
+        self.configJson = configJson
+    }
+}
+
+
+
+extension FfiAgentStep: Equatable, Hashable {
+    public static func ==(lhs: FfiAgentStep, rhs: FfiAgentStep) -> Bool {
+        if lhs.sessionJson != rhs.sessionJson {
+            return false
+        }
+        if lhs.taskDescription != rhs.taskDescription {
+            return false
+        }
+        if lhs.lastResultJson != rhs.lastResultJson {
+            return false
+        }
+        if lhs.configJson != rhs.configJson {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(sessionJson)
+        hasher.combine(taskDescription)
+        hasher.combine(lastResultJson)
+        hasher.combine(configJson)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiAgentStep: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiAgentStep {
+        return
+            try FfiAgentStep(
+                sessionJson: FfiConverterString.read(from: &buf), 
+                taskDescription: FfiConverterString.read(from: &buf), 
+                lastResultJson: FfiConverterOptionString.read(from: &buf), 
+                configJson: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiAgentStep, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.sessionJson, into: &buf)
+        FfiConverterString.write(value.taskDescription, into: &buf)
+        FfiConverterOptionString.write(value.lastResultJson, into: &buf)
+        FfiConverterOptionString.write(value.configJson, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiAgentStep_lift(_ buf: RustBuffer) throws -> FfiAgentStep {
+    return try FfiConverterTypeFfiAgentStep.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiAgentStep_lower(_ value: FfiAgentStep) -> RustBuffer {
+    return FfiConverterTypeFfiAgentStep.lower(value)
+}
+
+
+/**
+ * Result of one orchestrator step.
+ * status == "need_tool"           → intent_json contains the ToolCallIntent to execute.
+ * status == "complete"            → final_answer contains the agent's response.
+ * status == "awaiting_approval"   → request_id requires user confirmation.
+ * status == "error"               → error_message contains the failure reason.
+ */
+public struct FfiAgentStepResult {
+    /**
+     * One of: "need_tool" | "complete" | "awaiting_approval" | "error"
+     */
+    public var status: String
+    /**
+     * JSON-serialised ToolCallIntent. Present when status == "need_tool".
+     */
+    public var intentJson: String?
+    /**
+     * JSON-serialised AgentSessionState after this step (always present on non-error).
+     */
+    public var sessionJson: String
+    /**
+     * Human-readable final answer. Present when status == "complete".
+     */
+    public var finalAnswer: String?
+    /**
+     * Approval request ID. Present when status == "awaiting_approval".
+     */
+    public var requestId: String?
+    /**
+     * Failure reason. Present when status == "error".
+     */
+    public var errorMessage: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * One of: "need_tool" | "complete" | "awaiting_approval" | "error"
+         */status: String, 
+        /**
+         * JSON-serialised ToolCallIntent. Present when status == "need_tool".
+         */intentJson: String?, 
+        /**
+         * JSON-serialised AgentSessionState after this step (always present on non-error).
+         */sessionJson: String, 
+        /**
+         * Human-readable final answer. Present when status == "complete".
+         */finalAnswer: String?, 
+        /**
+         * Approval request ID. Present when status == "awaiting_approval".
+         */requestId: String?, 
+        /**
+         * Failure reason. Present when status == "error".
+         */errorMessage: String?) {
+        self.status = status
+        self.intentJson = intentJson
+        self.sessionJson = sessionJson
+        self.finalAnswer = finalAnswer
+        self.requestId = requestId
+        self.errorMessage = errorMessage
+    }
+}
+
+
+
+extension FfiAgentStepResult: Equatable, Hashable {
+    public static func ==(lhs: FfiAgentStepResult, rhs: FfiAgentStepResult) -> Bool {
+        if lhs.status != rhs.status {
+            return false
+        }
+        if lhs.intentJson != rhs.intentJson {
+            return false
+        }
+        if lhs.sessionJson != rhs.sessionJson {
+            return false
+        }
+        if lhs.finalAnswer != rhs.finalAnswer {
+            return false
+        }
+        if lhs.requestId != rhs.requestId {
+            return false
+        }
+        if lhs.errorMessage != rhs.errorMessage {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(status)
+        hasher.combine(intentJson)
+        hasher.combine(sessionJson)
+        hasher.combine(finalAnswer)
+        hasher.combine(requestId)
+        hasher.combine(errorMessage)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiAgentStepResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiAgentStepResult {
+        return
+            try FfiAgentStepResult(
+                status: FfiConverterString.read(from: &buf), 
+                intentJson: FfiConverterOptionString.read(from: &buf), 
+                sessionJson: FfiConverterString.read(from: &buf), 
+                finalAnswer: FfiConverterOptionString.read(from: &buf), 
+                requestId: FfiConverterOptionString.read(from: &buf), 
+                errorMessage: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiAgentStepResult, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.status, into: &buf)
+        FfiConverterOptionString.write(value.intentJson, into: &buf)
+        FfiConverterString.write(value.sessionJson, into: &buf)
+        FfiConverterOptionString.write(value.finalAnswer, into: &buf)
+        FfiConverterOptionString.write(value.requestId, into: &buf)
+        FfiConverterOptionString.write(value.errorMessage, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiAgentStepResult_lift(_ buf: RustBuffer) throws -> FfiAgentStepResult {
+    return try FfiConverterTypeFfiAgentStepResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiAgentStepResult_lower(_ value: FfiAgentStepResult) -> RustBuffer {
+    return FfiConverterTypeFfiAgentStepResult.lower(value)
 }
 
 
@@ -1552,31 +1820,6 @@ fileprivate struct FfiConverterSequenceTypeSessionSummary: FfiConverterRustBuffe
         return seq
     }
 }
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-fileprivate struct FfiConverterSequenceTypeWorkspaceInfo: FfiConverterRustBuffer {
-    typealias SwiftType = [WorkspaceInfo]
-
-    public static func write(_ value: [WorkspaceInfo], into buf: inout [UInt8]) {
-        let len = Int32(value.count)
-        writeInt(&buf, len)
-        for item in value {
-            FfiConverterTypeWorkspaceInfo.write(item, into: &buf)
-        }
-    }
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [WorkspaceInfo] {
-        let len: Int32 = try readInt(&buf)
-        var seq = [WorkspaceInfo]()
-        seq.reserveCapacity(Int(len))
-        for _ in 0 ..< len {
-            seq.append(try FfiConverterTypeWorkspaceInfo.read(from: &buf))
-        }
-        return seq
-    }
-}
 private let UNIFFI_RUST_FUTURE_POLL_READY: Int8 = 0
 private let UNIFFI_RUST_FUTURE_POLL_MAYBE_READY: Int8 = 1
 
@@ -1643,6 +1886,32 @@ public func ensureLocalModel(appConfigDir: String, callback: DownloadCallback)as
         )
 }
 /**
+ * One synchronous step of the agent orchestrator. Swift drives the loop.
+ *
+ * # First call
+ * Pass `session_json: ""` and `last_result_json: None`. The orchestrator initialises
+ * the session, runs the semantic router, builds a plan, and returns the first
+ * `FfiAgentStepResult` (usually `status == "need_tool"` with an `intent_json`).
+ *
+ * # Subsequent calls
+ * After executing the tool intent, pass the serialised `StepResult` as `last_result_json`
+ * along with the `session_json` returned by the previous step. Repeat until `status == "complete"`.
+ *
+ * # Error handling
+ * Never panics. All errors are encoded as `status == "error"` with an `error_message`.
+ *
+ * # Thread safety
+ * This function is synchronous and blocking. Call from a `Task.detached` background task
+ * in Swift so the main actor stays responsive.
+ */
+public func ffiAgentStep(step: FfiAgentStep) -> FfiAgentStepResult {
+    return try!  FfiConverterTypeFfiAgentStepResult.lift(try! rustCall() {
+    uniffi_oxcer_ffi_fn_func_ffi_agent_step(
+        FfiConverterTypeFfiAgentStep.lower(step),$0
+    )
+})
+}
+/**
  * Generate text using the global model. Loads engine lazily on first call (requires ensure_local_model first).
  *
  * # Lazy Load + Zero-Copy Arc Pattern
@@ -1677,8 +1946,8 @@ public func listSessions(appConfigDir: String)throws  -> [SessionSummary] {
 /**
  * List workspaces from config.json in the given app config directory.
  */
-public func listWorkspaces(appConfigDir: String)throws  -> [WorkspaceInfo] {
-    return try  FfiConverterSequenceTypeWorkspaceInfo.lift(try rustCallWithError(FfiConverterTypeOxcerError.lift) {
+public func listWorkspaces(appConfigDir: String) -> Int32 {
+    return try!  FfiConverterInt32.lift(try! rustCall() {
     uniffi_oxcer_ffi_fn_func_list_workspaces(
         FfiConverterString.lower(appConfigDir),$0
     )
@@ -1707,12 +1976,11 @@ public func ping() -> String {
 })
 }
 /**
- * Run the agent task (stub executor; tools/approvals require app step API).
+ * Run the agent task using the phi-3-mini executor (FfiLlmExecutor).
  *
- * # Singleton enforcement
- * The agent uses `FfiStubExecutor` which does not invoke the LLM. When a real executor is wired,
- * it MUST use `GLOBAL_ENGINE` for LlmGenerate intents — never create new engine instances.
- * Heavy orchestrator work runs on a dedicated blocking thread pool; does not block the caller's executor.
+ * LlmGenerate intents are handled directly via the global phi-3-mini engine.
+ * FS/Shell intents return a descriptive error (use ffi_agent_step for those).
+ * Heavy orchestrator work runs on a dedicated blocking thread pool.
  */
 public func runAgentTask(payload: AgentRequestPayload)async throws  -> AgentResponse {
     return
@@ -1747,13 +2015,16 @@ private var initializationResult: InitializationResult = {
     if (uniffi_oxcer_ffi_checksum_func_ensure_local_model() != 36503) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_oxcer_ffi_checksum_func_ffi_agent_step() != 36085) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_oxcer_ffi_checksum_func_generate_text() != 56309) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_oxcer_ffi_checksum_func_list_sessions() != 38949) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_oxcer_ffi_checksum_func_list_workspaces() != 8768) {
+    if (uniffi_oxcer_ffi_checksum_func_list_workspaces() != 22435) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_oxcer_ffi_checksum_func_load_session_log() != 14285) {
@@ -1762,7 +2033,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_oxcer_ffi_checksum_func_ping() != 10669) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_oxcer_ffi_checksum_func_run_agent_task() != 20394) {
+    if (uniffi_oxcer_ffi_checksum_func_run_agent_task() != 25842) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_oxcer_ffi_checksum_method_downloadcallback_on_progress() != 23691) {

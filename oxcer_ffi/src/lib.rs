@@ -105,8 +105,8 @@ impl std::fmt::Display for OxcerError {
 }
 
 use oxcer_core::orchestrator::{
-    agent_request, AgentConfig, AgentSessionState, AgentTaskInput, AgentToolExecutor,
-    ToolCallIntent, ToolOutcome,
+    agent_request, agent_step, AgentConfig, AgentSessionState, AgentStepOutcome, AgentTaskInput,
+    AgentToolExecutor, StepResult, ToolCallIntent, ToolOutcome,
 };
 use oxcer_core::semantic_router::TaskContext as CoreTaskContext;
 use oxcer_core::telemetry::{load_session_log_from_dir, list_sessions_from_dir, LogEvent as CoreLogEvent, LogMetrics as CoreLogMetrics, SessionSummary as CoreSessionSummary};
@@ -353,23 +353,126 @@ fn list_workspaces_impl(app_config_dir: &Path) -> Result<Vec<WorkspaceInfo>, Oxc
 }
 
 // -----------------------------------------------------------------------------
-// Agent request: stub executor
+// Agent executor: LLM-capable FFI executor
+//
+// Handles LlmGenerate intents using the lazily-loaded global phi-3-mini engine.
+// FS/Shell intents are NOT executed here — they require Swift-side dispatch via
+// ffi_agent_step(). Returning an Err for those causes next_action to mark the
+// session Complete(error), surfacing it cleanly in the UI.
 // -----------------------------------------------------------------------------
 
-struct FfiStubExecutor;
+struct FfiLlmExecutor;
 
-impl AgentToolExecutor for FfiStubExecutor {
+impl AgentToolExecutor for FfiLlmExecutor {
     fn execute_tool(&self, intent: ToolCallIntent) -> Result<ToolOutcome, String> {
-        let _ = intent;
-        Err(
-            "Tool execution not available in FFI; use agent_step from the app with a real executor (e.g. Tauri/Swift) for full execution."
-                .to_string(),
-        )
+        match intent {
+            // ── LLM generation: handled by the global phi-3-mini engine ──────
+            ToolCallIntent::LlmGenerate { task, system_hint, .. } => {
+                let engine = get_or_init_engine()
+                    .map_err(|e| format!("Engine not ready: {}. Call ensure_local_model first.", e))?;
+
+                // Build phi-3-mini instruct prompt
+                let prompt = match system_hint.as_deref() {
+                    Some(hint) if !hint.is_empty() => {
+                        format!("<|system|>{}<|end|>\n<|user|>{}<|end|>\n<|assistant|>", hint, task)
+                    }
+                    _ => format!("<|user|>{}<|end|>\n<|assistant|>", task),
+                };
+
+                let result = engine
+                    .generate(&prompt, &GenerationParams::default())
+                    .map_err(|e| format!("LLM generation failed: {}", e))?;
+
+                Ok(ToolOutcome::Ok(serde_json::json!({ "text": result })))
+            }
+
+            // ── FS / Shell: require Swift-side dispatch via ffi_agent_step() ─
+            // Return a descriptive error; the orchestrator surfaces it in the UI.
+            other => {
+                let name = intent_kind_name(&other);
+                Err(format!(
+                    "Tool '{}' requires Swift host dispatch. \
+                     Use ffi_agent_step() for FS/Shell tool support from the Swift layer.",
+                    name
+                ))
+            }
+        }
     }
 
     fn resolve_approval(&self, _request_id: &str, _approved: bool) -> Result<serde_json::Value, String> {
-        Err("Approval flow not available in FFI; use step API from app.".to_string())
+        Err("Approval flow requires Swift host. Use ffi_agent_step() from the Swift layer.".to_string())
     }
+}
+
+/// Maps a ToolCallIntent variant to a stable human-readable name for error messages.
+fn intent_kind_name(intent: &ToolCallIntent) -> &'static str {
+    match intent {
+        ToolCallIntent::FsListDir { .. } => "fs_list_dir",
+        ToolCallIntent::FsReadFile { .. } => "fs_read_file",
+        ToolCallIntent::FsWriteFile { .. } => "fs_write_file",
+        ToolCallIntent::FsDelete { .. } => "fs_delete",
+        ToolCallIntent::FsRename { .. } => "fs_rename",
+        ToolCallIntent::FsMove { .. } => "fs_move",
+        ToolCallIntent::ShellRun { .. } => "shell_run",
+        ToolCallIntent::LlmGenerate { .. } => "llm_generate",
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Step-based FFI records: Swift drives the orchestrator loop
+//
+// Design: ffi_agent_step() is a synchronous, serialised step function.
+// Swift maintains the session state as a JSON string and drives the loop:
+//
+//   var sessionJson = ""
+//   var lastResultJson: String? = nil
+//   repeat {
+//       let out = ffiAgentStep(step: FfiAgentStep(...))
+//       switch out.status {
+//       case "need_tool":  lastResultJson = await swiftExecuteTool(out.intentJson!)
+//       case "complete":   return out.finalAnswer
+//       case "error":      throw ...
+//       }
+//   } while true
+//
+// This gives Swift full control over FS/Shell execution while Rust owns routing
+// and plan-building. LlmGenerate intents are dispatched to generateText() in Swift.
+// -----------------------------------------------------------------------------
+
+/// Input for one orchestrator step. Swift passes the serialised session and the
+/// result of the previous tool execution. On the first call, session_json and
+/// last_result_json should be empty / None.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct FfiAgentStep {
+    /// JSON-serialised AgentSessionState. Pass empty string on the first call.
+    pub session_json: String,
+    /// Original task description (used to hydrate AgentTaskInput).
+    pub task_description: String,
+    /// JSON-serialised StepResult from the previous tool execution. None for first call.
+    pub last_result_json: Option<String>,
+    /// JSON-serialised AgentConfig. None uses defaults (recommended for Xcode runs).
+    pub config_json: Option<String>,
+}
+
+/// Result of one orchestrator step.
+///   status == "need_tool"           → intent_json contains the ToolCallIntent to execute.
+///   status == "complete"            → final_answer contains the agent's response.
+///   status == "awaiting_approval"   → request_id requires user confirmation.
+///   status == "error"               → error_message contains the failure reason.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct FfiAgentStepResult {
+    /// One of: "need_tool" | "complete" | "awaiting_approval" | "error"
+    pub status: String,
+    /// JSON-serialised ToolCallIntent. Present when status == "need_tool".
+    pub intent_json: Option<String>,
+    /// JSON-serialised AgentSessionState after this step (always present on non-error).
+    pub session_json: String,
+    /// Human-readable final answer. Present when status == "complete".
+    pub final_answer: Option<String>,
+    /// Approval request ID. Present when status == "awaiting_approval".
+    pub request_id: Option<String>,
+    /// Failure reason. Present when status == "error".
+    pub error_message: Option<String>,
 }
 
 fn agent_request_impl(
@@ -378,7 +481,7 @@ fn agent_request_impl(
     workspace_root: Option<String>,
     context: Option<CoreTaskContext>,
 ) -> Result<AgentResponse, OxcerError> {
-    let executor = FfiStubExecutor;
+    let executor = FfiLlmExecutor;
 
     let context = context.unwrap_or_default();
     let input = AgentTaskInput {
@@ -533,12 +636,11 @@ pub async fn generate_text(prompt: String) -> Result<String, OxcerError> {
     Ok(result)
 }
 
-/// Run the agent task (stub executor; tools/approvals require app step API).
+/// Run the agent task using the phi-3-mini executor (FfiLlmExecutor).
 ///
-/// # Singleton enforcement
-/// The agent uses `FfiStubExecutor` which does not invoke the LLM. When a real executor is wired,
-/// it MUST use `GLOBAL_ENGINE` for LlmGenerate intents — never create new engine instances.
-/// Heavy orchestrator work runs on a dedicated blocking thread pool; does not block the caller's executor.
+/// LlmGenerate intents are handled directly via the global phi-3-mini engine.
+/// FS/Shell intents return a descriptive error (use ffi_agent_step for those).
+/// Heavy orchestrator work runs on a dedicated blocking thread pool.
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn run_agent_task(payload: AgentRequestPayload) -> Result<AgentResponse, OxcerError> {
     println!(
@@ -574,6 +676,125 @@ pub async fn run_agent_task(payload: AgentRequestPayload) -> Result<AgentRespons
 
     println!("[Rust] run_agent_task EXIT at {:?}", std::time::SystemTime::now());
     Ok(result)
+}
+
+/// One synchronous step of the agent orchestrator. Swift drives the loop.
+///
+/// # First call
+/// Pass `session_json: ""` and `last_result_json: None`. The orchestrator initialises
+/// the session, runs the semantic router, builds a plan, and returns the first
+/// `FfiAgentStepResult` (usually `status == "need_tool"` with an `intent_json`).
+///
+/// # Subsequent calls
+/// After executing the tool intent, pass the serialised `StepResult` as `last_result_json`
+/// along with the `session_json` returned by the previous step. Repeat until `status == "complete"`.
+///
+/// # Error handling
+/// Never panics. All errors are encoded as `status == "error"` with an `error_message`.
+///
+/// # Thread safety
+/// This function is synchronous and blocking. Call from a `Task.detached` background task
+/// in Swift so the main actor stays responsive.
+#[uniffi::export]
+pub fn ffi_agent_step(step: FfiAgentStep) -> FfiAgentStepResult {
+    // ── Deserialise or create session ────────────────────────────────────────
+    let mut session: AgentSessionState = if step.session_json.trim().is_empty()
+        || step.session_json.trim() == "{}"
+    {
+        AgentSessionState::new(
+            uuid::Uuid::new_v4().to_string(),
+            step.task_description.clone(),
+        )
+    } else {
+        match serde_json::from_str(&step.session_json) {
+            Ok(s) => s,
+            Err(e) => {
+                return FfiAgentStepResult {
+                    status: "error".to_string(),
+                    intent_json: None,
+                    session_json: step.session_json.clone(),
+                    final_answer: None,
+                    request_id: None,
+                    error_message: Some(format!("Failed to deserialise session: {}", e)),
+                };
+            }
+        }
+    };
+
+    // ── Deserialise config (defaults when absent) ─────────────────────────────
+    let config: AgentConfig = step
+        .config_json
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+        .and_then(|j| serde_json::from_str(j).ok())
+        .unwrap_or_default();
+
+    // ── Deserialise last_result ───────────────────────────────────────────────
+    let last_result: Option<StepResult> = match step.last_result_json.as_deref() {
+        None | Some("") => None,
+        Some(j) => match serde_json::from_str::<StepResult>(j) {
+            Ok(r) => Some(r),
+            Err(e) => {
+                return FfiAgentStepResult {
+                    status: "error".to_string(),
+                    intent_json: None,
+                    session_json: step.session_json.clone(),
+                    final_answer: None,
+                    request_id: None,
+                    error_message: Some(format!("Failed to deserialise last_result: {}", e)),
+                };
+            }
+        },
+    };
+
+    let input = AgentTaskInput {
+        task_description: step.task_description.clone(),
+        context: CoreTaskContext::default(),
+    };
+
+    // ── Run one orchestrator step ─────────────────────────────────────────────
+    match agent_step(input, &mut session, &config, last_result) {
+        Ok(outcome) => {
+            let session_json = serde_json::to_string(&session).unwrap_or_default();
+            match outcome {
+                AgentStepOutcome::Complete(result) => FfiAgentStepResult {
+                    status: "complete".to_string(),
+                    intent_json: None,
+                    session_json,
+                    final_answer: result.final_answer,
+                    request_id: None,
+                    error_message: None,
+                },
+                AgentStepOutcome::NeedTool { intent, .. } => {
+                    let intent_json = serde_json::to_string(&intent).ok();
+                    FfiAgentStepResult {
+                        status: "need_tool".to_string(),
+                        intent_json,
+                        session_json,
+                        final_answer: None,
+                        request_id: None,
+                        error_message: None,
+                    }
+                }
+                AgentStepOutcome::AwaitingApproval { request_id, .. } => FfiAgentStepResult {
+                    status: "awaiting_approval".to_string(),
+                    intent_json: None,
+                    session_json,
+                    final_answer: None,
+                    request_id: Some(request_id),
+                    error_message: None,
+                },
+            }
+        }
+        Err(e) => FfiAgentStepResult {
+            status: "error".to_string(),
+            intent_json: None,
+            session_json: serde_json::to_string(&session).unwrap_or_default(),
+            final_answer: None,
+            request_id: None,
+            error_message: Some(e),
+        },
+    }
 }
 
 #[cfg(test)]

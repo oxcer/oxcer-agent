@@ -276,6 +276,11 @@ void uniffi_oxcer_ffi_fn_init_callback_vtable_downloadcallback(UniffiVTableCallb
 uint64_t uniffi_oxcer_ffi_fn_func_ensure_local_model(RustBuffer app_config_dir, uint64_t callback
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_FN_FUNC_FFI_AGENT_STEP
+#define UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_FN_FUNC_FFI_AGENT_STEP
+RustBuffer uniffi_oxcer_ffi_fn_func_ffi_agent_step(RustBuffer step, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_FN_FUNC_GENERATE_TEXT
 #define UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_FN_FUNC_GENERATE_TEXT
 uint64_t uniffi_oxcer_ffi_fn_func_generate_text(RustBuffer prompt
@@ -590,6 +595,12 @@ void ffi_oxcer_ffi_rust_future_complete_void(uint64_t handle, RustCallStatus *_N
 #ifndef UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_CHECKSUM_FUNC_ENSURE_LOCAL_MODEL
 #define UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_CHECKSUM_FUNC_ENSURE_LOCAL_MODEL
 uint16_t uniffi_oxcer_ffi_checksum_func_ensure_local_model(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_CHECKSUM_FUNC_FFI_AGENT_STEP
+#define UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_CHECKSUM_FUNC_FFI_AGENT_STEP
+uint16_t uniffi_oxcer_ffi_checksum_func_ffi_agent_step(void
     
 );
 #endif
