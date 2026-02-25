@@ -1,7 +1,7 @@
-//! Weight and tokenizer loading for Phi-3-small.
+//! Weight and tokenizer loading for local GGUF models.
 //!
-//! Resolves model root, validates expected files (e.g. `model.gguf`, `tokenizer.json`),
-//! loads tokenizer from JSON, and prepares for in-process runtime (llama.cpp or ONNX).
+//! Resolves model root, validates required files (e.g. `model.gguf`), optionally loads
+//! `tokenizer.json` (only needed for the HuggingFace tokenizer fallback path).
 //! No HTTP, no ports.
 
 use std::path::{Path, PathBuf};
@@ -14,17 +14,19 @@ use crate::llm::LlmError;
 pub const DEFAULT_MODEL_GGUF: &str = "model.gguf";
 pub const DEFAULT_TOKENIZER_JSON: &str = "tokenizer.json";
 
-/// Resolved paths and metadata for a loaded Phi-3 model.
+/// Resolved paths and metadata for a loaded GGUF model.
 #[derive(Debug)]
 pub struct Phi3ModelPaths {
     #[allow(dead_code)]
     pub model_root: PathBuf,
     pub model_gguf: PathBuf,
-    pub tokenizer_json: PathBuf,
+    /// `None` when `tokenizer.json` is absent (e.g. Llama-3 GGUFs embed their vocabulary
+    /// internally and do not need a separate HuggingFace tokenizer file).
+    pub tokenizer_json: Option<PathBuf>,
 }
 
-/// Resolve and validate model root. Returns paths to `model.gguf` and `tokenizer.json`.
-/// Fails with [LlmError::Config] if the directory or required files are missing.
+/// Resolve and validate model root. Returns paths to `model.gguf` and, if present,
+/// `tokenizer.json`. Fails with [LlmError::Config] only if the GGUF is missing.
 pub fn resolve_model_paths(model_root: &Path) -> Result<Phi3ModelPaths, LlmError> {
     let model_root = model_root
         .canonicalize()
@@ -38,7 +40,6 @@ pub fn resolve_model_paths(model_root: &Path) -> Result<Phi3ModelPaths, LlmError
     }
 
     let model_gguf = model_root.join(DEFAULT_MODEL_GGUF);
-    let tokenizer_json = model_root.join(DEFAULT_TOKENIZER_JSON);
 
     if !model_gguf.is_file() {
         return Err(LlmError::Config(format!(
@@ -46,12 +47,17 @@ pub fn resolve_model_paths(model_root: &Path) -> Result<Phi3ModelPaths, LlmError
             model_gguf, DEFAULT_MODEL_GGUF
         )));
     }
-    if !tokenizer_json.is_file() {
-        return Err(LlmError::Config(format!(
-            "Tokenizer not found: {:?}. Place {} in the model root or run model download.",
-            tokenizer_json, DEFAULT_TOKENIZER_JSON
-        )));
-    }
+
+    let tokenizer_candidate = model_root.join(DEFAULT_TOKENIZER_JSON);
+    let tokenizer_json = if tokenizer_candidate.is_file() {
+        Some(tokenizer_candidate)
+    } else {
+        log::info!(
+            "[loader] tokenizer.json not found at {:?}; skipping HF tokenizer (GGUF vocab used instead)",
+            tokenizer_candidate
+        );
+        None
+    };
 
     Ok(Phi3ModelPaths {
         model_root: model_root.clone(),

@@ -1,4 +1,4 @@
-name: CI / test-and-check
+name: CI
 
 on:
   push:
@@ -6,63 +6,136 @@ on:
   pull_request:
     branches: [main]
 
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+# Cancel in-progress runs for the same branch when a new push arrives.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  # Job 1: JS + Rust cross-platform check (Linux, fast)
-  test-and-check:
+
+  # ── Job 1: Lint (fast, Linux) ───────────────────────────────────────────────
+  lint:
+    name: Lint (fmt + clippy)
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          run_install: false
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
-
-      - name: Install JS deps
-        run: pnpm install
-
-      - name: pnpm check
-        run: pnpm check
-
-      - name: Setup Rust
+      - name: Setup Rust (stable + rustfmt + clippy)
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
 
-      - name: Cargo check (workspace)
-        run: cargo check --workspace
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-lint-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-lint-
 
-      - name: Cargo test (oxcer_ffi)
-        # Tests the Rust-side FFI contract including list_workspaces_impl unit tests.
-        # Also catches stale #[cfg(test)] code that references wrong return types.
-        run: cargo test -p oxcer_ffi
+      - name: cargo fmt --check
+        run: cargo fmt --check
 
-  # Job 2: UniFFI binding freshness check (macOS only -- requires dylib build)
-  #
-  # Purpose: ensures the committed oxcer_ffi.swift is exactly what uniffi-bindgen
-  # would generate from the current Rust source. A divergence means someone
-  # changed a Rust FFI signature without regenerating the Swift bindings --
-  # the exact root cause of the 88 GB virtual-memory incident.
-  #
-  # If this job fails, run: ./scripts/regen-ffi.sh
-  uniffi-binding-freshness:
-    runs-on: macos-latest
-    needs: test-and-check
+      - name: cargo clippy -- -D warnings
+        run: cargo clippy -- -D warnings
+
+  # ── Job 2: Rust tests (fast, Linux) ────────────────────────────────────────
+  test:
+    name: Rust tests
+    runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Rust
+      - name: Setup Rust (stable)
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache Cargo registry and build artifacts
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-test-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-test-
+
+      - name: cargo check (workspace)
+        run: cargo check --workspace
+
+      - name: cargo test (oxcer-core)
+        # Core unit + integration tests. No Tauri dependency; pure Rust.
+        run: cargo test -p oxcer-core
+
+      - name: cargo test (oxcer_ffi)
+        # FFI contract tests. Catches stale #[cfg(test)] referencing wrong return types.
+        run: cargo test -p oxcer_ffi
+
+  # ── Job 3: macOS build (dylib + Xcode) ────────────────────────────────────
+  macos-build:
+    name: macOS app build
+    runs-on: macos-latest
+    needs: [lint, test]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-macos-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-macos-
+
+      - name: Install cmake (required by llama-cpp-sys)
+        run: brew install cmake
+
+      - name: Build oxcer_ffi dylib (release)
+        run: cargo build --release -p oxcer_ffi
+
+      - name: Build OxcerLauncher (Xcode)
+        run: |
+          xcodebuild \
+            -project apps/OxcerLauncher/OxcerLauncher.xcodeproj \
+            -scheme OxcerLauncher \
+            -destination 'platform=macOS' \
+            -configuration Debug \
+            build \
+            CODE_SIGNING_ALLOWED=NO
+
+  # ── Job 4: UniFFI binding freshness (macOS) ────────────────────────────────
+  #
+  # Ensures the committed oxcer_ffi.swift exactly matches what uniffi-bindgen
+  # would produce from the current Rust source. A divergence means a Rust FFI
+  # signature was changed without regenerating the Swift bindings — the root
+  # cause of the 88 GB virtual-memory incident.
+  #
+  # To fix a failure here: run ./scripts/regen-ffi.sh
+  uniffi-binding-freshness:
+    name: UniFFI binding freshness
+    runs-on: macos-latest
+    needs: [test]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
         uses: actions/cache@v4
         with:
           path: |
@@ -70,13 +143,15 @@ jobs:
             ~/.cargo/git
             target
           key: ${{ runner.os }}-cargo-ffi-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-ffi-
+          restore-keys: ${{ runner.os }}-cargo-ffi-
+
+      - name: Install cmake (required by llama-cpp-sys)
+        run: brew install cmake
 
       - name: Build oxcer_ffi dylib (release)
         run: cargo build --release -p oxcer_ffi
 
-      - name: Generate fresh Swift bindings into /tmp/uniffi_fresh
+      - name: Generate fresh Swift bindings
         run: |
           mkdir -p /tmp/uniffi_fresh
           cargo run --bin uniffi-bindgen -- generate \
@@ -85,43 +160,29 @@ jobs:
             --out-dir /tmp/uniffi_fresh
 
       - name: Compare fresh bindings against committed file
-        # The committed file is the single source of truth.
-        # If it differs from what bindgen produces today, the build fails.
         run: |
           COMMITTED=apps/OxcerLauncher/OxcerLauncher/oxcer_ffi.swift
           FRESH=/tmp/uniffi_fresh/oxcer_ffi.swift
 
           if ! diff -q "$FRESH" "$COMMITTED" > /dev/null 2>&1; then
             echo ""
-            echo "[ERROR] FFI bindings are STALE."
+            echo "ERROR: FFI bindings are STALE."
             echo "  The committed Swift bindings do not match what uniffi-bindgen"
-            echo "  produces from the current Rust source."
+            echo "  would produce from the current Rust source."
             echo ""
-            echo "  This is the root cause of the 88 GB virtual-memory incident."
-            echo "  A type mismatch between Rust return type and Swift decoder"
-            echo "  can cause Swift to misread a 4-byte integer as a RustBuffer"
-            echo "  header, treating garbage bytes as an array length."
+            echo "  Fix: run ./scripts/regen-ffi.sh and commit both generated files."
             echo ""
-            echo "  To fix, run from the repo root:"
-            echo "    ./scripts/regen-ffi.sh"
-            echo ""
-            echo "  Diff (fresh vs committed):"
             diff "$FRESH" "$COMMITTED" || true
             exit 1
           fi
+          echo "OK: UniFFI Swift bindings match the Rust source."
 
-          echo "[OK] UniFFI Swift bindings are fresh and match the Rust source."
-
-      - name: Verify checksum consistency (sanity check)
-        # Extracts the hardcoded checksum for list_workspaces from the committed
-        # Swift file and confirms it is non-zero. The real mismatch detection
-        # happens at app startup via uniffiEnsureInitialized(), but this gives
-        # an earlier signal in CI.
+      - name: Verify checksum is non-zero (sanity check)
         run: |
           COMMITTED=apps/OxcerLauncher/OxcerLauncher/oxcer_ffi.swift
           CHECKSUM=$(grep 'checksum_func_list_workspaces' "$COMMITTED" | grep -oE '[0-9]+' | head -1)
           if [ -z "$CHECKSUM" ] || [ "$CHECKSUM" -eq 0 ]; then
-            echo "[ERROR] Could not extract a non-zero checksum for list_workspaces from $COMMITTED"
+            echo "ERROR: Could not extract a non-zero checksum from $COMMITTED"
             exit 1
           fi
-          echo "[OK] list_workspaces checksum in committed bindings: $CHECKSUM"
+          echo "OK: list_workspaces checksum in committed bindings: $CHECKSUM"

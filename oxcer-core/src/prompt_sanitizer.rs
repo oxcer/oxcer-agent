@@ -681,7 +681,8 @@ mod tests {
 
     #[test]
     fn scrub_for_llm_call_err_never_send_on_private_key() {
-        let payload = "Here is my key:\n-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA\n-----END RSA PRIVATE KEY-----";
+        // NOTE: dummy PEM block for redaction tests only; body is clearly fake and non-sensitive.
+        let payload = "Here is my key:\n-----BEGIN RSA PRIVATE KEY-----\nFAKEPRIVATEKEYDATAFORTESTS\n-----END RSA PRIVATE KEY-----";
         let opts = data_sensitivity::ClassifierOptions::default();
         let r = scrub_for_llm_call(payload, &opts);
         assert!(matches!(r, Err(ScrubbingError::NeverSendToLlm { finding_kind: k, .. }) if k == "ssh_private_key"));

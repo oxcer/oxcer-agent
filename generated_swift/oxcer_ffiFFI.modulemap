@@ -1,4 +1,0 @@
-module oxcer_ffiFFI {
-    header "oxcer_ffiFFI.h"
-    export *
-}

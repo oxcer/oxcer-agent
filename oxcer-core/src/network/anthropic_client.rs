@@ -1,11 +1,17 @@
 //! Anthropic (Claude) API client.
 //! Uses `HttpClient::for_tool(NetworkTool::Anthropic)` — no ad-hoc reqwest.
+//!
+//! Auth: Anthropic requires `x-api-key: {key}` and `anthropic-version: 2023-06-01`.
+//! Do NOT use `Authorization: Bearer` — Anthropic rejects it with 401.
 
 use serde::{Deserialize, Serialize};
 
 use crate::network::{HttpClient, HttpError, NetworkTool};
 
-/// Anthropic messages request (simplified; extend as needed).
+/// Required `anthropic-version` header value.
+const ANTHROPIC_VERSION: &str = "2023-06-01";
+
+/// Anthropic Messages API request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnthropicMessagesRequest {
     pub model: String,
@@ -13,14 +19,16 @@ pub struct AnthropicMessagesRequest {
     pub messages: Vec<serde_json::Value>,
 }
 
-/// Anthropic messages response (simplified; extend as needed).
+/// Anthropic Messages API response.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnthropicMessagesResponse {
     pub content: Option<Vec<serde_json::Value>>,
 }
 
-/// Call Anthropic messages API. Requires `client` built with
+/// Call Anthropic Messages API. Requires `client` built with
 /// `HttpClient::for_tool(NetworkTool::Anthropic)`.
+///
+/// Sends `x-api-key` + `anthropic-version` headers (not `Authorization: Bearer`).
 pub async fn call_anthropic_messages(
     client: &HttpClient,
     request: &AnthropicMessagesRequest,
@@ -32,7 +40,16 @@ pub async fn call_anthropic_messages(
         });
     }
     let url = "https://api.anthropic.com/v1/messages";
-    let resp = client.post_json_bearer(url, request, api_key).await?;
+    let resp = client
+        .post_json_with_headers(
+            url,
+            request,
+            &[
+                ("x-api-key", api_key),
+                ("anthropic-version", ANTHROPIC_VERSION),
+            ],
+        )
+        .await?;
     let status = resp.status();
     let body = resp.text().await.map_err(HttpError::from)?;
     if !status.is_success() {

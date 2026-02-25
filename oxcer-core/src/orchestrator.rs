@@ -30,8 +30,26 @@
 
 use serde::{Deserialize, Serialize};
 
+// ── Structured logging ────────────────────────────────────────────────────────
+
+/// Structured agent lifecycle event. Always includes `session_id` and `event` fields.
+/// See oxcer_ffi/src/lib.rs for full documentation of this macro.
+macro_rules! agent_event {
+    ($level:ident, $sid:expr, $event:expr) => {
+        ::tracing::event!(::tracing::Level::$level, session_id = %$sid, event = $event)
+    };
+    ($level:ident, $sid:expr, $event:expr, $($rest:tt)*) => {
+        ::tracing::event!(::tracing::Level::$level, session_id = %$sid, event = $event, $($rest)*)
+    };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 use crate::prompt_sanitizer::sanitize_task_for_llm;
-use crate::semantic_router::{route, RouterConfig, RouterDecision, RouterInput, Strategy, TaskContext};
+use crate::semantic_router::{
+    has_implicit_file_read_intent, has_implicit_fs_intent, route, RouterConfig, RouterDecision,
+    RouterInput, Strategy, TaskContext,
+};
 
 // -----------------------------------------------------------------------------
 // Tool intents (runner maps these to cmd_fs_* / cmd_shell_run / LLM call)
@@ -42,16 +60,34 @@ use crate::semantic_router::{route, RouterConfig, RouterDecision, RouterInput, S
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ToolCallIntent {
+    /// List files and subdirectories at `rel_path` inside the workspace.
+    ///
+    /// **Preferred tool** for user requests like "what's in this folder?",
+    /// "show me the files", "list the directory" — use this instead of
+    /// telling the user the model cannot see the filesystem.
     FsListDir {
         workspace_id: String,
         workspace_root: String,
         rel_path: String,
     },
+    /// Read the text content of a file at `rel_path` inside the workspace.
+    ///
+    /// **Preferred tool** for user requests like "summarise this file",
+    /// "explain this code", "what does README.md say", "review file X" —
+    /// use this instead of telling the user the model cannot access files.
     FsReadFile {
         workspace_id: String,
         workspace_root: String,
         rel_path: String,
     },
+    /// Create or overwrite a file at `rel_path` inside the workspace.
+    ///
+    /// **Use this autonomously** when the user asks to "make a summary file",
+    /// "write this to a file", "create summary.md with that", or similar.
+    /// Infer `rel_path` from context (e.g. the directory that was just listed)
+    /// and choose a sensible name such as `summary.md` if the user did not
+    /// specify one.  Do **not** ask "what should the file be called?" — pick a
+    /// reasonable default and write the file, then report the path.
     FsWriteFile {
         workspace_id: String,
         workspace_root: String,
@@ -81,7 +117,13 @@ pub enum ToolCallIntent {
         command_id: String,
         params: serde_json::Value,
     },
-    /// Runner calls the appropriate remote API (OpenAI/Gemini/Anthropic/Grok).
+    /// Ask the LLM to answer or transform text.
+    ///
+    /// `system_hint` carries the local-agent policy that must be baked into
+    /// the model's system prompt — including permission to use `fs_list_dir`
+    /// and `fs_read_file` instead of saying it cannot access files.
+    /// Runners that call `generate_text` must forward `system_hint` to the
+    /// model (the local GGUF runtime includes it via `DESKTOP_AGENT_SYSTEM_PROMPT`).
     LlmGenerate {
         strategy: Strategy,
         task: String,
@@ -408,13 +450,233 @@ fn build_plan_tools_only(
     intents
 }
 
+/// System hint forwarded in every LlmGenerate intent.
+///
+/// Runners that build the final prompt (e.g. `LlamaCppPhiRuntime`) must inject
+/// this as the `<|system|>` block.  The text mirrors `DESKTOP_AGENT_SYSTEM_PROMPT`
+/// in `local_phi3/runtime.rs` — both must stay in sync when the policy changes.
+const AGENT_SYSTEM_HINT: &str = "\
+You are Oxcer, a local desktop AI assistant. \
+You are allowed to read, write, and list files on this machine.\n\
+RULE 1 — File Contents: When the user asks you to summarize, describe, explain, or \
+quote a file or document, you MUST call fs_read_file on that file FIRST. Base your \
+answer solely on the returned content. Never invent, guess, or paraphrase file \
+contents you have not read with fs_read_file. If fs_read_file fails or the file \
+cannot be found, say so explicitly instead of fabricating a summary.\n\
+RULE 2 — Directory Listings: When the user asks what is in a folder or directory, \
+you MUST call fs_list_dir first and base your answer solely on the tool result. \
+Never invent file names or folder structures.\n\
+RULE 3 — File Creation: When the user asks you to \"make a summary file\", \
+\"write this to a file\", \"create summary.md\", or any similar write request: \
+use prior tool outputs from this conversation to determine what to write. Choose \
+a sensible file name (e.g. summary.md) if the user has not specified one. Call \
+fs_write_file to create the file. Do NOT ask \"which file?\" when you already \
+listed or read files in this session — act on the context you already have.\n\
+RULE 4 — No repeated questions: Never ask the user to repeat information that is \
+already visible from a prior tool result in the same conversation. If the user \
+says \"make summary.md with that\" after a directory listing, \"that\" refers to \
+the files just listed — read and summarise them without asking which ones.\n\
+If a tool fails, say so explicitly rather than inventing content.";
+
+/// Placeholder substituted in `LlmGenerate.task` when the orchestrator has
+/// accumulated a real filesystem tool result and needs to inject it into the prompt.
+const FS_RESULT_PLACEHOLDER: &str = "{{FS_RESULT}}";
+
 fn build_plan_with_llm(task: &str, strategy: Strategy) -> Vec<ToolCallIntent> {
     let task_sanitized = sanitize_task_for_llm(task);
     vec![ToolCallIntent::LlmGenerate {
         strategy,
         task: task_sanitized,
-        system_hint: None,
+        system_hint: Some(AGENT_SYSTEM_HINT.to_string()),
     }]
+}
+
+/// Resolves a concrete filesystem path from a natural-language task string.
+///
+/// Recognises well-known macOS directory names (Desktop, Documents, Downloads)
+/// and the user's home directory.  Returns
+/// `(workspace_id, absolute_directory_path, rel_path)` where `rel_path` is always
+/// `"."` (list the whole directory).
+///
+/// Returns `None` when no recognisable path can be extracted and no default
+/// workspace root is available — the caller must guard against inventing a path.
+fn extract_fs_path(
+    task: &str,
+    default_workspace_id: Option<&str>,
+    default_workspace_root: Option<&str>,
+) -> Option<(String, String, String)> {
+    let task_lower = task.to_lowercase();
+    let home = dirs_next::home_dir();
+
+    // Well-known macOS user directories (checked in order — longer/more-specific first).
+    let well_known = [
+        ("documents", "Documents"),
+        ("downloads", "Downloads"),
+        ("desktop", "Desktop"),
+    ];
+
+    for (keyword, dir_name) in &well_known {
+        if task_lower.contains(keyword) {
+            let home_ref = home.as_ref()?;
+            let full_path = home_ref.join(dir_name);
+            let ws_id = default_workspace_id.unwrap_or("").to_string();
+            return Some((ws_id, full_path.to_string_lossy().into_owned(), ".".to_string()));
+        }
+    }
+
+    // "home folder" / "home directory" / "~" / bare "home"
+    if task_lower.contains("home folder")
+        || task_lower.contains("home directory")
+        || task_lower.contains("home dir")
+        || task_lower.contains("~")
+        || task_lower.contains(" home")
+    {
+        let home_path = home?.to_string_lossy().into_owned();
+        let ws_id = default_workspace_id.unwrap_or("").to_string();
+        return Some((ws_id, home_path, ".".to_string()));
+    }
+
+    // Fall back to default workspace root (if provided and non-empty).
+    if let Some(root) = default_workspace_root {
+        if !root.is_empty() {
+            let ws_id = default_workspace_id.unwrap_or("").to_string();
+            return Some((ws_id, root.to_string(), ".".to_string()));
+        }
+    }
+
+    None
+}
+
+/// Builds a two-step plan: first list the filesystem path, then ask the LLM
+/// to summarise using the real tool result.
+///
+/// Step 1: `FsListDir` at the resolved path.
+/// Step 2: `LlmGenerate` with `{{FS_RESULT}}` in the prompt — `next_action`
+///         substitutes the accumulated listing before emitting the intent.
+fn build_plan_fs_then_llm(
+    task: &str,
+    ws_id: String,
+    ws_root: String,
+    rel_path: String,
+    strategy: Strategy,
+) -> Vec<ToolCallIntent> {
+    let llm_task = format!(
+        "The user asked: \"{task}\"\n\n\
+         Here is the actual directory listing returned by the filesystem tool:\n\
+         {placeholder}\n\n\
+         Using ONLY the information above, provide a concise summary. \
+         Do NOT invent or add any file names or content that is not in the tool result.",
+        task = sanitize_task_for_llm(task),
+        placeholder = FS_RESULT_PLACEHOLDER,
+    );
+
+    vec![
+        ToolCallIntent::FsListDir {
+            workspace_id: ws_id,
+            workspace_root: ws_root,
+            rel_path,
+        },
+        ToolCallIntent::LlmGenerate {
+            strategy,
+            task: llm_task,
+            system_hint: Some(AGENT_SYSTEM_HINT.to_string()),
+        },
+    ]
+}
+
+/// Tries to extract an explicit file path (token ending with a known extension, or an
+/// absolute path) from the task string.
+///
+/// Returns `(workspace_id, workspace_root, rel_path)` or `None` if no recognisable
+/// file token is found.
+///
+/// For absolute paths (starting with `/`): `workspace_root = "/"`, `rel_path = path[1..]`.
+/// For bare filenames: the provided default workspace root is used.
+fn extract_explicit_file_path(
+    task: &str,
+    default_workspace_id: Option<&str>,
+    default_workspace_root: Option<&str>,
+) -> Option<(String, String, String)> {
+    const FILE_EXTS: &[&str] = &[
+        ".pdf", ".md", ".txt", ".docx", ".doc", ".csv",
+        ".json", ".yaml", ".yml", ".rst", ".tex", ".log",
+        ".py", ".rs", ".js", ".ts", ".swift",
+    ];
+    let ws_id = default_workspace_id.unwrap_or("").to_string();
+
+    for token in task.split_whitespace() {
+        let cleaned = token.trim_matches(|c: char| {
+            matches!(c, '"' | '\'' | ',' | ';' | ')' | '(' | '[' | ']')
+        });
+        let lower = cleaned.to_lowercase();
+
+        // Token ends with a known file extension
+        if FILE_EXTS.iter().any(|ext| lower.ends_with(ext)) {
+            if cleaned.starts_with('/') {
+                let rel = cleaned.trim_start_matches('/').to_string();
+                return Some((ws_id, "/".to_string(), rel));
+            } else if let Some(root) = default_workspace_root {
+                if !root.is_empty() {
+                    return Some((ws_id, root.to_string(), cleaned.to_string()));
+                }
+            }
+        }
+
+        // Absolute path without a known extension but looks like a file
+        // (contains a dot, does not end with '/', at least one '/' after the root)
+        if cleaned.starts_with('/')
+            && cleaned.contains('.')
+            && !cleaned.ends_with('/')
+            && !cleaned.ends_with('.')
+            && cleaned.matches('/').count() >= 2
+        {
+            let rel = cleaned.trim_start_matches('/').to_string();
+            return Some((ws_id, "/".to_string(), rel));
+        }
+    }
+
+    None
+}
+
+/// Builds a two-step plan: first read the specific file, then ask the LLM to
+/// summarise using only the real file content.
+///
+/// Step 1: `FsReadFile` at the resolved path.
+/// Step 2: `LlmGenerate` with `{{FS_RESULT}}` in the prompt — `next_action`
+///         substitutes the real file content before emitting the intent.
+///
+/// The LlmGenerate prompt explicitly forbids inventing content not present in
+/// the tool output, preventing hallucination on file summaries.
+fn build_plan_file_read_then_llm(
+    task: &str,
+    ws_id: String,
+    ws_root: String,
+    rel_path: String,
+    strategy: Strategy,
+) -> Vec<ToolCallIntent> {
+    let llm_task = format!(
+        "The user asked: \"{task}\"\n\n\
+         Here is the actual file content returned by the filesystem tool:\n\
+         {placeholder}\n\n\
+         Using ONLY the file content above, provide a concise and accurate response. \
+         Do NOT add, invent, or infer any information that is not present in the \
+         tool result. If the content appears truncated or is unavailable, say so.",
+        task = sanitize_task_for_llm(task),
+        placeholder = FS_RESULT_PLACEHOLDER,
+    );
+
+    vec![
+        ToolCallIntent::FsReadFile {
+            workspace_id: ws_id,
+            workspace_root: ws_root,
+            rel_path,
+        },
+        ToolCallIntent::LlmGenerate {
+            strategy,
+            task: llm_task,
+            system_hint: Some(AGENT_SYSTEM_HINT.to_string()),
+        },
+    ]
 }
 
 // -----------------------------------------------------------------------------
@@ -439,6 +701,68 @@ pub fn start_session(
             default_workspace_id.as_deref(),
             default_workspace_root.as_deref(),
         ),
+        Strategy::CheapModel if has_implicit_fs_intent(&task) => {
+            // Two-step FS-first plan: list the real directory, then let the LLM
+            // summarise using the actual listing (not invented content).
+            match extract_fs_path(
+                &task,
+                default_workspace_id.as_deref(),
+                default_workspace_root.as_deref(),
+            ) {
+                Some((ws_id, ws_root, rel_path)) => {
+                    build_plan_fs_then_llm(&task, ws_id, ws_root, rel_path, Strategy::CheapModel)
+                }
+                None => {
+                    // No resolvable path: guide the LLM to ask rather than invent.
+                    vec![ToolCallIntent::LlmGenerate {
+                        strategy: Strategy::CheapModel,
+                        task: format!(
+                            "The user asked: \"{task}\"\n\n\
+                             You could not determine which folder or file they meant. \
+                             Ask them to specify a full path (for example /Users/me/Desktop) \
+                             rather than inventing or guessing a folder structure."
+                        ),
+                        system_hint: Some(AGENT_SYSTEM_HINT.to_string()),
+                    }]
+                }
+            }
+        }
+        Strategy::CheapModel if has_implicit_file_read_intent(&task) => {
+            // User wants to summarize or describe a specific file's content.
+            // Sub-case A: explicit file path in task → read the file directly.
+            // Sub-case B: no explicit path → list workspace so the model can identify
+            //             the file and avoid fabricating its contents.
+            if let Some((ws_id, ws_root, rel_path)) = extract_explicit_file_path(
+                &task,
+                default_workspace_id.as_deref(),
+                default_workspace_root.as_deref(),
+            ) {
+                build_plan_file_read_then_llm(&task, ws_id, ws_root, rel_path, Strategy::CheapModel)
+            } else {
+                match extract_fs_path(
+                    &task,
+                    default_workspace_id.as_deref(),
+                    default_workspace_root.as_deref(),
+                ) {
+                    Some((ws_id, ws_root, rel_path)) => {
+                        // Reuse the existing FsListDir → LlmGenerate plan.
+                        // The prompt already forbids fabricating content not in the tool result.
+                        build_plan_fs_then_llm(&task, ws_id, ws_root, rel_path, Strategy::CheapModel)
+                    }
+                    None => vec![ToolCallIntent::LlmGenerate {
+                        strategy: Strategy::CheapModel,
+                        task: format!(
+                            "The user asked: \"{task}\"\n\n\
+                             You could not determine which file they meant. \
+                             Ask them to specify the full path to the file rather than \
+                             guessing or inventing its contents.",
+                            task = sanitize_task_for_llm(&task),
+                        ),
+                        system_hint: Some(AGENT_SYSTEM_HINT.to_string()),
+                    }],
+                }
+            }
+        }
         Strategy::CheapModel | Strategy::ExpensiveModel => {
             build_plan_with_llm(&task, router_output.strategy)
         }
@@ -526,7 +850,21 @@ pub fn next_action(
 
     // More steps?
     if session.step_index < session.plan.len() {
-        let intent = session.plan[session.step_index].clone();
+        let mut intent = session.plan[session.step_index].clone();
+
+        // If the next intent is an LlmGenerate whose task contains the FS result
+        // placeholder, substitute it with the real accumulated tool output before
+        // emitting — this prevents the model from hallucinating filesystem content.
+        if let ToolCallIntent::LlmGenerate { ref mut task, .. } = intent {
+            if task.contains(FS_RESULT_PLACEHOLDER) {
+                let fs_result = session
+                    .accumulated_response
+                    .as_deref()
+                    .unwrap_or("(no tool result available)");
+                *task = task.replace(FS_RESULT_PLACEHOLDER, fs_result);
+            }
+        }
+
         return Ok(OrchestratorAction::ToolCall {
             intent,
             session,
@@ -561,6 +899,21 @@ pub fn agent_step(
     config: &AgentConfig,
     last_result: Option<StepResult>,
 ) -> Result<AgentStepOutcome, String> {
+    // ── Tracing: entry ────────────────────────────────────────────────────────
+    let last_result_tag = match &last_result {
+        None => "none",
+        Some(StepResult::Ok { .. }) => "ok",
+        Some(StepResult::Err { .. }) => "err",
+        Some(StepResult::ApprovalPending { .. }) => "approval_pending",
+    };
+    agent_event!(DEBUG, session.session_id, "agent_step_enter",
+        state = ?session.state,
+        step_index = session.step_index,
+        plan_len = session.plan.len(),
+        last_result = last_result_tag,
+    );
+    // ─────────────────────────────────────────────────────────────────────────
+
     if session.state == TaskState::Initial && last_result.is_none() {
         let router_input = RouterInput {
             task_description: input.task_description,
@@ -575,6 +928,15 @@ pub fn agent_step(
             config.default_workspace_root.clone(),
         );
         *session = new_session;
+        // ── Tracing: init outcome ─────────────────────────────────────────────
+        let first_desc = first_intent.as_ref()
+            .map(|i| intent_tool_name(i))
+            .unwrap_or_else(|| "none".to_string());
+        agent_event!(INFO, session.session_id, "agent_step_init",
+            first_intent = %first_desc,
+            plan_len = session.plan.len(),
+        );
+        // ─────────────────────────────────────────────────────────────────────
         return match first_intent {
             Some(intent) => Ok(AgentStepOutcome::NeedTool {
                 intent,
@@ -588,10 +950,17 @@ pub fn agent_step(
         match action {
             OrchestratorAction::Complete { session: s, .. } => {
                 *session = s;
+                agent_event!(INFO, session.session_id, "agent_step_done", outcome = "complete",);
                 Ok(AgentStepOutcome::Complete(build_agent_task_result(session)))
             }
             OrchestratorAction::ToolCall { intent, session: s } => {
                 *session = s;
+                agent_event!(INFO, session.session_id, "agent_step_done",
+                    outcome = "need_tool",
+                    intent = %intent_tool_name(&intent),
+                    step_index = session.step_index,
+                    plan_len = session.plan.len(),
+                );
                 Ok(AgentStepOutcome::NeedTool {
                     intent,
                     session: session.clone(),
@@ -599,6 +968,10 @@ pub fn agent_step(
             }
             OrchestratorAction::AwaitingApproval { request_id, session: s } => {
                 *session = s;
+                agent_event!(INFO, session.session_id, "agent_step_done",
+                    outcome = "awaiting_approval",
+                    request_id = %request_id,
+                );
                 Ok(AgentStepOutcome::AwaitingApproval {
                     request_id,
                     session: session.clone(),
@@ -606,6 +979,12 @@ pub fn agent_step(
             }
         }
     } else {
+        tracing::error!(
+            session_id = %session.session_id,
+            event = "agent_step_error",
+            state = ?session.state,
+            "last_result required when session already executing"
+        );
         Err("last_result required when session is already executing".to_string())
     }
 }
@@ -790,7 +1169,7 @@ mod tests {
         session.plan = vec![ToolCallIntent::LlmGenerate {
             strategy: Strategy::CheapModel,
             task: "Hello".to_string(),
-            system_hint: None,
+            system_hint: Some(AGENT_SYSTEM_HINT.to_string()),
         }];
         session.step_index = 0; // about to process first (and only) step result
         let config = AgentConfig::default();
@@ -845,6 +1224,197 @@ mod tests {
             _ => panic!("expected FsDelete intent"),
         }
         assert!(first.is_some());
+    }
+
+    /// Implicit FS request "summarize my desktop folder" -> two-step plan:
+    /// [FsListDir(Desktop), LlmGenerate(with {{FS_RESULT}})]
+    #[test]
+    fn start_session_implicit_fs_produces_two_step_plan() {
+        let input = RouterInput {
+            task_description: "Please summarize my desktop folder".to_string(),
+            context: TaskContext::default(),
+            config: RouterConfig::default(),
+            capabilities: None,
+        };
+        let (session, first) = start_session(
+            "s1".to_string(),
+            input,
+            Some("ws1".to_string()),
+            Some("/tmp/ws".to_string()),
+        );
+        assert_eq!(session.plan.len(), 2, "should have FsListDir + LlmGenerate");
+        assert!(
+            matches!(&session.plan[0], ToolCallIntent::FsListDir { .. }),
+            "step 0 should be FsListDir"
+        );
+        assert!(
+            matches!(&session.plan[1], ToolCallIntent::LlmGenerate { .. }),
+            "step 1 should be LlmGenerate"
+        );
+        // LlmGenerate task must contain the placeholder (not yet substituted)
+        if let ToolCallIntent::LlmGenerate { task, .. } = &session.plan[1] {
+            assert!(
+                task.contains(FS_RESULT_PLACEHOLDER),
+                "LlmGenerate task must contain placeholder before substitution"
+            );
+        }
+        // First emitted intent is FsListDir
+        assert!(matches!(first, Some(ToolCallIntent::FsListDir { .. })));
+    }
+
+    /// After FsListDir returns real entries, next_action substitutes {{FS_RESULT}}
+    /// in the LlmGenerate task before emitting it.
+    #[test]
+    fn next_action_substitutes_fs_result_placeholder() {
+        let fs_step = ToolCallIntent::FsListDir {
+            workspace_id: "ws1".to_string(),
+            workspace_root: "/Users/test/Desktop".to_string(),
+            rel_path: ".".to_string(),
+        };
+        let llm_task_template = format!(
+            "The user asked: \"summarize my desktop\"\n\nTool result:\n{}\n\nSummarise.",
+            FS_RESULT_PLACEHOLDER
+        );
+        let llm_step = ToolCallIntent::LlmGenerate {
+            strategy: Strategy::CheapModel,
+            task: llm_task_template,
+            system_hint: None,
+        };
+
+        let mut session = SessionState::new("s1".to_string(), "summarize my desktop".to_string());
+        session.state = TaskState::Executing;
+        session.plan = vec![fs_step, llm_step];
+        session.step_index = 0;
+
+        // Simulate FsListDir returning real entries
+        let action = next_action(
+            session,
+            Some(StepResult::Ok {
+                payload: serde_json::json!({ "text": "file1.txt\nphoto.png\nREADME.md" }),
+            }),
+        )
+        .unwrap();
+
+        match action {
+            OrchestratorAction::ToolCall { intent, .. } => match intent {
+                ToolCallIntent::LlmGenerate { task, .. } => {
+                    assert!(
+                        !task.contains(FS_RESULT_PLACEHOLDER),
+                        "placeholder must be substituted before emitting"
+                    );
+                    assert!(
+                        task.contains("file1.txt"),
+                        "real fs result must appear in the task"
+                    );
+                    assert!(task.contains("photo.png"));
+                    assert!(task.contains("README.md"));
+                }
+                _ => panic!("expected LlmGenerate intent"),
+            },
+            _ => panic!("expected ToolCall, got Complete or AwaitingApproval"),
+        }
+    }
+
+    /// "Summarize /tmp/paper.md" → plan must be [FsReadFile, LlmGenerate] (explicit path detected).
+    #[test]
+    fn start_session_file_read_with_explicit_path_builds_read_plan() {
+        let input = RouterInput {
+            task_description: "Summarize /tmp/paper.md".to_string(),
+            context: TaskContext::default(),
+            config: RouterConfig::default(),
+            capabilities: None,
+        };
+        let (session, first) = start_session(
+            "s1".to_string(),
+            input,
+            Some("ws1".to_string()),
+            Some("/tmp".to_string()),
+        );
+        assert_eq!(session.plan.len(), 2, "should have FsReadFile + LlmGenerate");
+        assert!(
+            matches!(&session.plan[0], ToolCallIntent::FsReadFile { .. }),
+            "step 0 should be FsReadFile, got {:?}",
+            &session.plan[0]
+        );
+        assert!(
+            matches!(&session.plan[1], ToolCallIntent::LlmGenerate { .. }),
+            "step 1 should be LlmGenerate"
+        );
+        // LlmGenerate task must contain the FS_RESULT placeholder (not yet substituted).
+        if let ToolCallIntent::LlmGenerate { task, .. } = &session.plan[1] {
+            assert!(
+                task.contains(FS_RESULT_PLACEHOLDER),
+                "LlmGenerate task must contain FS_RESULT placeholder before substitution"
+            );
+        }
+        assert!(matches!(first, Some(ToolCallIntent::FsReadFile { .. })));
+    }
+
+    /// "Summarize the paper on climate change" (no explicit path) → plan starts with FsListDir.
+    #[test]
+    fn start_session_file_read_without_path_falls_back_to_list() {
+        let input = RouterInput {
+            task_description: "Summarize the paper on climate change".to_string(),
+            context: TaskContext::default(),
+            config: RouterConfig::default(),
+            capabilities: None,
+        };
+        let (session, first) = start_session(
+            "s1".to_string(),
+            input,
+            Some("ws1".to_string()),
+            Some("/tmp/ws".to_string()),
+        );
+        assert!(
+            session.plan.len() >= 1,
+            "plan must have at least one step"
+        );
+        assert!(
+            matches!(&session.plan[0], ToolCallIntent::FsListDir { .. }),
+            "step 0 should be FsListDir when no explicit path, got {:?}",
+            &session.plan[0]
+        );
+        assert!(matches!(first, Some(ToolCallIntent::FsListDir { .. })));
+    }
+
+    /// When FsReadFile returns Err, the orchestrator must return "Error: ..." and NOT
+    /// proceed to the LlmGenerate step — preventing a fabricated file summary.
+    #[test]
+    fn fs_read_file_error_returns_error_not_hallucination() {
+        let mut session = SessionState::new("s1".to_string(), "Summarize paper.md".to_string());
+        session.state = TaskState::Executing;
+        session.plan = vec![
+            ToolCallIntent::FsReadFile {
+                workspace_id: "ws1".to_string(),
+                workspace_root: "/tmp".to_string(),
+                rel_path: "paper.md".to_string(),
+            },
+            ToolCallIntent::LlmGenerate {
+                strategy: Strategy::CheapModel,
+                task: format!("Summarize: {}", FS_RESULT_PLACEHOLDER),
+                system_hint: Some(AGENT_SYSTEM_HINT.to_string()),
+            },
+        ];
+        session.step_index = 0;
+
+        let action = next_action(
+            session,
+            Some(StepResult::Err {
+                message: "No such file or directory: paper.md".to_string(),
+            }),
+        )
+        .unwrap();
+
+        match action {
+            OrchestratorAction::Complete { response, .. } => {
+                assert!(
+                    response.starts_with("Error:"),
+                    "error result must begin with 'Error:' not a fabricated summary: {:?}",
+                    response
+                );
+            }
+            _ => panic!("expected Complete with error response"),
+        }
     }
 
     /// State machine: tools-only delete — first step returns NeedTool(FsDelete), then Ok result -> Complete.

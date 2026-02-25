@@ -670,7 +670,8 @@ mod tests {
 
     #[test]
     fn high_pem_header() {
-        let s = "key:\n-----BEGIN RSA PRIVATE KEY-----\nMIIE...";
+        // NOTE: dummy PEM header + body for redaction tests only; this is not a real key.
+        let s = "key:\n-----BEGIN RSA PRIVATE KEY-----\nFAKEPRIVATEKEYDATAFORTESTS";
         let r = classify_and_mask_default(s);
         assert_eq!(r.level, SensitivityLevel::High);
         assert!(r.masked_content.contains("[REDACTED:"));
@@ -726,7 +727,8 @@ mod tests {
     fn options_drop_large_blocks() {
         let mut opts = ClassifierOptions::default();
         opts.drop_high_risk_blocks_over_bytes = 50;
-        let pem = "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA01234567890123456789012345678901234567890123456789012\n-----END RSA PRIVATE KEY-----";
+        // NOTE: dummy PEM block for redaction tests only; body is clearly fake and non-sensitive.
+        let pem = "-----BEGIN RSA PRIVATE KEY-----\nFAKEPRIVATEKEYDATAFORTESTSFAKEPRIVATEKEYDATAFORTESTSFAKEPRIVATEKEYDATA\n-----END RSA PRIVATE KEY-----";
         let r = classify_and_mask(pem, &opts);
         assert_eq!(r.level, SensitivityLevel::High);
         assert!(r.masked_content.len() < pem.len());

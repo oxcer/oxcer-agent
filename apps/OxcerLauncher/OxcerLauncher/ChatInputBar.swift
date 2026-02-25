@@ -7,9 +7,12 @@
 import SwiftUI
 
 /// Transactional chat input bar. Manages its own typing state; commits on Send only.
+/// While generation is running the send button becomes a Stop button.
 struct ChatInputBar: View {
     let isRunning: Bool
     let onSend: (String) -> Void
+    /// Called when the user taps the Stop button during generation.
+    let onStop: () -> Void
 
     @State private var localText: String = ""
     @FocusState private var isFocused: Bool
@@ -42,13 +45,19 @@ struct ChatInputBar: View {
                     return .ignored
                 }
 
+            // Send / Stop button.
+            // While running: tapping stops the in-flight generation.
+            // While idle: tapping sends the composed message.
             Button {
-                submitIfValid()
+                if isRunning {
+                    onStop()
+                } else {
+                    submitIfValid()
+                }
             } label: {
                 if isRunning {
-                    ProgressView()
-                        .scaleEffect(0.8)
-                        .tint(OxcerTheme.onAccent)
+                    Image(systemName: "stop.circle.fill")
+                        .font(.system(size: 28))
                 } else {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.system(size: 28))
@@ -56,7 +65,8 @@ struct ChatInputBar: View {
             }
             .buttonStyle(BouncyButtonStyle())
             .foregroundStyle(OxcerTheme.onAccent)
-            .disabled(localText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isRunning)
+            // Stop button is always enabled; send button requires non-empty text.
+            .disabled(!isRunning && localText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             .keyboardShortcut(.return, modifiers: .command)
         }
         .padding(.horizontal, 16)
@@ -72,6 +82,8 @@ struct ChatInputBar: View {
                         )
                 )
         )
+        // Reclaim keyboard focus when the input bar (re)appears — e.g. after approval bubble dismisses.
+        .onAppear { isFocused = true }
     }
 
     private func submitIfValid() {

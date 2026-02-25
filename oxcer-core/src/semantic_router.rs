@@ -130,6 +130,28 @@ const TOOL_VERBS: &[&str] = &[
     "chmod", "execute",
 ];
 
+/// Implicit FS verbs: natural-language phrases that imply a filesystem operation
+/// even when the user doesn't use explicit "list files" / "read file" vocabulary.
+const IMPLICIT_FS_VERBS: &[&str] = &[
+    "what's in", "what is in", "whats in", "what does", "show me", "describe",
+    "summarize", "summarise", "explain", "contents of", "what files", "list my",
+    "browse", "overview of",
+];
+
+/// Directory / path hints: task must contain at least one of these alongside an
+/// implicit FS verb for `has_implicit_fs_intent` to return `true`.
+const FS_DIR_HINTS: &[&str] = &[
+    "folder", "directory", "desktop", "documents", "downloads", "home",
+];
+
+/// File-content nouns: words that indicate the user is asking about a specific
+/// file's contents (not a directory listing).  Used by `has_implicit_file_read_intent`.
+const FILE_CONTENT_NOUNS: &[&str] = &[
+    "paper", "document", "essay", "report", "article", "readme", "changelog",
+    "the file", "this file", "a file", "that file",
+    ".pdf", ".md", ".txt", ".docx", ".doc", ".csv", ".log",
+];
+
 /// Code markers -> Code; length then picks Cheap vs Expensive.
 const CODE_MARKERS: &[&str] = &[
     "fn ", "fn(", "class ", "import ", "export ", "use ", "def ", ".rs", ".ts", ".py",
@@ -149,6 +171,51 @@ fn contains_any_lower(s: &str, keywords: &[&str]) -> bool {
 
 fn has_tool_verbs(task: &str) -> bool {
     contains_any_lower(task, TOOL_VERBS)
+}
+
+/// Returns `true` when the task uses natural-language phrasing that implies a
+/// filesystem operation without using explicit "list files" / "read file" verbs.
+///
+/// Both an implicit FS verb (e.g. "summarize", "show me") and a directory hint
+/// (e.g. "folder", "Desktop", "Documents") must be present.
+///
+/// Examples that return `true`:
+/// - "Please summarize my desktop folder"
+/// - "What's in the Documents directory?"
+/// - "Give me an overview of my Downloads"
+/// - "Describe the contents of my home folder"
+pub fn has_implicit_fs_intent(task: &str) -> bool {
+    let lower = task.to_lowercase();
+    let has_implicit_verb = IMPLICIT_FS_VERBS.iter().any(|v| lower.contains(v));
+    let has_dir_hint = FS_DIR_HINTS.iter().any(|d| lower.contains(d));
+    has_implicit_verb && has_dir_hint
+}
+
+/// Returns `true` when the task implies reading or summarizing a *specific file's
+/// contents* (as opposed to listing a directory).
+///
+/// Fires when the task has a summary/explain verb AND a file-content noun, even
+/// without a directory hint ("folder", "Desktop", etc.).  Tasks that already contain
+/// a directory hint are left to `has_implicit_fs_intent` (checked first in `route_task`).
+///
+/// Examples that return `true`:
+/// - "Summarize the paper on climate change"
+/// - "Describe this document"
+/// - "Explain the README"
+/// - "What does the report say?"
+///
+/// Examples that return `false`:
+/// - "Summarize my desktop folder"  ← has dir hint → handled by has_implicit_fs_intent
+/// - "What is Rust?"                ← no file-content noun
+pub fn has_implicit_file_read_intent(task: &str) -> bool {
+    let lower = task.to_lowercase();
+    // If a directory hint is present, delegate to has_implicit_fs_intent instead.
+    if FS_DIR_HINTS.iter().any(|d| lower.contains(d)) {
+        return false;
+    }
+    let has_verb = IMPLICIT_FS_VERBS.iter().any(|v| lower.contains(v));
+    let has_noun = FILE_CONTENT_NOUNS.iter().any(|n| lower.contains(n));
+    has_verb && has_noun
 }
 
 fn has_code_markers(task: &str) -> bool {
@@ -238,6 +305,31 @@ pub fn route_task(
         return RouterDecision {
             category: TaskCategory::ToolsHeavy,
             strategy,
+            flags,
+            tool_hints: None,
+        };
+    }
+
+    // 1b) Implicit FS intent: "summarize my Desktop folder", "what's in Documents?" etc.
+    // Route as ToolsHeavy + CheapModel so the orchestrator can build a two-step
+    // FsListDir/FsReadFile → LlmGenerate(with real results) plan.
+    if has_implicit_fs_intent(task) {
+        return RouterDecision {
+            category: TaskCategory::ToolsHeavy,
+            strategy: Strategy::CheapModel,
+            flags,
+            tool_hints: None,
+        };
+    }
+
+    // 1c) Implicit file-read intent: "summarize the paper", "describe this document", etc.
+    // Does not require a directory hint — the file-content noun is sufficient.
+    // The orchestrator uses the explicit path (if present) to build FsReadFile → LlmGenerate,
+    // or falls back to FsListDir → LlmGenerate("identify file, don't fabricate content").
+    if has_implicit_file_read_intent(task) {
+        return RouterDecision {
+            category: TaskCategory::ToolsHeavy,
+            strategy: Strategy::CheapModel,
             flags,
             tool_hints: None,
         };
@@ -500,5 +592,92 @@ mod tests {
         );
         assert_eq!(out.category, TaskCategory::Planning);
         assert_eq!(out.strategy, Strategy::ExpensiveModel);
+    }
+
+    /// Implicit FS intents must route to ToolsHeavy + CheapModel so the orchestrator
+    /// can build a two-step FsListDir → LlmGenerate plan instead of hallucinating.
+    #[test]
+    fn route_implicit_fs_intents_to_tools_heavy() {
+        let cases = [
+            "Please summarize my desktop folder",
+            "What's in the Documents directory?",
+            "Give me an overview of my Downloads",
+            "Describe the contents of my home folder",
+            "Show me what's in my Desktop",
+        ];
+        for task in &cases {
+            let out = route_task(task, &ctx_empty(), &RouterConfig::default());
+            assert_eq!(
+                out.category,
+                TaskCategory::ToolsHeavy,
+                "implicit FS task should be ToolsHeavy: '{}'",
+                task
+            );
+            assert_eq!(
+                out.strategy,
+                Strategy::CheapModel,
+                "implicit FS task should use CheapModel: '{}'",
+                task
+            );
+        }
+    }
+
+    #[test]
+    fn has_implicit_fs_intent_positive_and_negative() {
+        assert!(has_implicit_fs_intent("summarize my desktop folder"));
+        assert!(has_implicit_fs_intent("what's in the Documents directory?"));
+        assert!(has_implicit_fs_intent("describe my Downloads"));
+        assert!(has_implicit_fs_intent("show me what's in my home folder"));
+        // Negative: no directory hint
+        assert!(!has_implicit_fs_intent("summarize the meeting"));
+        // Negative: no implicit verb
+        assert!(!has_implicit_fs_intent("delete the desktop folder"));
+        // Negative: bare question
+        assert!(!has_implicit_fs_intent("what is Rust?"));
+    }
+
+    /// Implicit file-read requests must route to ToolsHeavy + CheapModel so the
+    /// orchestrator can build a FsReadFile/FsListDir → LlmGenerate plan instead of hallucinating.
+    #[test]
+    fn route_implicit_file_read_to_tools_heavy() {
+        let cases = [
+            "Summarize the paper on climate change",
+            "Describe this document",
+            "What does the report say?",
+            "Give me an overview of that article",
+            "Explain the README",
+        ];
+        for task in &cases {
+            let out = route_task(task, &ctx_empty(), &RouterConfig::default());
+            assert_eq!(
+                out.category,
+                TaskCategory::ToolsHeavy,
+                "file-read task should be ToolsHeavy: '{}'",
+                task
+            );
+            assert_eq!(
+                out.strategy,
+                Strategy::CheapModel,
+                "file-read task should use CheapModel: '{}'",
+                task
+            );
+        }
+    }
+
+    #[test]
+    fn has_implicit_file_read_intent_positive_and_negative() {
+        // Positive: verb + file-content noun, no directory hint
+        assert!(has_implicit_file_read_intent("Summarize the paper on climate change"));
+        assert!(has_implicit_file_read_intent("Describe this document"));
+        assert!(has_implicit_file_read_intent("What does the report say?"));
+        assert!(has_implicit_file_read_intent("Give me an overview of that article"));
+        assert!(has_implicit_file_read_intent("Explain the README"));
+        assert!(has_implicit_file_read_intent("Summarize paper.pdf"));
+        // Negative: has a directory hint → handled by has_implicit_fs_intent
+        assert!(!has_implicit_file_read_intent("Summarize my desktop folder"));
+        assert!(!has_implicit_file_read_intent("Show me what's in my Documents directory"));
+        // Negative: no file-content noun
+        assert!(!has_implicit_file_read_intent("What is Rust?"));
+        assert!(!has_implicit_file_read_intent("Summarize the meeting"));
     }
 }

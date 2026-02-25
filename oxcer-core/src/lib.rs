@@ -12,6 +12,7 @@
 //! policy evaluation.
 
 pub mod agent_session_log;
+pub mod cloud_provider;
 pub mod data_sensitivity;
 pub mod data_sensitivity_config;
 pub mod env_filter;
@@ -24,5 +25,13 @@ pub mod prompt_sanitizer;
 pub mod security;
 pub mod semantic_router;
 pub mod llm_metrics;
+pub mod db;
+pub mod executor;
+pub mod fsm;
+pub mod guardrail;
+pub mod mcp;
+pub mod memory;
 pub mod shell;
+pub mod subagent;
 pub mod telemetry;
+pub mod terminal;

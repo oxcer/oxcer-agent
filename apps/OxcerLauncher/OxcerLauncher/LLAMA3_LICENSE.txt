@@ -1,0 +1,23 @@
+PLACEHOLDER — FULL LICENSE TEXT REQUIRED BEFORE DISTRIBUTION
+=============================================================
+
+This file must contain the verbatim text of the Meta Llama 3 Community License
+Agreement before this app is distributed. Distributing the app without the full
+license text violates Meta Llama 3 Community License §1.b.ii.
+
+To populate this file, run:
+
+    ./scripts/download-llama3-license.sh
+
+Or download manually and paste the full text below this line:
+
+    https://raw.githubusercontent.com/meta-llama/llama3/main/LICENSE
+
+The authoritative source is:
+
+    https://llama.meta.com/llama3/license/
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PASTE THE FULL META LLAMA 3 COMMUNITY LICENSE AGREEMENT TEXT BELOW THIS LINE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+

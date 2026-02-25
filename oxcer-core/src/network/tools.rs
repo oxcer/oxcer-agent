@@ -94,6 +94,24 @@ impl HttpClient {
             .map_err(HttpError::from)
     }
 
+    /// POST JSON with arbitrary additional headers.
+    ///
+    /// Use this for providers that require non-standard auth schemes (e.g. Anthropic's
+    /// `x-api-key` + `anthropic-version` headers). Prefer `post_json_bearer` for
+    /// Bearer-auth providers (OpenAI, Grok).
+    pub async fn post_json_with_headers<T: serde::Serialize>(
+        &self,
+        url: &str,
+        body: &T,
+        headers: &[(&str, &str)],
+    ) -> Result<reqwest::Response, HttpError> {
+        let mut builder = self.inner.post(url).json(body);
+        for (name, value) in headers {
+            builder = builder.header(*name, *value);
+        }
+        builder.send().await.map_err(HttpError::from)
+    }
+
     /// GET request. For tools that need read-only API calls.
     pub async fn get(&self, url: &str) -> Result<reqwest::Response, HttpError> {
         self.inner.get(url).send().await.map_err(HttpError::from)

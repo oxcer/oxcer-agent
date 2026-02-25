@@ -5,27 +5,42 @@
 # (Using a debug dylib for bindgen while Xcode links release is the primary
 # cause of apiChecksumMismatch at launch — see docs/ffi-migration.md.)
 #
+# uniffi-bindgen produces THREE files for Swift:
+#   oxcer_ffi.swift     -- Swift wrappers (call-site API)
+#   oxcer_ffiFFI.h      -- C declarations imported by OxcerLauncher-Bridging-Header.h
+#   oxcer_ffiFFI.modulemap -- module map (not imported by Xcode; not copied)
+#
+# ALL THREE must stay in sync with the release dylib.  Previously only oxcer_ffi.swift
+# was copied; the missing header copy caused "Cannot find uniffi_oxcer_ffi_fn_func_*
+# in scope" build errors whenever new #[uniffi::export] items were added.
+#
 # Run this every time you change a Rust function signature, add/remove an
 # #[uniffi::export] item, or modify any #[uniffi::Record] / #[uniffi::Error].
 #
 # After running:
 #   1. Build the Xcode target (Cmd+B) to confirm the app compiles.
 #   2. Run OxcerFFITests (Cmd+U) -- especially the memory sentinel.
-#   3. Commit both the Rust change and the regenerated oxcer_ffi.swift together.
+#   3. Commit the Rust change and the two generated files together:
+#        git add oxcer_ffi/src/lib.rs \
+#                apps/OxcerLauncher/OxcerLauncher/oxcer_ffi.swift \
+#                apps/OxcerLauncher/OxcerLauncher/oxcer_ffiFFI.h
+#        git commit -m 'ffi: <describe the contract change>'
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_SWIFT_DIR="$REPO_ROOT/apps/OxcerLauncher/OxcerLauncher"
-DEST_FILE="$APP_SWIFT_DIR/oxcer_ffi.swift"
+DEST_SWIFT="$APP_SWIFT_DIR/oxcer_ffi.swift"
+DEST_HEADER="$APP_SWIFT_DIR/oxcer_ffiFFI.h"
 STALE_GENERATED_DIR="$REPO_ROOT/generated_swift"
 DYLIB_PATH="$REPO_ROOT/target/release/liboxcer_ffi.dylib"
 TMP_DIR="$(mktemp -d)"
 
 echo "---"
 echo "oxcer FFI binding regeneration (release)"
-echo "Dylib : $DYLIB_PATH"
-echo "Dest  : $DEST_FILE"
+echo "Dylib  : $DYLIB_PATH"
+echo "Swift  : $DEST_SWIFT"
+echo "Header : $DEST_HEADER"
 echo "---"
 
 # -- 1. Build the release dylib -----------------------------------------------
@@ -47,48 +62,98 @@ cargo run --bin uniffi-bindgen -- generate \
     --language swift \
     --out-dir "$TMP_DIR"
 
-FRESH="$TMP_DIR/oxcer_ffi.swift"
-if [[ ! -f "$FRESH" ]]; then
+FRESH_SWIFT="$TMP_DIR/oxcer_ffi.swift"
+FRESH_HEADER="$TMP_DIR/oxcer_ffiFFI.h"
+
+if [[ ! -f "$FRESH_SWIFT" ]]; then
     echo "[ERROR] uniffi-bindgen did not produce oxcer_ffi.swift in $TMP_DIR"
     ls "$TMP_DIR" || true
     exit 1
 fi
-
-# -- 3. Diff (informational) --------------------------------------------------
-echo ""
-if diff -q "$FRESH" "$DEST_FILE" > /dev/null 2>&1; then
-    echo "[OK] Bindings are already up-to-date."
-    rm -rf "$TMP_DIR"
-    # Still run the checksum gate to catch a stale release dylib.
-    _VERIFY_ONLY=1
-else
-    echo "Changes in generated bindings:"
-    diff "$FRESH" "$DEST_FILE" || true
-
-    # -- 4. Copy into Xcode project -------------------------------------------
-    echo ""
-    echo "[step] Copying fresh bindings -> $DEST_FILE"
-    cp "$FRESH" "$DEST_FILE"
-    _VERIFY_ONLY=0
+if [[ ! -f "$FRESH_HEADER" ]]; then
+    echo "[ERROR] uniffi-bindgen did not produce oxcer_ffiFFI.h in $TMP_DIR"
+    ls "$TMP_DIR" || true
+    exit 1
 fi
 
-# -- 5. Verify: runtime checksums in the release dylib must match the binding -
+# -- 3. Diff both generated files (informational) -----------------------------
+echo ""
+SWIFT_CHANGED=0
+HEADER_CHANGED=0
+
+if diff -q "$FRESH_SWIFT" "$DEST_SWIFT" > /dev/null 2>&1; then
+    echo "[OK] oxcer_ffi.swift is already up-to-date."
+else
+    echo "Changes in oxcer_ffi.swift:"
+    diff "$FRESH_SWIFT" "$DEST_SWIFT" || true
+    SWIFT_CHANGED=1
+fi
+
+echo ""
+if diff -q "$FRESH_HEADER" "$DEST_HEADER" > /dev/null 2>&1; then
+    echo "[OK] oxcer_ffiFFI.h is already up-to-date."
+else
+    echo "Changes in oxcer_ffiFFI.h:"
+    diff "$FRESH_HEADER" "$DEST_HEADER" || true
+    HEADER_CHANGED=1
+fi
+
+# -- 4. Copy changed files into Xcode project ---------------------------------
+echo ""
+if [[ $SWIFT_CHANGED -eq 0 && $HEADER_CHANGED -eq 0 ]]; then
+    echo "[OK] All bindings are already up-to-date. No files copied."
+else
+    echo "[step] Copying updated bindings..."
+    if [[ $SWIFT_CHANGED -eq 1 ]]; then
+        cp "$FRESH_SWIFT" "$DEST_SWIFT"
+        echo "  copied -> $DEST_SWIFT"
+    fi
+    if [[ $HEADER_CHANGED -eq 1 ]]; then
+        cp "$FRESH_HEADER" "$DEST_HEADER"
+        echo "  copied -> $DEST_HEADER"
+    fi
+fi
+
+rm -rf "$TMP_DIR"
+
+# -- 5. Sanity-check: installed header must contain ffi_agent_step symbols ----
 #
-# This catches the exact failure mode that caused the original apiChecksumMismatch:
-# bindgen run against debug dylib while Xcode links the stale release dylib.
+# Grep the installed header for the two C declarations that Swift's compiler
+# needs to resolve ffi_agent_step calls.  This is warn-only — the symbols may
+# legitimately be absent in a future refactor, but a missing symbol is almost
+# always an accidental header regression.
+echo ""
+echo "[step] Sanity-checking installed header for ffi_agent_step symbols..."
+WARN_HEADER=0
+
+if ! grep -q "uniffi_oxcer_ffi_fn_func_ffi_agent_step" "$DEST_HEADER" 2>/dev/null; then
+    echo "  WARN: 'uniffi_oxcer_ffi_fn_func_ffi_agent_step' not found in $DEST_HEADER"
+    WARN_HEADER=1
+fi
+if ! grep -q "uniffi_oxcer_ffi_checksum_func_ffi_agent_step" "$DEST_HEADER" 2>/dev/null; then
+    echo "  WARN: 'uniffi_oxcer_ffi_checksum_func_ffi_agent_step' not found in $DEST_HEADER"
+    WARN_HEADER=1
+fi
+
+if [[ $WARN_HEADER -eq 0 ]]; then
+    echo "  [OK] ffi_agent_step symbols present in installed header."
+fi
+
+# -- 6. Verify: runtime checksums in the release dylib must match the binding -
 #
-# We extract the expected checksums from the freshly installed binding, then
-# call the corresponding C symbols in the release dylib and compare.
+# Parses expected checksums from oxcer_ffi.swift, calls the C symbols in the
+# release dylib via ctypes, and fails loudly on any mismatch.
+#
+# Catches: stale release dylib, or bindgen run against the wrong dylib.
 echo ""
 echo "[step] Verifying release dylib checksums match installed binding..."
 
 if command -v python3 > /dev/null 2>&1; then
-    python3 - "$DYLIB_PATH" "$DEST_FILE" <<'PYEOF'
+    python3 - "$DYLIB_PATH" "$DEST_SWIFT" <<'PYEOF'
 import sys, ctypes, re
 
 dylib_path, swift_path = sys.argv[1], sys.argv[2]
 
-# Parse expected checksums from the Swift binding
 expected = {}
 with open(swift_path) as f:
     for line in f:
@@ -123,28 +188,25 @@ else:
 PYEOF
 else
     echo "WARNING: python3 not found -- skipping checksum verification."
-    echo "         Run the following manually to confirm no mismatch:"
-    echo "           python3 scripts/check-ffi-freshness.sh"
 fi
 
-# -- 6. Warn about stale generated_swift/ directory ---------------------------
+# -- 7. Warn about stale generated_swift/ directory ---------------------------
 if [[ -d "$STALE_GENERATED_DIR" ]]; then
     echo ""
     echo "WARNING: $STALE_GENERATED_DIR still exists."
     echo "  This directory is stale and was the source of the 88 GB VM bug."
-    echo "  Delete it:"
-    echo "    git rm -r $STALE_GENERATED_DIR"
+    echo "  Delete it: git rm -r $STALE_GENERATED_DIR"
 fi
 
-# -- 7. Remind about the full workflow ----------------------------------------
+# -- 8. Remind about the full workflow ----------------------------------------
 echo ""
 echo "[OK] regen-ffi complete."
 echo ""
 echo "Next steps:"
 echo "  1. In Xcode: Product > Clean Build Folder (Shift+Cmd+K), then Build (Cmd+B)."
 echo "  2. Run OxcerFFITests (Cmd+U) -- check the VM sentinel passes."
-echo "  3. Commit the Rust change and the binding together:"
-echo "       git add oxcer_ffi/src/lib.rs $DEST_FILE"
+echo "  3. Commit the Rust change and BOTH generated files together:"
+echo "       git add oxcer_ffi/src/lib.rs \\"
+echo "               apps/OxcerLauncher/OxcerLauncher/oxcer_ffi.swift \\"
+echo "               apps/OxcerLauncher/OxcerLauncher/oxcer_ffiFFI.h"
 echo "       git commit -m 'ffi: <describe the contract change>'"
-
-rm -rf "$TMP_DIR"

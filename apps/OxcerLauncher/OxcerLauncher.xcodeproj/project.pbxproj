@@ -19,6 +19,14 @@
 		B10000000000000000000008 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000008 /* SettingsView.swift */; };
 		B10000000000000000000009 /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000009 /* KeychainHelper.swift */; };
 		B1000000000000000000000A /* SessionModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000000000000000000000A /* SessionModels.swift */; };
+		B1000000000000000000000B /* SwiftAgentExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000000000000000000000B /* SwiftAgentExecutor.swift */; };
+		B1000000000000000000000C /* AgentRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000000000000000000000C /* AgentRunner.swift */; };
+		B1000000000000000000000D /* LLAMA3_LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = B2000000000000000000000D /* LLAMA3_LICENSE.txt */; };
+		B1000000000000000000000E /* LlamaConsentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000000000000000000000E /* LlamaConsentView.swift */; };
+		B1000000000000000000000F /* CloudSettingsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000000000000000000000F /* CloudSettingsViewModel.swift */; };
+		B10000000000000000000010 /* CloudModelSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000010 /* CloudModelSettingsView.swift */; };
+		B10000000000000000000011 /* ModelBackendConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000011 /* ModelBackendConfig.swift */; };
+		B10000000000000000000012 /* AssistantBlocks.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000012 /* AssistantBlocks.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -51,6 +59,14 @@
 		B20000000000000000000008 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		B20000000000000000000009 /* KeychainHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainHelper.swift; sourceTree = "<group>"; };
 		B2000000000000000000000A /* SessionModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionModels.swift; sourceTree = "<group>"; };
+		B2000000000000000000000B /* SwiftAgentExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwiftAgentExecutor.swift; sourceTree = "<group>"; };
+		B2000000000000000000000C /* AgentRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRunner.swift; sourceTree = "<group>"; };
+		B2000000000000000000000D /* LLAMA3_LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = LLAMA3_LICENSE.txt; sourceTree = "<group>"; };
+		B2000000000000000000000E /* LlamaConsentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LlamaConsentView.swift; sourceTree = "<group>"; };
+		B2000000000000000000000F /* CloudSettingsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSettingsViewModel.swift; sourceTree = "<group>"; };
+		B20000000000000000000010 /* CloudModelSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudModelSettingsView.swift; sourceTree = "<group>"; };
+		B20000000000000000000011 /* ModelBackendConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelBackendConfig.swift; sourceTree = "<group>"; };
+		B20000000000000000000012 /* AssistantBlocks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantBlocks.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -89,6 +105,14 @@
 				B2000000000000000000000A /* SessionModels.swift */,
 				B20000000000000000000008 /* SettingsView.swift */,
 				B20000000000000000000009 /* KeychainHelper.swift */,
+				B2000000000000000000000B /* SwiftAgentExecutor.swift */,
+				B2000000000000000000000C /* AgentRunner.swift */,
+				B2000000000000000000000D /* LLAMA3_LICENSE.txt */,
+				B2000000000000000000000E /* LlamaConsentView.swift */,
+				B2000000000000000000000F /* CloudSettingsViewModel.swift */,
+				B20000000000000000000010 /* CloudModelSettingsView.swift */,
+				B20000000000000000000011 /* ModelBackendConfig.swift */,
+				B20000000000000000000012 /* AssistantBlocks.swift */,
 				B20000000000000000000007 /* OxcerLauncher-Bridging-Header.h */,
 			);
 			path = OxcerLauncher;
@@ -166,6 +190,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A80100012F4A00010001 /* Assets.xcassets in Resources */,
+				B1000000000000000000000D /* LLAMA3_LICENSE.txt in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -201,6 +226,13 @@
 				B10000000000000000000008 /* SettingsView.swift in Sources */,
 				B10000000000000000000009 /* KeychainHelper.swift in Sources */,
 				B1000000000000000000000A /* SessionModels.swift in Sources */,
+				B1000000000000000000000B /* SwiftAgentExecutor.swift in Sources */,
+				B1000000000000000000000C /* AgentRunner.swift in Sources */,
+				B1000000000000000000000E /* LlamaConsentView.swift in Sources */,
+				B1000000000000000000000F /* CloudSettingsViewModel.swift in Sources */,
+				B10000000000000000000010 /* CloudModelSettingsView.swift in Sources */,
+				B10000000000000000000011 /* ModelBackendConfig.swift in Sources */,
+				B10000000000000000000012 /* AssistantBlocks.swift in Sources */,
 				A835B7F62F4163A300B5320F /* ChatInputBar.swift in Sources */,
 				A8E1622D2F3A9C7900D8DB35 /* OxcerBackend.swift in Sources */,
 				A8E162302F3AB20900D8DB35 /* oxcer_ffi.swift in Sources */,

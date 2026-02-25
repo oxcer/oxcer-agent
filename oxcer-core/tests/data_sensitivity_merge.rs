@@ -5,7 +5,8 @@ use oxcer_core::data_sensitivity::{classify_and_mask_default, SensitivityLevel};
 /// Multiple overlapping findings (e.g. SSH path + PEM in same span) → merged into fewer spans.
 #[test]
 fn merge_overlapping_findings_produces_fewer_spans() {
-    let s = "Use ~/.ssh/id_rsa and -----BEGIN RSA PRIVATE KEY-----\nMIIE...\n-----END RSA PRIVATE KEY-----";
+    // NOTE: dummy PEM block for redaction tests only; body is clearly fake and non-sensitive.
+    let s = "Use ~/.ssh/id_rsa and -----BEGIN RSA PRIVATE KEY-----\nFAKEPRIVATEKEYDATAFORTESTS\n-----END RSA PRIVATE KEY-----";
     let r = classify_and_mask_default(s);
     assert!(r.level == SensitivityLevel::High);
     assert!(r.masked_content.contains("[REDACTED:"));

@@ -1,0 +1,57 @@
+# .pre-commit-config.yaml
+#
+# Install pre-commit:    pip install pre-commit
+# Install hooks:         pre-commit install
+# Run manually:          pre-commit run --all-files
+# Update hook versions:  pre-commit autoupdate
+
+repos:
+  # ── Rust ───────────────────────────────────────────────────────────────────
+
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt (check)
+        language: system
+        entry: cargo fmt --check
+        types: [rust]
+        # Run once for the workspace, not per-file.
+        pass_filenames: false
+
+      - id: cargo-clippy
+        name: cargo clippy
+        language: system
+        # -D warnings turns all warnings into errors.
+        entry: cargo clippy -- -D warnings
+        types: [rust]
+        pass_filenames: false
+
+  # ── Swift ──────────────────────────────────────────────────────────────────
+
+  - repo: local
+    hooks:
+      - id: swiftformat
+        name: swiftformat (lint)
+        language: system
+        # Requires: brew install swiftformat
+        # --lint exits non-zero if any file would be reformatted.
+        entry: swiftformat --lint apps/OxcerLauncher/OxcerLauncher/
+        types: [swift]
+        pass_filenames: false
+
+  # ── General ────────────────────────────────────────────────────────────────
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      # Prevent committing files > 1 MB (catches accidental model/dylib adds).
+      - id: check-added-large-files
+        args: [--maxkb=1024]
+      # Ensure files end with a newline.
+      - id: end-of-file-fixer
+        exclude: '^(target/|\.cargo/|node_modules/|reference/)'
+      # Remove trailing whitespace.
+      - id: trailing-whitespace
+        exclude: '^(target/|\.cargo/|node_modules/|reference/)'
+      # Catch debug merge conflict markers left in source.
+      - id: check-merge-conflict

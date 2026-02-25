@@ -7,6 +7,7 @@ description = "Core logic for Oxcer: FS Service, Shell Service, Security Policy,
 [dependencies]
 chrono = { version = "0.4", features = ["serde"] }
 log = "0.4"
+tracing = "0.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
@@ -16,8 +17,20 @@ mime_guess = "2"
 regex = "1"
 reqwest = { version = "0.12", features = ["json", "blocking", "stream", "rustls-tls"] }
 thiserror = "1"
+# llama-cpp-2 (utilityai) bundles a modern llama.cpp with phi3 architecture support.
+# llama_cpp 0.3.x only knows LLM_ARCH_PHI2 and cannot load phi3 GGUFs.
+llama-cpp-2 = { version = "0.1", default-features = false, features = ["metal"] }
+# Required for the stateful UTF-8 decoder used by LlamaModel::token_to_piece.
+encoding_rs = "0.8"
 tokenizers = "0.19"
 tokio = { version = "1", features = ["fs", "io-util", "rt", "time"] }
+rusqlite = { version = "0.31", features = ["bundled"] }
+# Document extraction: PDF (pure-Rust, wraps lopdf), DOCX (zip + XML), XLSX (calamine).
+pdf-extract = "0.7"
+zip = "2"
+calamine = "0.24"
+# OS-native trash (never permanently deletes).
+trash = "5"
 
 [dev-dependencies]
 tempfile = "3"

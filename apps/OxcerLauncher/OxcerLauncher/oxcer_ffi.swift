@@ -674,6 +674,460 @@ public func FfiConverterTypeAgentResponse_lower(_ value: AgentResponse) -> RustB
 }
 
 
+/**
+ * Result returned to Swift after a `test_cloud_provider` call.
+ */
+public struct FfiProviderTestResult {
+    /**
+     * `true` if the provider returned a successful response.
+     */
+    public var ok: Bool
+    /**
+     * Echoes the provider under test.
+     */
+    public var provider: FfiProviderKind
+    /**
+     * Human-readable message: confirmation on success, error description on failure.
+     * Always non-empty; safe to display directly in the UI.
+     */
+    public var message: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * `true` if the provider returned a successful response.
+         */ok: Bool, 
+        /**
+         * Echoes the provider under test.
+         */provider: FfiProviderKind, 
+        /**
+         * Human-readable message: confirmation on success, error description on failure.
+         * Always non-empty; safe to display directly in the UI.
+         */message: String) {
+        self.ok = ok
+        self.provider = provider
+        self.message = message
+    }
+}
+
+
+
+extension FfiProviderTestResult: Equatable, Hashable {
+    public static func ==(lhs: FfiProviderTestResult, rhs: FfiProviderTestResult) -> Bool {
+        if lhs.ok != rhs.ok {
+            return false
+        }
+        if lhs.provider != rhs.provider {
+            return false
+        }
+        if lhs.message != rhs.message {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(ok)
+        hasher.combine(provider)
+        hasher.combine(message)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiProviderTestResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiProviderTestResult {
+        return
+            try FfiProviderTestResult(
+                ok: FfiConverterBool.read(from: &buf), 
+                provider: FfiConverterTypeFfiProviderKind.read(from: &buf), 
+                message: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiProviderTestResult, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.ok, into: &buf)
+        FfiConverterTypeFfiProviderKind.write(value.provider, into: &buf)
+        FfiConverterString.write(value.message, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiProviderTestResult_lift(_ buf: RustBuffer) throws -> FfiProviderTestResult {
+    return try FfiConverterTypeFfiProviderTestResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiProviderTestResult_lower(_ value: FfiProviderTestResult) -> RustBuffer {
+    return FfiConverterTypeFfiProviderTestResult.lower(value)
+}
+
+
+/**
+ * Opaque JSON blob of the orchestrator session state.
+ * Swift must not modify this. Pass it back unchanged on every call.
+ */
+public struct FfiSessionState {
+    public var sessionJson: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(sessionJson: String) {
+        self.sessionJson = sessionJson
+    }
+}
+
+
+
+extension FfiSessionState: Equatable, Hashable {
+    public static func ==(lhs: FfiSessionState, rhs: FfiSessionState) -> Bool {
+        if lhs.sessionJson != rhs.sessionJson {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(sessionJson)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiSessionState: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiSessionState {
+        return
+            try FfiSessionState(
+                sessionJson: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiSessionState, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.sessionJson, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiSessionState_lift(_ buf: RustBuffer) throws -> FfiSessionState {
+    return try FfiConverterTypeFfiSessionState.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiSessionState_lower(_ value: FfiSessionState) -> RustBuffer {
+    return FfiConverterTypeFfiSessionState.lower(value)
+}
+
+
+/**
+ * Outcome of one orchestrator step.
+ */
+public struct FfiStepOutcome {
+    /**
+     * Discriminant: "need_tool" | "complete" | "awaiting_approval"
+     */
+    public var status: String
+    /**
+     * Present when status == "need_tool".
+     */
+    public var intent: FfiToolIntent?
+    /**
+     * Present when status == "awaiting_approval".
+     */
+    public var approvalRequestId: String?
+    /**
+     * Present when status == "complete".
+     */
+    public var finalAnswer: String?
+    /**
+     * Updated session state. Always present. Pass back unchanged on the next call.
+     */
+    public var session: FfiSessionState
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Discriminant: "need_tool" | "complete" | "awaiting_approval"
+         */status: String, 
+        /**
+         * Present when status == "need_tool".
+         */intent: FfiToolIntent?, 
+        /**
+         * Present when status == "awaiting_approval".
+         */approvalRequestId: String?, 
+        /**
+         * Present when status == "complete".
+         */finalAnswer: String?, 
+        /**
+         * Updated session state. Always present. Pass back unchanged on the next call.
+         */session: FfiSessionState) {
+        self.status = status
+        self.intent = intent
+        self.approvalRequestId = approvalRequestId
+        self.finalAnswer = finalAnswer
+        self.session = session
+    }
+}
+
+
+
+extension FfiStepOutcome: Equatable, Hashable {
+    public static func ==(lhs: FfiStepOutcome, rhs: FfiStepOutcome) -> Bool {
+        if lhs.status != rhs.status {
+            return false
+        }
+        if lhs.intent != rhs.intent {
+            return false
+        }
+        if lhs.approvalRequestId != rhs.approvalRequestId {
+            return false
+        }
+        if lhs.finalAnswer != rhs.finalAnswer {
+            return false
+        }
+        if lhs.session != rhs.session {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(status)
+        hasher.combine(intent)
+        hasher.combine(approvalRequestId)
+        hasher.combine(finalAnswer)
+        hasher.combine(session)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiStepOutcome: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiStepOutcome {
+        return
+            try FfiStepOutcome(
+                status: FfiConverterString.read(from: &buf), 
+                intent: FfiConverterOptionTypeFfiToolIntent.read(from: &buf), 
+                approvalRequestId: FfiConverterOptionString.read(from: &buf), 
+                finalAnswer: FfiConverterOptionString.read(from: &buf), 
+                session: FfiConverterTypeFfiSessionState.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiStepOutcome, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.status, into: &buf)
+        FfiConverterOptionTypeFfiToolIntent.write(value.intent, into: &buf)
+        FfiConverterOptionString.write(value.approvalRequestId, into: &buf)
+        FfiConverterOptionString.write(value.finalAnswer, into: &buf)
+        FfiConverterTypeFfiSessionState.write(value.session, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiStepOutcome_lift(_ buf: RustBuffer) throws -> FfiStepOutcome {
+    return try FfiConverterTypeFfiStepOutcome.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiStepOutcome_lower(_ value: FfiStepOutcome) -> RustBuffer {
+    return FfiConverterTypeFfiStepOutcome.lower(value)
+}
+
+
+/**
+ * Result of one tool execution from the Swift executor back to Rust.
+ */
+public struct FfiStepResult {
+    public var ok: Bool
+    /**
+     * JSON payload when ok == true. For LlmGenerate use {"text": "..."}.
+     */
+    public var payloadJson: String?
+    /**
+     * Error message when ok == false.
+     */
+    public var error: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(ok: Bool, 
+        /**
+         * JSON payload when ok == true. For LlmGenerate use {"text": "..."}.
+         */payloadJson: String?, 
+        /**
+         * Error message when ok == false.
+         */error: String?) {
+        self.ok = ok
+        self.payloadJson = payloadJson
+        self.error = error
+    }
+}
+
+
+
+extension FfiStepResult: Equatable, Hashable {
+    public static func ==(lhs: FfiStepResult, rhs: FfiStepResult) -> Bool {
+        if lhs.ok != rhs.ok {
+            return false
+        }
+        if lhs.payloadJson != rhs.payloadJson {
+            return false
+        }
+        if lhs.error != rhs.error {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(ok)
+        hasher.combine(payloadJson)
+        hasher.combine(error)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiStepResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiStepResult {
+        return
+            try FfiStepResult(
+                ok: FfiConverterBool.read(from: &buf), 
+                payloadJson: FfiConverterOptionString.read(from: &buf), 
+                error: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiStepResult, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.ok, into: &buf)
+        FfiConverterOptionString.write(value.payloadJson, into: &buf)
+        FfiConverterOptionString.write(value.error, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiStepResult_lift(_ buf: RustBuffer) throws -> FfiStepResult {
+    return try FfiConverterTypeFfiStepResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiStepResult_lower(_ value: FfiStepResult) -> RustBuffer {
+    return FfiConverterTypeFfiStepResult.lower(value)
+}
+
+
+/**
+ * One tool intent emitted by the orchestrator, serialized for Swift.
+ */
+public struct FfiToolIntent {
+    /**
+     * Discriminant: "llm_generate" | "fs_list_dir" | "fs_read_file" |
+     * "fs_write_file" | "fs_delete" | "fs_rename" | "fs_move" | "shell_run"
+     */
+    public var kind: String
+    /**
+     * Full intent as JSON so Swift can decode all fields.
+     */
+    public var intentJson: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Discriminant: "llm_generate" | "fs_list_dir" | "fs_read_file" |
+         * "fs_write_file" | "fs_delete" | "fs_rename" | "fs_move" | "shell_run"
+         */kind: String, 
+        /**
+         * Full intent as JSON so Swift can decode all fields.
+         */intentJson: String) {
+        self.kind = kind
+        self.intentJson = intentJson
+    }
+}
+
+
+
+extension FfiToolIntent: Equatable, Hashable {
+    public static func ==(lhs: FfiToolIntent, rhs: FfiToolIntent) -> Bool {
+        if lhs.kind != rhs.kind {
+            return false
+        }
+        if lhs.intentJson != rhs.intentJson {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(kind)
+        hasher.combine(intentJson)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiToolIntent: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiToolIntent {
+        return
+            try FfiToolIntent(
+                kind: FfiConverterString.read(from: &buf), 
+                intentJson: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiToolIntent, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.kind, into: &buf)
+        FfiConverterString.write(value.intentJson, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiToolIntent_lift(_ buf: RustBuffer) throws -> FfiToolIntent {
+    return try FfiConverterTypeFfiToolIntent.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiToolIntent_lower(_ value: FfiToolIntent) -> RustBuffer {
+    return FfiConverterTypeFfiToolIntent.lower(value)
+}
+
+
 public struct LogEvent {
     public var timestamp: String
     public var sessionId: String
@@ -1145,6 +1599,110 @@ public func FfiConverterTypeWorkspaceInfo_lower(_ value: WorkspaceInfo) -> RustB
     return FfiConverterTypeWorkspaceInfo.lower(value)
 }
 
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * Mirrors `oxcer_core::cloud_provider::ProviderKind` for the Swift boundary.
+ * Swift receives this as a generated enum (camelCase variants via UniFFI).
+ */
+
+public enum FfiProviderKind {
+    
+    /**
+     * On-device Meta Llama 3 via llama.cpp + Metal. No API key required.
+     */
+    case localLlama
+    /**
+     * OpenAI ChatGPT (`gpt-4o-mini` default).
+     */
+    case openAi
+    /**
+     * Anthropic Claude (`claude-3-5-haiku-20241022` default).
+     */
+    case anthropic
+    /**
+     * Google Gemini (`gemini-2.0-flash` default).
+     */
+    case gemini
+    /**
+     * xAI Grok (`grok-2-1212` default).
+     */
+    case grok
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiProviderKind: FfiConverterRustBuffer {
+    typealias SwiftType = FfiProviderKind
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiProviderKind {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .localLlama
+        
+        case 2: return .openAi
+        
+        case 3: return .anthropic
+        
+        case 4: return .gemini
+        
+        case 5: return .grok
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FfiProviderKind, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .localLlama:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .openAi:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .anthropic:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .gemini:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .grok:
+            writeInt(&buf, Int32(5))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiProviderKind_lift(_ buf: RustBuffer) throws -> FfiProviderKind {
+    return try FfiConverterTypeFfiProviderKind.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiProviderKind_lower(_ value: FfiProviderKind) -> RustBuffer {
+    return FfiConverterTypeFfiProviderKind.lower(value)
+}
+
+
+
+extension FfiProviderKind: Equatable, Hashable {}
+
+
+
 
 public enum OxcerError {
 
@@ -1433,6 +1991,54 @@ fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeFfiStepResult: FfiConverterRustBuffer {
+    typealias SwiftType = FfiStepResult?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeFfiStepResult.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeFfiStepResult.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeFfiToolIntent: FfiConverterRustBuffer {
+    typealias SwiftType = FfiToolIntent?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeFfiToolIntent.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeFfiToolIntent.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeTaskContext: FfiConverterRustBuffer {
     typealias SwiftType = TaskContext?
 
@@ -1624,10 +2230,35 @@ fileprivate func uniffiFutureContinuationCallback(handle: UInt64, pollResult: In
     }
 }
 /**
- * Ensure the local model FILES are present (download if needed). Does NOT load the engine.
- * Engine is loaded lazily on first inference (generate_text). Call at startup before inference.
- * Safe to call multiple times; subsequent calls no-op if files already ensured.
+ * Activate a cloud LLM provider for the current session.
+ *
+ * After this call, `generate_text` routes all inference requests to the chosen
+ * provider. The FSM, tool layer, and approval gates are unaffected — only the
+ * `LlmEngine` implementation changes.
+ *
+ * Call this:
+ * - After a successful `test_cloud_provider` confirms the key is valid.
+ * - On app launch when `useCloudModel == true` and a saved key exists.
+ * - When the user changes the provider while `useCloudModel` is on.
  */
+public func activateCloudProvider(provider: FfiProviderKind, apiKey: String)throws  {try rustCallWithError(FfiConverterTypeOxcerError.lift) {
+    uniffi_oxcer_ffi_fn_func_activate_cloud_provider(
+        FfiConverterTypeFfiProviderKind.lower(provider),
+        FfiConverterString.lower(apiKey),$0
+    )
+}
+}
+/**
+ * Deactivate the cloud LLM provider.
+ *
+ * After this call, `generate_text` falls back to the local Llama engine.
+ * This is a no-op if no cloud engine is currently active.
+ */
+public func deactivateCloudProvider() {try! rustCall() {
+    uniffi_oxcer_ffi_fn_func_deactivate_cloud_provider($0
+    )
+}
+}
 public func ensureLocalModel(appConfigDir: String, callback: DownloadCallback)async throws  {
     return
         try  await uniffiRustCallAsync(
@@ -1642,14 +2273,48 @@ public func ensureLocalModel(appConfigDir: String, callback: DownloadCallback)as
             errorHandler: FfiConverterTypeOxcerError.lift
         )
 }
-/**
- * Generate text using the global model. Loads engine lazily on first call (requires ensure_local_model first).
- *
- * # Lazy Load + Zero-Copy Arc Pattern
- * 1. get_or_init_engine() loads engine on first use (heavy allocation deferred from startup).
- * 2. Clone the Arc — cost: refcount increment, NOT a copy of the 2.3GB model.
- * 3. Move the Arc pointer into the thread; heap data stays put.
- */
+public func ffiAgentStep(taskDescription: String, workspaceId: String?, workspaceRoot: String?, appConfigDir: String?, sessionJson: String?, lastResult: FfiStepResult?)throws  -> FfiStepOutcome {
+    return try  FfiConverterTypeFfiStepOutcome.lift(try rustCallWithError(FfiConverterTypeOxcerError.lift) {
+    uniffi_oxcer_ffi_fn_func_ffi_agent_step(
+        FfiConverterString.lower(taskDescription),
+        FfiConverterOptionString.lower(workspaceId),
+        FfiConverterOptionString.lower(workspaceRoot),
+        FfiConverterOptionString.lower(appConfigDir),
+        FfiConverterOptionString.lower(sessionJson),
+        FfiConverterOptionTypeFfiStepResult.lower(lastResult),$0
+    )
+})
+}
+public func ffiMcpExecute(workspaceRoot: String, toolJson: String) -> String {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_oxcer_ffi_fn_func_ffi_mcp_execute(
+        FfiConverterString.lower(workspaceRoot),
+        FfiConverterString.lower(toolJson),$0
+    )
+})
+}
+public func ffiOrchestrate(query: String, workspaceRoot: String?, memoryPath: String?)async throws  -> String {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_oxcer_ffi_fn_func_ffi_orchestrate(FfiConverterString.lower(query),FfiConverterOptionString.lower(workspaceRoot),FfiConverterOptionString.lower(memoryPath)
+                )
+            },
+            pollFunc: ffi_oxcer_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_oxcer_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_oxcer_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterString.lift,
+            errorHandler: FfiConverterTypeOxcerError.lift
+        )
+}
+public func ffiTerminalExecute(llmOutput: String, workingDir: String?)throws  -> String {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeOxcerError.lift) {
+    uniffi_oxcer_ffi_fn_func_ffi_terminal_execute(
+        FfiConverterString.lower(llmOutput),
+        FfiConverterOptionString.lower(workingDir),$0
+    )
+})
+}
 public func generateText(prompt: String)async throws  -> String {
     return
         try  await uniffiRustCallAsync(
@@ -1664,9 +2329,6 @@ public func generateText(prompt: String)async throws  -> String {
             errorHandler: FfiConverterTypeOxcerError.lift
         )
 }
-/**
- * List recent sessions from the app config directory.
- */
 public func listSessions(appConfigDir: String)throws  -> [SessionSummary] {
     return try  FfiConverterSequenceTypeSessionSummary.lift(try rustCallWithError(FfiConverterTypeOxcerError.lift) {
     uniffi_oxcer_ffi_fn_func_list_sessions(
@@ -1674,10 +2336,6 @@ public func listSessions(appConfigDir: String)throws  -> [SessionSummary] {
     )
 })
 }
-/**
- * List workspaces from config.json in the given app config directory.
- * Returns an empty vec if config.json is absent. Propagates I/O and parse errors.
- */
 public func listWorkspaces(appConfigDir: String)throws  -> [WorkspaceInfo] {
     return try  FfiConverterSequenceTypeWorkspaceInfo.lift(try rustCallWithError(FfiConverterTypeOxcerError.lift) {
     uniffi_oxcer_ffi_fn_func_list_workspaces(
@@ -1685,10 +2343,6 @@ public func listWorkspaces(appConfigDir: String)throws  -> [WorkspaceInfo] {
     )
 })
 }
-/**
- * Load session log events for one session.
- * Bounded at MAX_EVENTS_PER_SESSION_LOG (2000) by telemetry layer; returns latest events.
- */
 public func loadSessionLog(sessionId: String, appConfigDir: String)throws  -> [LogEvent] {
     return try  FfiConverterSequenceTypeLogEvent.lift(try rustCallWithError(FfiConverterTypeOxcerError.lift) {
     uniffi_oxcer_ffi_fn_func_load_session_log(
@@ -1697,24 +2351,26 @@ public func loadSessionLog(sessionId: String, appConfigDir: String)throws  -> [L
     )
 })
 }
-/**
- * Zero-cost FFI warm-up. Triggers dylib load and static runtime initialization
- * without executing any heavy LLM logic. Call at app launch to pay the VMS cost upfront.
- */
+public func orchestrateQuery(query: String, workspaceRoot: String?, appConfigDir: String?)async throws  -> String {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_oxcer_ffi_fn_func_orchestrate_query(FfiConverterString.lower(query),FfiConverterOptionString.lower(workspaceRoot),FfiConverterOptionString.lower(appConfigDir)
+                )
+            },
+            pollFunc: ffi_oxcer_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_oxcer_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_oxcer_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterString.lift,
+            errorHandler: FfiConverterTypeOxcerError.lift
+        )
+}
 public func ping() -> String {
     return try!  FfiConverterString.lift(try! rustCall() {
     uniffi_oxcer_ffi_fn_func_ping($0
     )
 })
 }
-/**
- * Run the agent task (stub executor; tools/approvals require app step API).
- *
- * # Singleton enforcement
- * The agent uses `FfiStubExecutor` which does not invoke the LLM. When a real executor is wired,
- * it MUST use `GLOBAL_ENGINE` for LlmGenerate intents — never create new engine instances.
- * Heavy orchestrator work runs on a dedicated blocking thread pool; does not block the caller's executor.
- */
 public func runAgentTask(payload: AgentRequestPayload)async throws  -> AgentResponse {
     return
         try  await uniffiRustCallAsync(
@@ -1727,6 +2383,30 @@ public func runAgentTask(payload: AgentRequestPayload)async throws  -> AgentResp
             freeFunc: ffi_oxcer_ffi_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeAgentResponse.lift,
             errorHandler: FfiConverterTypeOxcerError.lift
+        )
+}
+/**
+ * Test connectivity and API-key validity for a cloud provider.
+ *
+ * Performs the cheapest valid request for the given provider (max_tokens=1 where supported)
+ * and maps the response to a user-friendly `FfiProviderTestResult`.
+ *
+ * This function never throws — all errors are encoded in `FfiProviderTestResult.ok = false`.
+ * Swift callers do not need a `try`.
+ */
+public func testCloudProvider(provider: FfiProviderKind, apiKey: String)async  -> FfiProviderTestResult {
+    return
+        try!  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_oxcer_ffi_fn_func_test_cloud_provider(FfiConverterTypeFfiProviderKind.lower(provider),FfiConverterString.lower(apiKey)
+                )
+            },
+            pollFunc: ffi_oxcer_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_oxcer_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_oxcer_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeFfiProviderTestResult.lift,
+            errorHandler: nil
+            
         )
 }
 
@@ -1745,25 +2425,49 @@ private var initializationResult: InitializationResult = {
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
     }
-    if (uniffi_oxcer_ffi_checksum_func_ensure_local_model() != 36503) {
+    if (uniffi_oxcer_ffi_checksum_func_activate_cloud_provider() != 7235) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_oxcer_ffi_checksum_func_generate_text() != 56309) {
+    if (uniffi_oxcer_ffi_checksum_func_deactivate_cloud_provider() != 11038) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_oxcer_ffi_checksum_func_list_sessions() != 38949) {
+    if (uniffi_oxcer_ffi_checksum_func_ensure_local_model() != 17499) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_oxcer_ffi_checksum_func_list_workspaces() != 1311) {
+    if (uniffi_oxcer_ffi_checksum_func_ffi_agent_step() != 16214) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_oxcer_ffi_checksum_func_load_session_log() != 14285) {
+    if (uniffi_oxcer_ffi_checksum_func_ffi_mcp_execute() != 64780) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_oxcer_ffi_checksum_func_ping() != 10669) {
+    if (uniffi_oxcer_ffi_checksum_func_ffi_orchestrate() != 11834) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_oxcer_ffi_checksum_func_run_agent_task() != 20394) {
+    if (uniffi_oxcer_ffi_checksum_func_ffi_terminal_execute() != 749) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_oxcer_ffi_checksum_func_generate_text() != 1133) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_oxcer_ffi_checksum_func_list_sessions() != 18187) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_oxcer_ffi_checksum_func_list_workspaces() != 10338) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_oxcer_ffi_checksum_func_load_session_log() != 38235) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_oxcer_ffi_checksum_func_orchestrate_query() != 64639) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_oxcer_ffi_checksum_func_ping() != 63957) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_oxcer_ffi_checksum_func_run_agent_task() != 53870) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_oxcer_ffi_checksum_func_test_cloud_provider() != 10963) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_oxcer_ffi_checksum_method_downloadcallback_on_progress() != 23691) {

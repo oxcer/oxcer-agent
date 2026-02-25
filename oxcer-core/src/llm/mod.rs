@@ -19,7 +19,7 @@ pub use bootstrap::create_engine_for_profile;
 pub use config::{load_llm_profiles, load_models_config, LlmProfilesConfig, ModelsConfig};
 pub use downloader::{download_file, DownloadProgressCallback};
 pub use hybrid::HybridEngine;
-pub use http_backend::{HttpLlmConfig, HttpLlmEngine};
+pub use http_backend::{CloudLlmEngine, HttpLlmConfig, HttpLlmEngine};
 pub use local_phi3::LocalPhi3Engine;
 pub use model_downloader::{ensure_model_present, DownloadProgress};
 

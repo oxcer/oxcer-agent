@@ -3,6 +3,7 @@
 //
 //  Refactored UI: ChatGPT-style layout with Toss-inspired dark theme
 
+import AppKit
 import SwiftUI
 
 // MARK: - Theme (Toss-inspired)
@@ -169,6 +170,39 @@ struct ChatMessage: Identifiable {
     let content: String
 }
 
+// MARK: - Approval Request
+
+/// A pending tool-call approval that suspends the agent step loop.
+///
+/// Created by `AppViewModel.runAgentRequest` when `AgentRunner.onApprovalNeeded` fires.
+/// The step loop remains suspended at a `CheckedContinuation` inside this struct until
+/// the user calls `approve()` or `cancel()` from the UI.
+///
+/// `fileprivate init` ensures only `AppViewModel` (in this file) can create instances.
+struct ApprovalRequest: Identifiable, Sendable {
+    let id: UUID
+    let requestId: String
+    let summary: String
+    private let continuation: CheckedContinuation<Bool, Never>
+
+    fileprivate init(
+        id: UUID,
+        requestId: String,
+        summary: String,
+        continuation: CheckedContinuation<Bool, Never>
+    ) {
+        self.id = id
+        self.requestId = requestId
+        self.summary = summary
+        self.continuation = continuation
+    }
+
+    /// Resume the step loop — allow the tool call to proceed.
+    func approve() { continuation.resume(returning: true) }
+    /// Resume the step loop — deny the tool call; the orchestrator receives an error.
+    func cancel()  { continuation.resume(returning: false) }
+}
+
 // MARK: - Helpers
 
 private func formatTimestamp(_ iso: String) -> String {
@@ -181,6 +215,43 @@ private func formatTimestamp(_ iso: String) -> String {
         return out.string(from: date)
     }
     return iso
+}
+
+/// Returns a human-readable, bucketed relative time string for display in the session sidebar.
+///
+/// Buckets (no per-second granularity):
+///   < 60 s   → "just now"
+///   < 60 min → "X min ago"
+///   < 24 h   → "X hour(s) ago"
+///   < 7 d    → "yesterday" | "X days ago"
+///   < 30 d   → "X week(s) ago"
+///   >= 30 d  → "X month(s) ago"
+///
+/// Pass `now` explicitly so callers inside TimelineView can use the timeline clock date.
+private func relativeTimeDescription(from date: Date, now: Date = Date()) -> String {
+    let elapsed = now.timeIntervalSince(date)
+    guard elapsed >= 0 else { return "just now" }
+
+    if elapsed < 60 { return "just now" }
+
+    let cal = Calendar.current
+    let components = cal.dateComponents([.minute, .hour, .day, .weekOfYear, .month], from: date, to: now)
+
+    // Use month first so weeks don't over-count near the boundary.
+    let months = max(components.month ?? 0, 0)
+    if months >= 1 { return months == 1 ? "1 month ago" : "\(months) months ago" }
+
+    let weeks = max(components.weekOfYear ?? 0, 0)
+    if weeks >= 1 { return weeks == 1 ? "1 week ago" : "\(weeks) weeks ago" }
+
+    let days = max(components.day ?? 0, 0)
+    if days >= 1 { return days == 1 ? "yesterday" : "\(days) days ago" }
+
+    let hours = max(components.hour ?? 0, 0)
+    if hours >= 1 { return hours == 1 ? "1 hour ago" : "\(hours) hours ago" }
+
+    let minutes = max(components.minute ?? 0, 1)
+    return minutes == 1 ? "1 min ago" : "\(minutes) min ago"
 }
 
 // MARK: - Download Progress Throttling
@@ -215,22 +286,25 @@ private final class DownloadProgressThrottler {
 // MARK: - App View Model (single source of truth)
 
 /// AppViewModel
-/// App-lifetime state only. Heavy per-session data lives in SessionDetailViewModel.
-/// Only one SessionDetailViewModel is alive at a time; switching sessions releases the previous one.
+/// App-lifetime state only. Per-session data lives in ConversationSession.
+/// Multiple sessions can exist simultaneously; selectedSessionID tracks which is visible.
 @MainActor
 final class AppViewModel: ObservableObject {
-    // Workspace + task state (app lifetime)
+    // Workspace state (app lifetime)
     @Published var workspaces: [WorkspaceInfo] = []
     @Published var selectedWorkspaceId: String?
-    @Published var isTaskRunning: Bool = false
 
-    /// Lightweight session list for sidebar (app lifetime).
-    /// Capped at maxSessionsCount (100); loadSessions() not called per agent response.
-    @Published var sessions: [SidebarSessionItem] = []
-    @Published var isSessionsLoading: Bool = false
+    /// In-memory conversation sessions. The sidebar shows this array directly.
+    @Published var sessions: [ConversationSession] = []
 
-    /// Active session detail. Only ONE alive at a time. nil = welcome/empty state.
-    @Published var activeSessionDetail: SessionDetailViewModel?
+    /// ID of the currently visible session. nil = welcome/empty state.
+    @Published var selectedSessionID: UUID?
+
+    /// Convenience accessor for the currently visible session.
+    var selectedSession: ConversationSession? {
+        guard let id = selectedSessionID else { return nil }
+        return sessions.first { $0.id == id }
+    }
 
     // App config directory for FFI (set by root view onAppear)
     @Published var appConfigDir: String?
@@ -245,33 +319,36 @@ final class AppViewModel: ObservableObject {
     // Backend service abstraction over OxcerFFI
     private let backend: OxcerBackend
 
-    /// Ensures we only run the initial workspace + session load once (avoids OOM from repeated onAppear/.task).
+    /// Ensures we only run the initial workspace load once.
     private var hasPerformedInitialLoad = false
 
-    /// GLOBAL LOCK: Persists even if AppViewModel is recreated (e.g. by parent view updates).
+    /// Process-lifetime flag: true once `ensureLocalModel` has completed successfully.
+    ///
+    /// INVARIANT — write ordering:
+    ///   `hasAttemptedInit` is set to `true` only **after** `isModelReady = true` has already
+    ///   been executed (see `checkAndPrepareModel`). This makes `hasAttemptedInit == true` a
+    ///   safe proxy for "the model is ready in this process". Any newly-created `AppViewModel`
+    ///   that reads `hasAttemptedInit == true` at init time may safely set its own
+    ///   `isModelReady = true` without re-running setup.
+    ///
+    ///   Do NOT move or hoist the `hasAttemptedInit = true` write above `isModelReady = true`.
+    ///   Doing so would allow a new AppViewModel's `init` to mark itself ready before the model
+    ///   files are actually confirmed, enabling the chat UI prematurely.
     private static var hasAttemptedInit = false
+    /// Serialises reads/writes of `hasAttemptedInit` across threads.
     private static let initLock = NSLock()
     private var isCheckingModel = false
 
-    /// Max number of sessions to keep in memory (lightweight SidebarSessionItem only).
-    /// Aligns with Rust list_sessions_from_dir truncation (100); avoids holding more than backend returns.
-    private let maxSessionsCount = 100
-
-    /// Cancellable task for sessions list load.
-    private var loadSessionsTask: Task<Void, Never>?
-
-    /// Debug: counts loadWorkspaces/loadSessions calls to detect runaway loops.
-    private var callCount = 0
-
-    /// Idempotency guard: limits initial workspace/session load to exactly once.
-    private var isLoadingInitialData = false
-
     init(backend: OxcerBackend = DefaultOxcerBackend()) {
         self.backend = backend
-        // Warm-up: first FFI call triggers dylib load and static runtime init (pays 17GB VMS cost upfront).
-        // _ = backend.ping()
-        // Set default once at init so the view's .task never writes @Published (avoids re-render → .task re-run loop).
         self.appConfigDir = Self.defaultAppConfigDir()
+        // Restore model-ready state immediately if a previous AppViewModel instance already
+        // completed setup. Prevents the onboarding overlay from flashing on window restore.
+        // hasAttemptedInit is only set to true AFTER isModelReady = true, so this is safe.
+        AppViewModel.initLock.lock()
+        let alreadyReady = AppViewModel.hasAttemptedInit
+        AppViewModel.initLock.unlock()
+        if alreadyReady { isModelReady = true }
     }
 
     private static func defaultAppConfigDir() -> String? {
@@ -288,6 +365,9 @@ final class AppViewModel: ObservableObject {
         AppViewModel.initLock.lock()
         if AppViewModel.hasAttemptedInit {
             AppViewModel.initLock.unlock()
+            // Model was already prepared; init should have restored isModelReady, but set it
+            // here too in case checkAndPrepareModel is called before init's guard runs.
+            if !isModelReady { isModelReady = true }
             return
         }
         AppViewModel.initLock.unlock()
@@ -314,6 +394,9 @@ final class AppViewModel: ObservableObject {
                 }
             }
             try await backend.ensureLocalModel(appConfigDir: dir, onProgress: throttler.forward)
+            // ORDERING INVARIANT: isModelReady must be set to true BEFORE hasAttemptedInit.
+            // AppViewModel.init reads hasAttemptedInit and uses it as a proxy for "model ready".
+            // Reversing this order would let new instances mark themselves ready prematurely.
             isModelReady = true
             isRetrying = false
             AppViewModel.hasAttemptedInit = true
@@ -329,57 +412,123 @@ final class AppViewModel: ObservableObject {
         }
     }
 
-    /// Call once when the root view appears. Loads workspaces and sessions only the first time.
-    /// Prefer checkAndPrepareModel() from .task to benefit from the strict guard against re-entry.
-    func loadInitialDataIfNeeded() async {
-        guard appConfigDir != nil else { return }
-        guard !hasPerformedInitialLoad else { return }
-        hasPerformedInitialLoad = true
-        await loadWorkspaces()
-        await loadSessions()
+    // MARK: - Session management
+
+    /// Create a fresh session, add it to the list sorted by recency, and select it.
+    @discardableResult
+    func createNewSession() -> ConversationSession {
+        let session = ConversationSession()
+        sessions.append(session)
+        sortSessions()
+        selectedSessionID = session.id
+        return session
     }
 
-    /// Start new chat: release previous SessionDetailViewModel (frees messages + sessionEvents).
-    func startNewChat() {
-        activeSessionDetail?.cancelLoad()
-        activeSessionDetail = nil
+    /// Select an existing session by value.
+    func selectSession(_ session: ConversationSession) {
+        selectedSessionID = session.id
     }
 
-    /// Send message: ensure we have an active session, append user message, run agent.
+    /// Send a message in the currently selected session (creating one if the list is empty).
     func sendMessage(_ text: String) {
-        print("[UI] SEND triggered at \(Date()) with prompt length: \(text.count)")
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        if activeSessionDetail == nil {
-            activeSessionDetail = SessionDetailViewModel(sessionId: nil)
+        let session: ConversationSession
+        if let existing = selectedSession {
+            session = existing
+        } else {
+            session = createNewSession()
         }
-        guard let detail = activeSessionDetail else { return }
-        detail.appendMessage(ChatMessage(id: UUID(), role: "user", content: trimmed))
-        Task { await runAgentRequest(taskText: trimmed) }
+        sendMessage(in: session, text: trimmed)
     }
 
-    /// Explicit user-initiated refresh. Cancels any in-flight load and reloads the session list.
-    /// Call from Refresh button; NOT called automatically after agent responses.
-    func refreshSessions() {
-        loadSessionsTask?.cancel()
-        loadSessionsTask = Task { await loadSessions() }
+    /// Append a user message to the given session and kick off agent generation.
+    func sendMessage(in session: ConversationSession, text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        session.setTitleIfDefault(from: trimmed)
+        session.appendMessage(ChatMessage(id: UUID(), role: "user", content: trimmed))
+        sortSessions()
+        session.currentTask = Task { await runAgentRequest(session: session, taskText: trimmed) }
     }
 
-    /// Select session: release previous, create new SessionDetailViewModel, load its log.
-    func selectSession(_ sessionId: String) {
-        activeSessionDetail?.cancelLoad()
-        activeSessionDetail = nil
-        let detail = SessionDetailViewModel(sessionId: sessionId)
-        activeSessionDetail = detail
-        detail.loadSessionLog(sessionId: sessionId, appConfigDir: appConfigDir, backend: backend)
+    // MARK: - Session list mutations
+
+    /// Rename a session to an explicit title, overriding any auto-generated one.
+    func renameSession(_ session: ConversationSession, to newTitle: String) {
+        session.rename(to: newTitle)
+    }
+
+    /// Toggle the pinned state and re-sort so pinned sessions always appear first.
+    func togglePin(for session: ConversationSession) {
+        session.isPinned.toggle()
+        sortSessions()
+    }
+
+    /// Remove a session. Stops any in-flight generation and advances the selection.
+    func deleteSession(_ session: ConversationSession) {
+        // Stop generation before removing so the continuation is not leaked.
+        stopGeneration(for: session)
+
+        // Advance selection before removal so index lookup is still valid.
+        if selectedSessionID == session.id {
+            if let idx = sessions.firstIndex(where: { $0.id == session.id }) {
+                if sessions.count > 1 {
+                    // Prefer the item that will be visually below after deletion.
+                    let newIdx = idx + 1 < sessions.count ? idx + 1 : idx - 1
+                    selectedSessionID = sessions[newIdx].id
+                } else {
+                    selectedSessionID = nil
+                }
+            } else {
+                selectedSessionID = nil
+            }
+        }
+
+        sessions.removeAll { $0.id == session.id }
+    }
+
+    /// Sort sessions: pinned first, then by lastUpdated descending within each group.
+    private func sortSessions() {
+        sessions.sort {
+            if $0.isPinned != $1.isPinned { return $0.isPinned }
+            return $0.lastUpdated > $1.lastUpdated
+        }
+    }
+
+    /// Cancel the in-flight generation task for the currently selected session.
+    func stopGeneration() {
+        guard let session = selectedSession else { return }
+        stopGeneration(for: session)
+    }
+
+    /// Cancel the in-flight generation task for a specific session.
+    ///
+    /// Dismisses any pending approval first so the suspended CheckedContinuation is
+    /// resumed before the task cancellation signal is sent — prevents a continuation leak.
+    func stopGeneration(for session: ConversationSession) {
+        if let pending = session.pendingApproval {
+            session.pendingApproval = nil
+            pending.cancel()
+        }
+        session.currentTask?.cancel()
+        session.currentTask = nil
+    }
+
+    /// Called by the approval overlay when the user taps Approve (Return) or Cancel (Escape).
+    ///
+    /// Clears `pendingApproval` first so the overlay disappears immediately, then resumes
+    /// the suspended `CheckedContinuation` to let the step loop continue.
+    func respondToApproval(_ approved: Bool) {
+        guard let session = selectedSession,
+              let approval = session.pendingApproval else { return }
+        session.pendingApproval = nil
+        if approved { approval.approve() } else { approval.cancel() }
     }
 
     // MARK: - Data loading (FFI via backend service)
 
-    /// Loads workspaces from backend. Hidden Singleton: auto-selects first workspace when present,
-    /// then loads sessions. Rest of app implicitly uses selectedWorkspaceId.
-    /// Idempotency: runs at most once per app launch (isLoadingInitialData guard).
-    /// ISOLATION: smoke test body — FFI returns Int32 (42).
+    /// Loads workspaces from backend (smoke test / initial setup).
     func loadWorkspaces() async {
         do {
             let result = try await backend.listWorkspaces(appConfigDir: "")
@@ -389,69 +538,111 @@ final class AppViewModel: ObservableObject {
         }
     }
 
-    /// Loads recent sessions from backend; maps to lightweight SidebarSessionItem.
-    /// Invoked: (1) from loadWorkspaces during initial load, (2) explicit Refresh, (3) after first response in new chat.
-    /// During initial load, called only from loadWorkspaces (when isLoadingInitialData is true).
-    func loadSessions() async {
-        callCount += 1
-        print("[FFI CALL DEBUG] \(#function) called \(callCount) times")
-        isSessionsLoading = true
-        defer { isSessionsLoading = false }
-        guard let dir = appConfigDir else { return }
-        do {
-            let list = try await backend.listSessions(appConfigDir: dir)
-            guard !Task.isCancelled else { return }
-            sessions = Array(list.prefix(maxSessionsCount).map { SidebarSessionItem.from($0) })
-        } catch {
-            // Ignore cancellation; defer will reset isSessionsLoading
-        }
-    }
+    // MARK: - Agent execution
 
-    /// Runs the agent request. Appends response to activeSessionDetail.
-    /// IMPORTANT: Does NOT call ensureLocalModel — model must already be ready (gated by checkAndPrepareModel + isModelReady).
+    /// Runs the agent request end-to-end via AgentRunner (ffi_agent_step + SwiftAgentExecutor loop).
     ///
-    /// **Session list refresh:** Does NOT reload the full session list on every response.
-    /// - Refreshes only when this was a new chat (first response); backend creates the session on first request.
-    /// - For subsequent messages in the same chat: no refresh. User can use explicit Refresh to update.
-    func runAgentRequest(taskText: String) async {
+    /// IMPORTANT: Does NOT call ensureLocalModel — the model must already be ready
+    /// (gated by checkAndPrepareModel + isModelReady guard in ContentView).
+    ///
+    /// All step-loop logic lives in AgentRunner. This method only:
+    ///   1. Builds AgentEnvironment from current workspace state.
+    ///   2. Calls AgentRunner.run(env:) and streams the final answer into the session.
+    ///   3. Handles cancellation by committing partial text; real errors append an error message.
+    func runAgentRequest(session: ConversationSession, taskText: String) async {
         let task = taskText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !task.isEmpty else { return }
-        isTaskRunning = true
+        session.markGenerating(true)
+        defer {
+            session.currentTask = nil
+            // Clear streaming state on any exit path (no-op if already finalized).
+            session.cancelStreaming()
+            // Dismiss any pending approval so the CheckedContinuation is not leaked.
+            if let pending = session.pendingApproval {
+                session.pendingApproval = nil
+                pending.cancel()
+            }
+            // Reset agent phase so no stale label persists after the run.
+            session.updatePhase(.idle)
+            session.markGenerating(false)
+            // Re-sort after generation ends so the session's updated lastUpdated is reflected.
+            sortSessions()
+        }
 
-        let wasNewChat = activeSessionDetail?.sessionId == nil
-
-        let wsId = selectedWorkspaceId
-        let wsRoot = workspaces.first(where: { $0.id == wsId })?.rootPath
-        let context = TaskContext(workspaceId: wsId, selectedPaths: nil, riskHints: nil)
-        let payload = AgentRequestPayload(
+        let env = AgentEnvironment(
             taskDescription: task,
-            workspaceId: wsId,
-            workspaceRoot: wsRoot,
-            context: context,
+            workspaceId: selectedWorkspaceId,
+            workspaceRoot: workspaces.first(where: { $0.id == selectedWorkspaceId })?.rootPath,
             appConfigDir: appConfigDir
         )
 
+        // Show "thinking" indicator immediately.
+        session.beginStreaming()
+
         do {
-            let response = try await backend.runAgentTask(payload: payload)
-            let answer = response.answer ?? ""
-            let errorText = response.error
-            if let detail = activeSessionDetail {
-                if let err = errorText, !err.isEmpty {
-                    detail.appendMessage(ChatMessage(id: UUID(), role: "assistant", content: "Error: \(err)"))
-                } else if !answer.isEmpty {
-                    detail.appendMessage(ChatMessage(id: UUID(), role: "assistant", content: answer))
+            // Select backend-specific parameters (timeout, maxSteps, temperature).
+            let config = ModelBackendConfig.current()
+            var executor = SwiftAgentExecutor()
+            executor.config = config
+
+            // Wire the approval gate: AgentRunner suspends here whenever a filesystem or
+            // shell tool needs consent. The closure hops to the main actor to set
+            // session.pendingApproval (showing the ApprovalOverlay), then suspends via a
+            // CheckedContinuation until respondToApproval() is called from the UI.
+            var runner = AgentRunner(backend: backend, executor: executor)
+            runner.maxSteps = config.maxSteps
+            runner.config = config
+            // Propagate phase changes from the step loop to the session on the main actor.
+            runner.onPhaseChanged = { [weak session] phase in
+                Task { @MainActor [weak session] in
+                    session?.updatePhase(phase)
                 }
             }
-            isTaskRunning = false
-
-            // Refresh session list only after first response of a new chat (backend creates session then).
-            // Subsequent responses in the same chat do NOT trigger full telemetry scan.
-            if wasNewChat {
-                await loadSessions()
+            runner.onApprovalNeeded = { [weak session] requestId, summary in
+                guard let session else { return false }
+                return await withCheckedContinuation { continuation in
+                    Task { @MainActor [weak session] in
+                        guard let session else { continuation.resume(returning: false); return }
+                        session.pendingApproval = ApprovalRequest(
+                            id: UUID(),
+                            requestId: requestId,
+                            summary: summary,
+                            continuation: continuation
+                        )
+                    }
+                }
             }
+            let answer = try await runner.run(env: env)
+            let text = answer.isEmpty
+                ? SwiftAgentExecutor.makeModelErrorMessage("empty response")
+                : answer
+            await streamReveal(text: text, session: session)
+            session.finalizeStreaming()
+        } catch is CancellationError {
+            // User pressed Stop. Commit any partial text that was already revealed;
+            // if the model had not yet produced any output finalizeStreaming is a silent no-op.
+            session.finalizeStreaming()
         } catch {
-            activeSessionDetail?.appendMessage(ChatMessage(id: UUID(), role: "assistant", content: "Error: \(error.localizedDescription)"))
-            isTaskRunning = false
+            session.cancelStreaming()
+            session.appendMessage(
+                ChatMessage(id: UUID(), role: "assistant",
+                            content: SwiftAgentExecutor.makeModelErrorMessage(error.localizedDescription)))
+        }
+    }
+
+    /// Simulates token-by-token streaming by appending 30-character chunks with 15 ms delays.
+    /// Produces a smooth reveal (~8-16 words/sec) without requiring server-sent events.
+    private func streamReveal(text: String, session: ConversationSession) async {
+        let chunkSize = 30
+        var idx = text.startIndex
+        while idx < text.endIndex {
+            guard !Task.isCancelled else { break }
+            let end = text.index(idx, offsetBy: chunkSize, limitedBy: text.endIndex) ?? text.endIndex
+            session.appendStreaming(String(text[idx..<end]))
+            idx = end
+            if idx < text.endIndex {
+                try? await Task.sleep(nanoseconds: 15_000_000) // 15 ms
+            }
         }
     }
 }
@@ -460,18 +651,19 @@ final class AppViewModel: ObservableObject {
 // Receives data and closures directly to avoid computed view model re-creation.
 
 struct SidebarView: View {
-    let sessions: [SidebarSessionItem]
-    let selectedSessionId: String?
-    let isSessionsLoading: Bool
-    let startNewChat: () -> Void
-    let refreshSessions: () -> Void
-    let selectSession: (String) -> Void
+    let sessions: [ConversationSession]
+    let selectedSessionId: UUID?
+    let createNewSession: () -> Void
+    let selectSession: (ConversationSession) -> Void
+    let renameSession: (ConversationSession, String) -> Void
+    let togglePin: (ConversationSession) -> Void
+    let deleteSession: (ConversationSession) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
             // New Chat button (top)
             Button {
-                startNewChat()
+                createNewSession()
             } label: {
                 HStack(spacing: 10) {
                     Image(systemName: "square.and.pencil")
@@ -495,35 +687,28 @@ struct SidebarView: View {
             .padding(.bottom, 8)
 
             // Sessions list (scrollable)
-            if isSessionsLoading {
-                VStack(spacing: 6) {
-                    ForEach(0..<5, id: \.self) { _ in
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(OxcerTheme.cardBackground.opacity(0.6))
-                            .frame(height: 36)
-                            .shimmering()
-                            .padding(.horizontal, 12)
+            List(sessions, selection: Binding(
+                get: { selectedSessionId.flatMap { Set([$0]) } ?? [] },
+                set: { ids in
+                    if let id = ids.first,
+                       let session = sessions.first(where: { $0.id == id }) {
+                        selectSession(session)
+                    } else {
+                        createNewSession()
                     }
                 }
-                .padding(.vertical, 8)
-            } else {
-                List(sessions, selection: Binding(
-                    get: { selectedSessionId.flatMap { Set([$0]) } ?? [] },
-                    set: { ids in
-                        if let id = ids.first {
-                            selectSession(id)
-                        } else {
-                            startNewChat()
-                        }
-                    }
-                )) { session in
-                    SessionListRow(session: session)
-                        .tag(session.id)
-                }
-                .listStyle(.sidebar)
-                .scrollContentBackground(.hidden)
-                .background(Color.clear)
+            )) { session in
+                SessionListRow(
+                    session: session,
+                    onCommitRename: { newTitle in renameSession(session, newTitle) },
+                    onTogglePin: { togglePin(session) },
+                    onDelete: { deleteSession(session) }
+                )
+                .tag(session.id)
             }
+            .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
+            .background(Color.clear)
 
             Spacer(minLength: 0)
 
@@ -550,16 +735,6 @@ struct SidebarView: View {
 
                     Spacer(minLength: 0)
 
-                    Button {
-                        refreshSessions()
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(.body))
-                            .foregroundStyle(OxcerTheme.textSecondary)
-                    }
-                    .buttonStyle(BouncyButtonStyle(scale: 0.92, dimmingOpacity: 0.2))
-                    .disabled(isSessionsLoading)
-
                     SettingsLink {
                         Image(systemName: "gearshape")
                             .font(.system(.body))
@@ -577,49 +752,125 @@ struct SidebarView: View {
     }
 }
 
-/// List row for session in sidebar (used with List selection).
+/// List row for a conversation session in the sidebar.
+///
+/// Features:
+///   - Context menu: Rename, Pin/Unpin, Delete.
+///   - Inline rename: tapping "Rename" replaces the title Text with a TextField.
+///     Pressing Return commits; pressing Escape cancels.
+///   - Bucketed time label driven by a per-minute TimelineView — no per-second updates.
+///   - Pin indicator and generating dot reflect live session state.
 private struct SessionListRow: View {
-    let session: SidebarSessionItem
+    @ObservedObject var session: ConversationSession
+
+    let onCommitRename: (String) -> Void
+    let onTogglePin: () -> Void
+    let onDelete: () -> Void
+
+    @State private var isEditingTitle = false
+    @State private var editingText = ""
+    @FocusState private var fieldFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(session.title)
-                .font(.system(.caption, design: .monospaced))
-                .foregroundStyle(OxcerTheme.textPrimary)
-                .lineLimit(1)
-            Text(formatTimestamp(session.createdAt))
-                .font(.system(.caption2))
-                .foregroundStyle(OxcerTheme.textTertiary)
-                .lineLimit(1)
+            // Title row: TextField when renaming, Text otherwise.
+            HStack(spacing: 4) {
+                if isEditingTitle {
+                    TextField("Session title", text: $editingText)
+                        .textFieldStyle(.plain)
+                        .font(.system(.subheadline))
+                        .foregroundStyle(OxcerTheme.textPrimary)
+                        .focused($fieldFocused)
+                        .onSubmit { commitRename() }
+                        .onExitCommand { cancelRename() }
+                } else {
+                    Text(session.title)
+                        .font(.system(.subheadline))
+                        .foregroundStyle(OxcerTheme.textPrimary)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 0)
+
+                if session.isPinned {
+                    Image(systemName: "pin.fill")
+                        .font(.system(.caption2))
+                        .foregroundStyle(OxcerTheme.accent.opacity(0.7))
+                }
+                if session.isGenerating {
+                    Circle()
+                        .fill(OxcerTheme.statusRunning)
+                        .frame(width: 6, height: 6)
+                }
+            }
+
+            // Time label — driven by a per-minute timeline so it never updates at per-second
+            // resolution. The label also refreshes automatically when `session.lastUpdated`
+            // changes (new message appended), because @ObservedObject re-renders the whole row.
+            TimelineView(.everyMinute) { context in
+                Text(relativeTimeDescription(from: session.lastUpdated, now: context.date))
+                    .font(.system(.caption2))
+                    .foregroundStyle(OxcerTheme.textTertiary)
+                    .lineLimit(1)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 6)
         .padding(.horizontal, 4)
+        .contextMenu {
+            Button("Rename") { beginRename() }
+
+            Button(session.isPinned ? "Unpin" : "Pin to Top") { onTogglePin() }
+
+            Divider()
+
+            Button("Delete", role: .destructive) { onDelete() }
+        }
+        .onChange(of: isEditingTitle) { _, editing in
+            if editing { fieldFocused = true }
+        }
+    }
+
+    private func beginRename() {
+        editingText = session.title
+        isEditingTitle = true
+    }
+
+    private func commitRename() {
+        onCommitRename(editingText)
+        isEditingTitle = false
+    }
+
+    private func cancelRename() {
+        isEditingTitle = false
     }
 }
 
 // MARK: - Detail View (Chat History / Empty State)
 
-/// When sessionDetail is nil: welcome/empty state. When non-nil: chat + session log from that view model.
+/// Thin dispatcher: shows the empty/welcome state when no session is selected, otherwise
+/// delegates to ActiveDetailView which observes the session directly.
+///
+/// WHY the split exists:
+///   DetailView receives `session: ConversationSession?` as a plain `let` from ContentView.
+///   A plain `let` on a SwiftUI struct does NOT subscribe to ObservableObject changes.
+///   If ChatInputBar were rendered here, `isRunning: session?.isGenerating` would never
+///   update when the session's isGenerating flips — the Stop button would never appear.
+///   ActiveDetailView holds the session via @ObservedObject, so it re-renders on every
+///   `session.objectWillChange` event (isGenerating, streamingAnswer, etc.).
 struct DetailView: View {
-    let sessionDetail: SessionDetailViewModel?
-    let isTaskRunning: Bool
+    let session: ConversationSession?
     let onSend: (String) -> Void
+    let onStop: () -> Void
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            if let detail = sessionDetail {
-                ChatDetailContent(sessionDetail: detail)
-            } else {
-                emptyStateView
-            }
-
-            ChatInputBar(isRunning: isTaskRunning, onSend: onSend)
-                .padding(.horizontal, 24)
-                .padding(.bottom, 24)
+        if let session = session {
+            ActiveDetailView(session: session, onSend: onSend, onStop: onStop)
+        } else {
+            emptyStateView
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color("OxcerBackground"))
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color("OxcerBackground"))
     }
 
     private var emptyStateView: some View {
@@ -631,39 +882,91 @@ struct DetailView: View {
                 .font(.system(.title2, design: .rounded, weight: .medium))
                 .foregroundStyle(OxcerTheme.textSecondary)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
-
 }
 
-/// Observes SessionDetailViewModel so it re-renders when messages/sessionEvents change.
-private struct ChatDetailContent: View {
-    @ObservedObject var sessionDetail: SessionDetailViewModel
+/// Renders the chat content and input bar for one active session.
+///
+/// @ObservedObject ensures this view re-renders whenever session publishes —
+/// including isGenerating (Stop/Send icon), streamingAnswer (live text), and
+/// pendingApproval (approval overlay gating). No parent re-render is needed.
+private struct ActiveDetailView: View {
+    @ObservedObject var session: ConversationSession
+    let onSend: (String) -> Void
+    let onStop: () -> Void
 
     var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 16) {
-                ForEach(sessionDetail.messages) { msg in
-                    if msg.role == "user" {
-                        TaskBubble(text: msg.content)
-                    } else {
-                        ResultBubble(text: msg.content, isError: msg.content.hasPrefix("Error:"))
-                    }
-                }
-                if !sessionDetail.sessionEvents.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Session Log")
-                            .font(.system(.caption, weight: .medium))
-                            .foregroundStyle(OxcerTheme.textSecondary)
-                        ForEach(sessionDetail.sessionEvents, id: \.self) { event in
-                            LogEventBubble(event: event)
-                        }
-                    }
-                }
-                Spacer(minLength: 100)
-            }
+        ZStack(alignment: .bottom) {
+            ChatDetailContent(session: session)
+
+            ChatInputBar(
+                isRunning: session.isGenerating,
+                onSend: onSend,
+                onStop: onStop
+            )
             .padding(.horizontal, 24)
-            .padding(.vertical, 24)
+            .padding(.bottom, 24)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color("OxcerBackground"))
+    }
+}
+
+/// Observes a ConversationSession so it re-renders when messages or streamingAnswer change.
+private struct ChatDetailContent: View {
+    @ObservedObject var session: ConversationSession
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 16) {
+                        ForEach(session.messages) { msg in
+                            if msg.role == "user" {
+                                TaskBubble(text: msg.content)
+                            } else {
+                                AssistantBubble(text: msg.content, isError: msg.content.hasPrefix("Error:"))
+                            }
+                        }
+
+                        // Live in-progress assistant message (thinking/executing or streaming).
+                        if let streaming = session.streamingAnswer {
+                            Group {
+                                if streaming.isEmpty {
+                                    AgentPhaseIndicator(phase: session.agentPhase)
+                                } else {
+                                    AssistantBubble(text: streaming, isError: false)
+                                }
+                            }
+                            .id("streaming_anchor")
+                        }
+
+                        Spacer(minLength: 100)
+                            .id("scroll_bottom")
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 24)
+                }
+                .onChange(of: session.messages.count) { _ in
+                    withAnimation(OxcerTheme.snappy) {
+                        proxy.scrollTo("scroll_bottom", anchor: .bottom)
+                    }
+                }
+                .onChange(of: session.streamingAnswer) { newValue in
+                    guard newValue != nil else { return }
+                    proxy.scrollTo("streaming_anchor", anchor: .bottom)
+                }
+            }
+
+            // Fade-to-background gradient that hides message text sliding under the input bar.
+            // allowsHitTesting(false) ensures scrolling and tap events pass through to the list.
+            LinearGradient(
+                colors: [Color("OxcerBackground").opacity(0), Color("OxcerBackground")],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .frame(height: 80)
+            .allowsHitTesting(false)
         }
     }
 }
@@ -729,27 +1032,306 @@ struct TaskBubble: View {
     }
 }
 
-struct ResultBubble: View {
+/// Assistant message bubble — no card background, text sits directly on the view background.
+/// Renders markdown-aware blocks: plain paragraphs as `Text`, fenced code blocks as `CodeBlockView`.
+/// Shows a "Copy all" button when the user hovers over the bubble (in addition to per-block copy).
+struct AssistantBubble: View {
     let text: String
     let isError: Bool
-    
-    var body: some View {
-        HStack {
-            Text(text)
+
+    @State private var isHovering = false
+    @State private var showCopied = false
+
+    private var blocks: [AssistantBlock] { parseMarkdownBlocks(text) }
+
+    @ViewBuilder
+    private func blockView(_ block: AssistantBlock) -> some View {
+        switch block {
+        case .paragraph(let content):
+            Text(content)
                 .font(.system(.body))
-                .foregroundStyle(isError ? OxcerTheme.textError : OxcerTheme.textPrimary)
+                .foregroundStyle(OxcerTheme.textPrimary)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
+        case .code(let language, let source):
+            CodeBlockView(language: language, source: source)
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if isError {
+                Text(text)
+                    .font(.system(.body))
+                    .foregroundStyle(OxcerTheme.textError)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                ForEach(blocks) { block in
+                    blockView(block)
+                }
+            }
+
+            // "Copy all" action row — visible on hover or during the "Copied" flash.
+            // Copies the raw text (all blocks); per-block copy is on CodeBlockView's header.
+            if !isError && (isHovering || showCopied) {
+                HStack {
+                    Button {
+                        copyToClipboard()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: showCopied ? "checkmark" : "doc.on.doc")
+                                .font(.system(.caption))
+                            Text(showCopied ? "Copied" : "Copy all")
+                                .font(.system(.caption2, weight: .medium))
+                        }
+                        .foregroundStyle(
+                            showCopied ? OxcerTheme.statusCompleted : OxcerTheme.textTertiary
+                        )
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(OxcerTheme.cardBackground)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .stroke(OxcerTheme.border, lineWidth: 1)
+                                )
+                        )
+                    }
+                    .buttonStyle(BouncyButtonStyle(scale: 0.93, dimmingOpacity: 0.15))
+
+                    Spacer()
+                }
+                .transition(.opacity.animation(.easeInOut(duration: 0.15)))
+            }
+        }
+        .padding(.vertical, 4)
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isHovering = hovering
+            }
+        }
+    }
+
+    private func copyToClipboard() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        withAnimation(OxcerTheme.snappy) { showCopied = true }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            withAnimation(OxcerTheme.snappy) { showCopied = false }
+        }
+    }
+}
+
+/// Animated "Oxcer is thinking…" dots shown while the agent is running but hasn't produced text yet.
+struct ThinkingIndicator: View {
+    @State private var dotCount = 0
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text("Oxcer is thinking")
+                .font(.system(.body))
+                .foregroundStyle(OxcerTheme.textTertiary)
+            HStack(spacing: 3) {
+                ForEach(0..<3, id: \.self) { i in
+                    Circle()
+                        .fill(OxcerTheme.textTertiary)
+                        .frame(width: 4, height: 4)
+                        .opacity(i < dotCount ? 1.0 : 0.25)
+                        .animation(.easeInOut(duration: 0.2), value: dotCount)
+                }
+            }
+        }
+        .padding(.vertical, 4)
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 400_000_000)
+                dotCount = (dotCount % 3) + 1
+            }
+        }
+    }
+}
+
+/// Context-aware phase indicator shown while `streamingAnswer` is empty.
+///
+/// Replaces `ThinkingIndicator` — reads the live `AgentPhase` from the session to show
+/// a tool icon and contextual label (e.g. "Listing files") when a tool is executing,
+/// or the generic "Oxcer is thinking" label + animated dots when the model is reasoning.
+struct AgentPhaseIndicator: View {
+    let phase: AgentPhase
+
+    @State private var dotCount = 0
+
+    var body: some View {
+        HStack(spacing: 6) {
+            // Tool icon — present only during executingTool phase.
+            if let iconName = phase.toolIconName {
+                Image(systemName: iconName)
+                    .font(.system(.caption, weight: .medium))
+                    .foregroundStyle(OxcerTheme.accent)
+            }
+
+            // Phase label. Falls back to "Oxcer is thinking" for .idle (shouldn't occur in practice).
+            Text(phase.displayLabel.isEmpty ? "Oxcer is thinking" : phase.displayLabel)
+                .font(.system(.body))
+                .foregroundStyle(OxcerTheme.textTertiary)
+
+            // Animated dots — shown for all phases so the indicator always "breathes".
+            HStack(spacing: 3) {
+                ForEach(0..<3, id: \.self) { i in
+                    Circle()
+                        .fill(OxcerTheme.textTertiary)
+                        .frame(width: 4, height: 4)
+                        .opacity(i < dotCount ? 1.0 : 0.25)
+                        .animation(.easeInOut(duration: 0.2), value: dotCount)
+                }
+            }
+        }
+        .padding(.vertical, 4)
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 400_000_000)
+                dotCount = (dotCount % 3) + 1
+            }
+        }
+    }
+}
+
+// MARK: - Approval Bubble
+
+/// Card UI for an approval request. Keyboard shortcuts are handled by ApprovalOverlay.
+struct ApprovalBubble: View {
+    let request: ApprovalRequest
+    let onRespond: (Bool) -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "lock.shield")
+                .font(.system(.title3, weight: .medium))
+                .foregroundStyle(OxcerTheme.accent)
+                .frame(width: 28, height: 28)
+                .padding(.top, 2)
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text(request.summary)
+                    .font(.system(.body))
+                    .foregroundStyle(OxcerTheme.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text("↩ Return to approve · ⎋ Escape to cancel")
+                    .font(.system(.caption))
+                    .foregroundStyle(OxcerTheme.textTertiary)
+
+                HStack(spacing: 8) {
+                    Button("Approve") { onRespond(true) }
+                        .buttonStyle(ApprovalApproveButtonStyle())
+
+                    Button("Cancel") { onRespond(false) }
+                        .buttonStyle(ApprovalCancelButtonStyle())
+                }
+            }
         }
         .padding(16)
         .background(
             RoundedRectangle(cornerRadius: OxcerTheme.cardCornerRadius)
-                .fill(isError ? OxcerTheme.textError.opacity(0.12) : OxcerTheme.cardBackground)
+                .fill(OxcerTheme.accent.opacity(0.08))
                 .overlay(
                     RoundedRectangle(cornerRadius: OxcerTheme.cardCornerRadius)
-                        .stroke(isError ? OxcerTheme.textError.opacity(0.3) : OxcerTheme.border, lineWidth: 1)
+                        .stroke(OxcerTheme.accent.opacity(0.3), lineWidth: 1)
                 )
         )
+    }
+}
+
+// MARK: - Session Approval Layer
+
+/// Renders the approval overlay if the observed session has a pending approval request.
+/// Split into its own view so @ObservedObject can subscribe to session changes without
+/// making ContentView itself re-render on every streaming update or session event.
+private struct SessionApprovalLayer: View {
+    @ObservedObject var session: ConversationSession
+    let onRespond: (Bool) -> Void
+
+    var body: some View {
+        if let approval = session.pendingApproval {
+            ApprovalOverlay(request: approval, onRespond: onRespond)
+                .transition(.opacity.animation(OxcerTheme.snappy))
+        }
+    }
+}
+
+// MARK: - Approval Overlay
+
+/// Full-screen overlay rendered from the root ContentView ZStack.
+/// Directly observes `AppViewModel.pendingApproval` — no struct prop passing — so
+/// no sub-tree re-render (streaming updates, isTaskRunning changes) can hide it.
+/// Return approves; Escape cancels. Focus is claimed on appear.
+private struct ApprovalOverlay: View {
+    let request: ApprovalRequest
+    let onRespond: (Bool) -> Void
+
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            // Dimming backdrop — blocks tap-through (explicit button choice required).
+            Color.black.opacity(0.35)
+                .ignoresSafeArea()
+                .contentShape(Rectangle())
+
+            ApprovalBubble(request: request, onRespond: onRespond)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 24)
+        }
+        .focusable()
+        .focused($isFocused)
+        .onKeyPress(.return) {
+            onRespond(true)
+            return .handled
+        }
+        .onKeyPress(.escape) {
+            onRespond(false)
+            return .handled
+        }
+        .onAppear { isFocused = true }
+    }
+}
+
+private struct ApprovalApproveButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(.callout, weight: .medium))
+            .foregroundStyle(OxcerTheme.onAccent)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 7)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(OxcerTheme.accent.opacity(configuration.isPressed ? 0.75 : 1.0))
+            )
+            .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
+            .animation(OxcerTheme.snappy, value: configuration.isPressed)
+    }
+}
+
+private struct ApprovalCancelButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(.callout, weight: .medium))
+            .foregroundStyle(OxcerTheme.textSecondary)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 7)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(OxcerTheme.cardBackground.opacity(configuration.isPressed ? 0.7 : 1.0))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(OxcerTheme.border, lineWidth: 1)
+                    )
+            )
+            .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
+            .animation(OxcerTheme.snappy, value: configuration.isPressed)
     }
 }
 
@@ -906,29 +1488,45 @@ struct ContentView: View {
     @ObservedObject var viewModel: AppViewModel
     @Environment(\.colorScheme) private var colorScheme
 
+    /// Keeps sidebar + detail always visible. Bound to NavigationSplitView so we can observe
+    /// user-initiated toggles, but chat key events must never write to this.
+    @State private var columnVisibility = NavigationSplitViewVisibility.all
+
     var body: some View {
         ZStack {
             // Main app content
-            NavigationSplitView {
+            NavigationSplitView(columnVisibility: $columnVisibility) {
                 SidebarView(
                     sessions: viewModel.sessions,
-                    selectedSessionId: viewModel.activeSessionDetail?.sessionId,
-                    isSessionsLoading: viewModel.isSessionsLoading,
-                    startNewChat: { viewModel.startNewChat() },
-                    refreshSessions: { viewModel.refreshSessions() },
-                    selectSession: { viewModel.selectSession($0) }
+                    selectedSessionId: viewModel.selectedSessionID,
+                    createNewSession: { viewModel.createNewSession() },
+                    selectSession: { viewModel.selectSession($0) },
+                    renameSession: { viewModel.renameSession($0, to: $1) },
+                    togglePin: { viewModel.togglePin(for: $0) },
+                    deleteSession: { viewModel.deleteSession($0) }
                 )
             } detail: {
                 DetailView(
-                    sessionDetail: viewModel.activeSessionDetail,
-                    isTaskRunning: viewModel.isTaskRunning,
-                    onSend: { text in viewModel.sendMessage(text) }
+                    session: viewModel.selectedSession,
+                    onSend: { text in viewModel.sendMessage(text) },
+                    onStop: { viewModel.stopGeneration() }
                 )
             }
             .disabled(!viewModel.isModelReady)
             .blur(radius: viewModel.isModelReady ? 0 : 5)
             .background(OxcerTheme.backgroundDark)
             .animation(.easeInOut(duration: 0.35), value: colorScheme)
+
+            // Approval overlay — sits above the split view so no DetailView re-render can hide it.
+            // Delegates to SessionApprovalLayer which observes the session directly, so only
+            // approval-state changes (not streaming updates) cause this branch to re-evaluate.
+            if let session = viewModel.selectedSession {
+                SessionApprovalLayer(
+                    session: session,
+                    onRespond: { viewModel.respondToApproval($0) }
+                )
+                .zIndex(50)
+            }
 
             // First Run model installation wizard overlay
             if !viewModel.isModelReady {

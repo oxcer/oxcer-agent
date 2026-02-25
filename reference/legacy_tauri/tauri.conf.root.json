@@ -1,5 +1,0 @@
-{
-  "$schema": "../src-tauri/tauri.conf.json",
-  "identifier": "ai.oxcer.app",
-  "productName": "Oxcer"
-}

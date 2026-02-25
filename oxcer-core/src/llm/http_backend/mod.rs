@@ -1,11 +1,14 @@
-//! HTTP-backed LLM engine. All external LLM calls go through this module.
+//! HTTP-backed LLM engines. All external LLM calls go through this module.
 //!
-//! [HttpLlmEngine] implements [crate::llm::LlmEngine] and uses OpenAI-compatible
-//! `/v1/chat/completions` (or configurable endpoint). No local server; outbound only.
+//! - [HttpLlmEngine]: OpenAI-compatible endpoint (configurable URL, single-provider).
+//! - [CloudLlmEngine]: Routes to any of the four cloud providers; used by the FFI
+//!   layer for the `CLOUD_ENGINE_SLOT` DI path.
 
+mod cloud;
 mod gemini;
 mod openai;
 
+pub use cloud::CloudLlmEngine;
 use crate::llm::{GenerationParams, LlmEngine, LlmError};
 
 /// Configuration for the HTTP LLM backend (endpoint, model, API key).

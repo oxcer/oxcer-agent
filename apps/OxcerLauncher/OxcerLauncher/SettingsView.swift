@@ -9,16 +9,13 @@ import SwiftUI
 
 private enum SettingsKey {
     static let appTheme = "appTheme"
-    static let useCloudModel = "useCloudModel"
-    static let userApiKey = "userApiKey"
+    // useCloudModel and provider API keys are now managed by CloudSettingsViewModel.
 }
 
 // MARK: - SettingsView
 
 struct SettingsView: View {
     @AppStorage(SettingsKey.appTheme) private var appTheme: String = "system"
-    @AppStorage(SettingsKey.useCloudModel) private var useCloudModel: Bool = false
-    @KeychainStorage(key: SettingsKey.userApiKey) private var userApiKey: String = ""
 
     var body: some View {
         ScrollView {
@@ -34,78 +31,74 @@ struct SettingsView: View {
                 }
 
                 // Section 2: Intelligence
+                // Provider selection, API key, and connection test are managed by
+                // CloudModelSettingsView and its @StateObject CloudSettingsViewModel.
                 settingsSection(title: "Intelligence") {
-                    VStack(alignment: .leading, spacing: 16) {
-                        Toggle("Use Cloud Model (Higher Performance)", isOn: $useCloudModel)
-                            .toggleStyle(.switch)
-
-                        if useCloudModel {
-                            // Orange warning row
-                            HStack(spacing: 12) {
-                                Image(systemName: "exclamationmark.triangle.fill")
-                                    .font(.body)
-                                    .foregroundStyle(Color.orange)
-                                Text("Data leaves device.")
-                                    .font(.subheadline)
-                                    .foregroundStyle(OxcerTheme.textSecondary)
-                            }
-                            .padding(12)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(Color.orange.opacity(0.12))
-                            )
-
-                            SecureField("API Key", text: $userApiKey)
-                                .textFieldStyle(.plain)
-                                .font(.subheadline)
-                                .foregroundStyle(OxcerTheme.textPrimary)
-                                .padding(12)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 12)
-                                        .fill(Color("OxcerBackground"))
-                                )
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 12)
-                                        .stroke(OxcerTheme.border, lineWidth: 1)
-                                )
-                        } else {
-                            // Green shield row
-                            HStack(spacing: 12) {
-                                Image(systemName: "checkmark.shield.fill")
-                                    .font(.body)
-                                    .foregroundStyle(Color.green)
-                                Text("Running on-device (Phi-3). Private & Fast.")
-                                    .font(.subheadline)
-                                    .foregroundStyle(OxcerTheme.textSecondary)
-                            }
-                            .padding(12)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(Color.green.opacity(0.12))
-                            )
-                        }
-                    }
+                    CloudModelSettingsView()
                 }
 
                 // Section 3: About
                 settingsSection(title: "About") {
-                    HStack {
-                        Text("Version")
-                            .font(.subheadline)
-                            .foregroundStyle(OxcerTheme.textSecondary)
-                        Spacer()
-                        Text(versionInfo)
-                            .font(.subheadline)
-                            .foregroundStyle(OxcerTheme.textPrimary)
+                    VStack(alignment: .leading, spacing: 14) {
+
+                        // Version
+                        HStack {
+                            Text("Version")
+                                .font(.subheadline)
+                                .foregroundStyle(OxcerTheme.textSecondary)
+                            Spacer()
+                            Text(versionInfo)
+                                .font(.subheadline)
+                                .foregroundStyle(OxcerTheme.textPrimary)
+                        }
+
+                        Divider()
+
+                        // "Built with Meta Llama 3" — required by §1.b.i of the
+                        // Meta Llama 3 Community License. Must appear prominently
+                        // in the product UI or documentation.
+                        HStack(spacing: 8) {
+                            Image(systemName: "cpu")
+                                .font(.subheadline)
+                                .foregroundStyle(OxcerTheme.accent)
+                            Text("Built with Meta Llama 3")
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(OxcerTheme.textPrimary)
+                            Spacer()
+                        }
+
+                        // Clickable license links
+                        HStack(spacing: 20) {
+                            Link(
+                                "Model License",
+                                destination: URL(string: "https://llama.meta.com/llama3/license/")!
+                            )
+                            .font(.caption)
+                            .foregroundStyle(OxcerTheme.accent)
+
+                            Link(
+                                "Acceptable Use Policy",
+                                destination: URL(string: "https://llama.meta.com/llama3/use-policy/")!
+                            )
+                            .font(.caption)
+                            .foregroundStyle(OxcerTheme.accent)
+                        }
+
+                        // Verbatim attribution text required by the Meta Llama 3 license
+                        Text(
+                            "Meta Llama 3 is licensed under the Meta Llama 3 Community License, " +
+                            "Copyright © Meta Platforms, Inc. All Rights Reserved."
+                        )
+                        .font(.caption2)
+                        .foregroundStyle(OxcerTheme.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
                     }
                 }
             }
             .padding(24)
         }
         .background(Color("OxcerBackground"))
-        .frame(width: 500, height: 400)
+        .frame(width: 500, height: 600)
     }
 
     private var versionInfo: String {

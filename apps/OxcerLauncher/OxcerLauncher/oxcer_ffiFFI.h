@@ -271,9 +271,40 @@ typedef struct UniffiVTableCallbackInterfaceDownloadCallback {
 void uniffi_oxcer_ffi_fn_init_callback_vtable_downloadcallback(UniffiVTableCallbackInterfaceDownloadCallback* _Nonnull vtable
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_FN_FUNC_ACTIVATE_CLOUD_PROVIDER
+#define UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_FN_FUNC_ACTIVATE_CLOUD_PROVIDER
+void uniffi_oxcer_ffi_fn_func_activate_cloud_provider(RustBuffer provider, RustBuffer api_key, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_FN_FUNC_DEACTIVATE_CLOUD_PROVIDER
+#define UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_FN_FUNC_DEACTIVATE_CLOUD_PROVIDER
+void uniffi_oxcer_ffi_fn_func_deactivate_cloud_provider(RustCallStatus *_Nonnull out_status
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_FN_FUNC_ENSURE_LOCAL_MODEL
 #define UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_FN_FUNC_ENSURE_LOCAL_MODEL
 uint64_t uniffi_oxcer_ffi_fn_func_ensure_local_model(RustBuffer app_config_dir, uint64_t callback
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_FN_FUNC_FFI_AGENT_STEP
+#define UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_FN_FUNC_FFI_AGENT_STEP
+RustBuffer uniffi_oxcer_ffi_fn_func_ffi_agent_step(RustBuffer task_description, RustBuffer workspace_id, RustBuffer workspace_root, RustBuffer app_config_dir, RustBuffer session_json, RustBuffer last_result, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_FN_FUNC_FFI_MCP_EXECUTE
+#define UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_FN_FUNC_FFI_MCP_EXECUTE
+RustBuffer uniffi_oxcer_ffi_fn_func_ffi_mcp_execute(RustBuffer workspace_root, RustBuffer tool_json, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_FN_FUNC_FFI_ORCHESTRATE
+#define UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_FN_FUNC_FFI_ORCHESTRATE
+uint64_t uniffi_oxcer_ffi_fn_func_ffi_orchestrate(RustBuffer query, RustBuffer workspace_root, RustBuffer memory_path
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_FN_FUNC_FFI_TERMINAL_EXECUTE
+#define UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_FN_FUNC_FFI_TERMINAL_EXECUTE
+RustBuffer uniffi_oxcer_ffi_fn_func_ffi_terminal_execute(RustBuffer llm_output, RustBuffer working_dir, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_FN_FUNC_GENERATE_TEXT
@@ -296,6 +327,11 @@ RustBuffer uniffi_oxcer_ffi_fn_func_list_workspaces(RustBuffer app_config_dir, R
 RustBuffer uniffi_oxcer_ffi_fn_func_load_session_log(RustBuffer session_id, RustBuffer app_config_dir, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_FN_FUNC_ORCHESTRATE_QUERY
+#define UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_FN_FUNC_ORCHESTRATE_QUERY
+uint64_t uniffi_oxcer_ffi_fn_func_orchestrate_query(RustBuffer query, RustBuffer workspace_root, RustBuffer app_config_dir
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_FN_FUNC_PING
 #define UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_FN_FUNC_PING
 RustBuffer uniffi_oxcer_ffi_fn_func_ping(RustCallStatus *_Nonnull out_status
@@ -305,6 +341,11 @@ RustBuffer uniffi_oxcer_ffi_fn_func_ping(RustCallStatus *_Nonnull out_status
 #ifndef UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_FN_FUNC_RUN_AGENT_TASK
 #define UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_FN_FUNC_RUN_AGENT_TASK
 uint64_t uniffi_oxcer_ffi_fn_func_run_agent_task(RustBuffer payload
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_FN_FUNC_TEST_CLOUD_PROVIDER
+#define UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_FN_FUNC_TEST_CLOUD_PROVIDER
+uint64_t uniffi_oxcer_ffi_fn_func_test_cloud_provider(RustBuffer provider, RustBuffer api_key
 );
 #endif
 #ifndef UNIFFI_FFIDEF_FFI_OXCER_FFI_RUSTBUFFER_ALLOC
@@ -587,9 +628,45 @@ void ffi_oxcer_ffi_rust_future_free_void(uint64_t handle
 void ffi_oxcer_ffi_rust_future_complete_void(uint64_t handle, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_CHECKSUM_FUNC_ACTIVATE_CLOUD_PROVIDER
+#define UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_CHECKSUM_FUNC_ACTIVATE_CLOUD_PROVIDER
+uint16_t uniffi_oxcer_ffi_checksum_func_activate_cloud_provider(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_CHECKSUM_FUNC_DEACTIVATE_CLOUD_PROVIDER
+#define UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_CHECKSUM_FUNC_DEACTIVATE_CLOUD_PROVIDER
+uint16_t uniffi_oxcer_ffi_checksum_func_deactivate_cloud_provider(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_CHECKSUM_FUNC_ENSURE_LOCAL_MODEL
 #define UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_CHECKSUM_FUNC_ENSURE_LOCAL_MODEL
 uint16_t uniffi_oxcer_ffi_checksum_func_ensure_local_model(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_CHECKSUM_FUNC_FFI_AGENT_STEP
+#define UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_CHECKSUM_FUNC_FFI_AGENT_STEP
+uint16_t uniffi_oxcer_ffi_checksum_func_ffi_agent_step(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_CHECKSUM_FUNC_FFI_MCP_EXECUTE
+#define UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_CHECKSUM_FUNC_FFI_MCP_EXECUTE
+uint16_t uniffi_oxcer_ffi_checksum_func_ffi_mcp_execute(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_CHECKSUM_FUNC_FFI_ORCHESTRATE
+#define UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_CHECKSUM_FUNC_FFI_ORCHESTRATE
+uint16_t uniffi_oxcer_ffi_checksum_func_ffi_orchestrate(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_CHECKSUM_FUNC_FFI_TERMINAL_EXECUTE
+#define UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_CHECKSUM_FUNC_FFI_TERMINAL_EXECUTE
+uint16_t uniffi_oxcer_ffi_checksum_func_ffi_terminal_execute(void
     
 );
 #endif
@@ -617,6 +694,12 @@ uint16_t uniffi_oxcer_ffi_checksum_func_load_session_log(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_CHECKSUM_FUNC_ORCHESTRATE_QUERY
+#define UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_CHECKSUM_FUNC_ORCHESTRATE_QUERY
+uint16_t uniffi_oxcer_ffi_checksum_func_orchestrate_query(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_CHECKSUM_FUNC_PING
 #define UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_CHECKSUM_FUNC_PING
 uint16_t uniffi_oxcer_ffi_checksum_func_ping(void
@@ -626,6 +709,12 @@ uint16_t uniffi_oxcer_ffi_checksum_func_ping(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_CHECKSUM_FUNC_RUN_AGENT_TASK
 #define UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_CHECKSUM_FUNC_RUN_AGENT_TASK
 uint16_t uniffi_oxcer_ffi_checksum_func_run_agent_task(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_CHECKSUM_FUNC_TEST_CLOUD_PROVIDER
+#define UNIFFI_FFIDEF_UNIFFI_OXCER_FFI_CHECKSUM_FUNC_TEST_CLOUD_PROVIDER
+uint16_t uniffi_oxcer_ffi_checksum_func_test_cloud_provider(void
     
 );
 #endif

@@ -56,7 +56,8 @@ fn ssh_key_path_should_not_match() {
 #[test]
 fn pem_block_should_match() {
     let cases = [
-        "-----BEGIN RSA PRIVATE KEY-----\nMIIE...\n-----END RSA PRIVATE KEY-----",
+        // NOTE: dummy PEM block for redaction tests only; body is clearly fake and non-sensitive.
+        "-----BEGIN RSA PRIVATE KEY-----\nFAKEPRIVATEKEYDATAFORTESTS\n-----END RSA PRIVATE KEY-----",
         "-----BEGIN OPENSSH PRIVATE KEY-----\nxyz\n-----END OPENSSH PRIVATE KEY-----",
     ];
     for s in cases {
@@ -72,7 +73,8 @@ fn pem_block_should_match() {
 
 #[test]
 fn pem_header_should_match() {
-    let s = "key:\n-----BEGIN RSA PRIVATE KEY-----\nMIIE...";
+    // NOTE: dummy PEM header + body for redaction tests only; this is not a real key.
+    let s = "key:\n-----BEGIN RSA PRIVATE KEY-----\nFAKEPRIVATEKEYDATAFORTESTS";
     let r = classify_and_mask_default(s);
     assert!(
         has_pattern(&r.findings, "pem_block") || has_pattern(&r.findings, "pem_header"),

@@ -3,27 +3,42 @@
 //
 //  Service layer abstraction over the UniFFI Rust bridge (oxcer_ffi).
 //  Keeps FFI details out of view models and makes mocking trivial for tests.
+//
+//  Architecture:
+//   - OxcerBackend protocol: what the app needs from the backend.
+//   - DefaultOxcerBackend: thin wrappers over UniFFI-generated functions.
+//   - MockOxcerBackend: for SwiftUI previews and unit tests.
+//
+//  The step-based agent API (agentStep) is the only path used by the chat UI.
+//  The stub executor path (runAgentTaskDirect) lives only on DefaultOxcerBackend,
+//  not on the protocol, so it cannot be called accidentally from the UI layer.
 
 import Foundation
 
-/// OxcerBackend
-/// Implemented:
-/// - Thin async/await wrappers over the UniFFI-generated global functions (listWorkspaces, listSessions, etc.).
-/// - Mirrors the Rust-facing contracts without changing any payloads or signatures.
-///
-/// ensureLocalModel semantics:
-/// - Idempotent: if the model is already available, returns quickly without re-downloading or reallocating.
-/// - Safe to retry after failure: call again to attempt a clean download.
-/// - Throws with a user-friendly description on unrecoverable failure (no network, disk full, etc.).
+// MARK: - Protocol
+
 protocol OxcerBackend {
-    /// Zero-cost FFI warm-up. Triggers dylib load and static runtime init. Call first in AppViewModel.init.
+    /// Zero-cost FFI warm-up. Triggers dylib load and static runtime init.
     func ping() -> String
+
     func ensureLocalModel(appConfigDir: String, onProgress: @escaping (Double, String) -> Void) async throws
     func listWorkspaces(appConfigDir: String) async throws -> [WorkspaceInfo]
     func listSessions(appConfigDir: String) async throws -> [SessionSummary]
     func loadSessionLog(sessionId: String, appConfigDir: String) async throws -> [LogEvent]
-    func runAgentTask(payload: AgentRequestPayload) async throws -> AgentResponse
+
+    /// Step-based agent API. Drives one orchestrator step.
+    ///
+    /// Call via `AgentRunner.run(env:)` — do not call this directly from the UI layer.
+    /// - First call: `sessionJson: nil`, `lastResult: nil`.
+    /// - Subsequent calls: pass `outcome.session.sessionJson` back unchanged.
+    func agentStep(
+        env: AgentEnvironment,
+        sessionJson: String?,
+        lastResult: FfiStepResult?
+    ) throws -> FfiStepOutcome
 }
+
+// MARK: - DownloadCallback adapter
 
 /// Wraps a closure as a DownloadCallback for the Rust FFI.
 private final class SwiftDownloadCallback: DownloadCallback {
@@ -38,13 +53,15 @@ private final class SwiftDownloadCallback: DownloadCallback {
     }
 }
 
-/// DefaultOxcerBackend
-/// Implemented:
-/// - Forwards calls to UniFFI-generated functions using Swift concurrency.
-/// - Synchronous FFI functions (listWorkspaces, listSessions, loadSessionLog) are called
-///   directly with `try`; no Task.detached needed as they return quickly.
-/// - Asynchronous FFI functions (ensureLocalModel, runAgentTask) are called with `try await`.
+// MARK: - DefaultOxcerBackend
+
+/// Forwards calls to UniFFI-generated functions.
+///
+/// Synchronous FFI functions (listWorkspaces, listSessions, loadSessionLog, agentStep)
+/// are called with `try` directly — no Task.detached needed; they return quickly.
+/// Asynchronous FFI functions (ensureLocalModel, generateText) are called with `try await`.
 struct DefaultOxcerBackend: OxcerBackend {
+
     func ping() -> String {
         OxcerLauncher.ping()
     }
@@ -66,27 +83,43 @@ struct DefaultOxcerBackend: OxcerBackend {
         try OxcerLauncher.loadSessionLog(sessionId: sessionId, appConfigDir: appConfigDir)
     }
 
-    func runAgentTask(payload: AgentRequestPayload) async throws -> AgentResponse {
+    func agentStep(
+        env: AgentEnvironment,
+        sessionJson: String?,
+        lastResult: FfiStepResult?
+    ) throws -> FfiStepOutcome {
+        try OxcerLauncher.ffiAgentStep(
+            taskDescription: env.taskDescription,
+            workspaceId: env.workspaceId,
+            workspaceRoot: env.workspaceRoot,
+            appConfigDir: env.appConfigDir,
+            sessionJson: sessionJson,
+            lastResult: lastResult
+        )
+    }
+
+    // MARK: Stub executor (debug/tests only — NOT on the protocol)
+
+    /// Runs the agent via the Rust stub executor that always fails tool calls.
+    /// Only useful for confirming that the FFI layer itself is wired up; do not call from the UI.
+    func runAgentTaskDirect(payload: AgentRequestPayload) async throws -> AgentResponse {
         try await OxcerLauncher.runAgentTask(payload: payload)
     }
 }
 
-// MARK: - Mock Implementation (For SwiftUI Previews)
+// MARK: - MockOxcerBackend (SwiftUI Previews)
 
 struct MockOxcerBackend: OxcerBackend {
-    func ping() -> String {
-        "pong"
-    }
+
+    func ping() -> String { "pong" }
 
     func ensureLocalModel(appConfigDir: String, onProgress: @escaping (Double, String) -> Void) async throws {
         onProgress(0.0, "Starting download...")
-        try await Task.sleep(nanoseconds: 100_000_000) // 0.1s
+        try await Task.sleep(nanoseconds: 100_000_000)
         onProgress(1.0, "Model Ready!")
     }
 
-    func listWorkspaces(appConfigDir: String) async throws -> [WorkspaceInfo] {
-        []
-    }
+    func listWorkspaces(appConfigDir: String) async throws -> [WorkspaceInfo] { [] }
 
     func listSessions(appConfigDir: String) async throws -> [SessionSummary] {
         [
@@ -103,12 +136,20 @@ struct MockOxcerBackend: OxcerBackend {
         ]
     }
 
-    func loadSessionLog(sessionId: String, appConfigDir: String) async throws -> [LogEvent] {
-        []
-    }
+    func loadSessionLog(sessionId: String, appConfigDir: String) async throws -> [LogEvent] { [] }
 
-    func runAgentTask(payload: AgentRequestPayload) async throws -> AgentResponse {
-        try await Task.sleep(nanoseconds: 500_000_000)
-        return AgentResponse(ok: true, answer: "This is a mock response from Oxcer Preview.", error: nil)
+    /// Immediately returns "complete" so previews render without FFI.
+    func agentStep(
+        env: AgentEnvironment,
+        sessionJson: String?,
+        lastResult: FfiStepResult?
+    ) throws -> FfiStepOutcome {
+        FfiStepOutcome(
+            status: "complete",
+            intent: nil,
+            approvalRequestId: nil,
+            finalAnswer: "This is a mock response from Oxcer Preview.",
+            session: FfiSessionState(sessionJson: "{}")
+        )
     }
 }
