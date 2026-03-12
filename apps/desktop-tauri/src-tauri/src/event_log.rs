@@ -155,9 +155,11 @@ mod tests {
         let ts_10d = now - chrono::Duration::days(10);
         let cutoff = now - chrono::Duration::days(MAX_AGE_DAYS);
 
-        let lines = [make_entry(ts_40d, "old_40", Some(serde_json::json!({"marker": "40d"}))),
+        let lines = [
+            make_entry(ts_40d, "old_40", Some(serde_json::json!({"marker": "40d"}))),
             make_entry(ts_31d, "old_31", Some(serde_json::json!({"marker": "31d"}))),
-            make_entry(ts_10d, "recent", Some(serde_json::json!({"marker": "10d"})))];
+            make_entry(ts_10d, "recent", Some(serde_json::json!({"marker": "10d"}))),
+        ];
         std::fs::write(&path, lines.join("\n")).unwrap();
 
         rotate_retention(&path, cutoff).unwrap();
@@ -252,9 +254,11 @@ mod tests {
         let ts_10d = now - chrono::Duration::days(10);
         let cutoff = now - chrono::Duration::days(MAX_AGE_DAYS);
 
-        let lines = [make_entry(ts_40d, "old_40", Some(serde_json::json!({"marker": "40d"}))),
+        let lines = [
+            make_entry(ts_40d, "old_40", Some(serde_json::json!({"marker": "40d"}))),
             make_entry(ts_35d, "old_35", Some(serde_json::json!({"marker": "35d"}))),
-            make_entry(ts_10d, "recent", Some(serde_json::json!({"marker": "10d"})))];
+            make_entry(ts_10d, "recent", Some(serde_json::json!({"marker": "10d"}))),
+        ];
         let content = lines.join("\n");
         assert!((content.len() as u64) < MAX_BYTES);
         std::fs::write(&path, content).unwrap();
