@@ -14,6 +14,10 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  # Opt all JavaScript actions into Node.js 24 ahead of the June 2026 forced
+  # migration. Suppresses "Node.js 20 actions are deprecated" warnings from
+  # actions/checkout and Swatinem/rust-cache without needing per-step overrides.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 # Cancel in-progress runs for the same ref when a new push arrives.
 # This keeps PR queues fast and avoids burning macOS runner minutes on
@@ -38,16 +42,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # GTK/GLib system libraries required by glib-sys and gobject-sys build
-      # scripts. pkg-config must be able to find glib-2.0.pc and gobject-2.0.pc
-      # before any cargo command runs. See package notes at the bottom of this file.
-      - name: Install GTK/GLib dependencies
+      # System libraries required by glib-sys, gobject-sys, gtk-sys, and soup3-sys
+      # build scripts. All four crates call pkg-config at compile time; the named
+      # .pc files must be present before any cargo command runs.
+      #   libglib2.0-dev    → glib-2.0.pc  (glib-sys)
+      #   libgobject-2.0-dev → gobject-2.0.pc (gobject-sys; satisfied by libglib2.0-dev
+      #                         but listed explicitly for clarity)
+      #   libgtk-3-dev      → gtk+-3.0.pc  (gtk-sys; pulls cairo, pango, atk, gdk-pixbuf)
+      #   libsoup-3.0-dev   → libsoup-3.0.pc (soup3-sys)
+      - name: Install GTK/GLib/WebKit deps
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
             pkg-config \
             libglib2.0-dev \
-            libgtk-3-dev
+            libgobject-2.0-dev \
+            libgtk-3-dev \
+            libsoup-3.0-dev
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -64,8 +75,8 @@ jobs:
       - name: cargo fmt --check
         run: cargo fmt --check
 
-      - name: cargo clippy --all-targets
-        run: cargo clippy --all-targets -- -D warnings
+      - name: cargo clippy --all-targets --all-features
+        run: cargo clippy --all-targets --all-features -- -D warnings
 
   # ── 2. Rust tests — Linux, ~3–5 min ──────────────────────────────────────
   #
@@ -86,15 +97,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Same GTK/GLib packages as the lint job. Both jobs run cargo against the
-      # full workspace, so both need pkg-config to resolve glib-2.0/gobject-2.0.
-      - name: Install GTK/GLib dependencies
+      # Identical package set to the lint job. Both jobs compile the full workspace,
+      # so both need the same pkg-config .pc files available.
+      - name: Install GTK/GLib/WebKit deps
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
             pkg-config \
             libglib2.0-dev \
-            libgtk-3-dev
+            libgobject-2.0-dev \
+            libgtk-3-dev \
+            libsoup-3.0-dev
 
       - uses: dtolnay/rust-toolchain@stable
 
