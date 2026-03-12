@@ -42,22 +42,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # System libraries required by glib-sys, gobject-sys, gtk-sys, and soup3-sys
-      # build scripts. All four crates call pkg-config at compile time; the named
-      # .pc files must be present before any cargo command runs.
-      #   libglib2.0-dev    → glib-2.0.pc  (glib-sys)
-      #   libgobject-2.0-dev → gobject-2.0.pc (gobject-sys; satisfied by libglib2.0-dev
-      #                         but listed explicitly for clarity)
-      #   libgtk-3-dev      → gtk+-3.0.pc  (gtk-sys; pulls cairo, pango, atk, gdk-pixbuf)
-      #   libsoup-3.0-dev   → libsoup-3.0.pc (soup3-sys)
+      # System libraries required by -sys build scripts in the workspace.
+      # Each crate calls pkg-config at compile time; the .pc file must exist
+      # before any cargo command runs.
+      #
+      #   libglib2.0-dev         → glib-2.0.pc AND gobject-2.0.pc
+      #                            (GObject is part of GLib on Ubuntu; there is
+      #                            no separate libgobject-2.0-dev package)
+      #   libgtk-3-dev           → gtk+-3.0.pc (gtk-sys; pulls cairo, pango, atk)
+      #   libwebkit2gtk-4.1-dev  → webkit2gtk-4.1.pc (webkit2gtk via Tauri v2 → wry)
+      #   libsoup-3.0-dev        → libsoup-3.0.pc (soup3-sys)
       - name: Install GTK/GLib/WebKit deps
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
             pkg-config \
             libglib2.0-dev \
-            libgobject-2.0-dev \
             libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
             libsoup-3.0-dev
 
       - uses: dtolnay/rust-toolchain@stable
@@ -105,8 +107,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             pkg-config \
             libglib2.0-dev \
-            libgobject-2.0-dev \
             libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
             libsoup-3.0-dev
 
       - uses: dtolnay/rust-toolchain@stable
