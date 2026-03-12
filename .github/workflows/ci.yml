@@ -38,6 +38,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # GTK/GLib system libraries required by glib-sys and gobject-sys build
+      # scripts. pkg-config must be able to find glib-2.0.pc and gobject-2.0.pc
+      # before any cargo command runs. See package notes at the bottom of this file.
+      - name: Install GTK/GLib dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config \
+            libglib2.0-dev \
+            libgtk-3-dev
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -74,6 +85,16 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      # Same GTK/GLib packages as the lint job. Both jobs run cargo against the
+      # full workspace, so both need pkg-config to resolve glib-2.0/gobject-2.0.
+      - name: Install GTK/GLib dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config \
+            libglib2.0-dev \
+            libgtk-3-dev
 
       - uses: dtolnay/rust-toolchain@stable
 

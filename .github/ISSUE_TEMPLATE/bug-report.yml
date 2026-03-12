@@ -1,0 +1,139 @@
+name: Bug report
+description: >
+  Something isn't working as expected. Oxcer is a local-first app —
+  if you suspect data may be leaving your machine unexpectedly, see the
+  security section below before filing.
+title: "[Bug] "
+labels: [bug, needs-triage]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. Clear bug reports help us fix things faster.
+
+        **Before filing:** please check [existing issues](../../issues) and
+        [GitHub Discussions](../../discussions) to see if this has already been reported.
+
+        > Oxcer is local-first. Nothing you type or summarize should leave your machine.
+        > If you think that guarantee may be broken, use the security section at the bottom.
+
+  # ── Summary ───────────────────────────────────────────────────────────────
+
+  - type: input
+    id: summary
+    attributes:
+      label: Summary
+      description: One sentence describing the problem.
+      placeholder: "e.g. App crashes when summarizing a PDF larger than 10 MB"
+    validations:
+      required: true
+
+  # ── What happened ─────────────────────────────────────────────────────────
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened vs. what you expected
+      description: >
+        Describe what went wrong and what you expected to happen instead.
+        Keep it factual — no need to diagnose the root cause.
+      placeholder: |
+        **What happened:**
+        Clicking "Summarize" on report.pdf caused the app to freeze for 30 seconds, then crash with no message.
+
+        **What I expected:**
+        A summary to appear in the chat window within a few seconds.
+    validations:
+      required: true
+
+  # ── Steps to reproduce ────────────────────────────────────────────────────
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: >
+        A numbered list of the exact steps needed to reproduce the bug.
+        The more precise, the faster we can fix it.
+      placeholder: |
+        1. Open Oxcer.
+        2. In the chat, type: "Summarize report.pdf in Downloads"
+        3. Press Return.
+        4. Wait — app freezes after ~30 s and quits unexpectedly.
+    validations:
+      required: true
+
+  # ── Environment ───────────────────────────────────────────────────────────
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: >
+        Fill in as many fields as you can. macOS version and Oxcer version
+        are the most important for diagnosis.
+      value: |
+        - **macOS version:** (e.g. macOS 15.2 Sequoia)
+        - **Oxcer version / git SHA:** (e.g. v0.1.0 or `git rev-parse --short HEAD`)
+        - **How installed:** (built from source / pre-built binary)
+        - **Mac model / chip:** (e.g. MacBook Pro M3 Max, 36 GB RAM)
+        - **Model file in use:** (e.g. Meta-Llama-3-8B-Instruct-Q4_K_M.gguf)
+        - **Xcode version (if built from source):**
+        - **Rust toolchain (if built from source):** (`rustc --version`)
+    validations:
+      required: true
+
+  # ── Logs ──────────────────────────────────────────────────────────────────
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or crash output (optional)
+      description: >
+        Paste relevant log lines here. You can find logs in two places:
+
+        - **Console.app** → filter by process `OxcerLauncher`
+        - **Xcode debug console** (if running from source) → look for lines tagged `[oxcer]`
+        - **Rust tracing output** → set `OXCER_LOG=debug` in the environment, run from Terminal
+
+        If the app crashed, paste the crash report from
+        `~/Library/Logs/DiagnosticReports/OxcerLauncher_*.ips`.
+
+        **Do not paste API keys, file contents, or personal data.**
+      render: text
+    validations:
+      required: false
+
+  # ── Security / privacy impact ─────────────────────────────────────────────
+
+  - type: checkboxes
+    id: security-flag
+    attributes:
+      label: Security / privacy impact
+      description: >
+        Check this box if you believe the bug may affect Oxcer's local-first
+        guarantees (e.g. unexpected network activity, data written outside
+        configured workspace folders, credentials exposed in logs).
+      options:
+        - label: >
+            This bug may affect what data is read, written, or transmitted —
+            or may break Oxcer's "nothing leaves your machine" guarantee.
+          required: false
+
+  - type: textarea
+    id: security-details
+    attributes:
+      label: Security / privacy details
+      description: >
+        **Fill this in if you checked the box above.**
+        Give a high-level description of the potential impact.
+
+        - Do NOT paste secrets, keys, tokens, or personal file contents here — this is a public issue tracker.
+        - For serious vulnerabilities (potential data exfiltration, credential exposure),
+          please email **security@oxcer.app** instead of filing a public issue.
+      placeholder: |
+        e.g. "The app made an outbound HTTPS request to an unexpected host while summarizing a file.
+        I noticed this in Little Snitch / Charles Proxy. No credentials were involved."
+    validations:
+      required: false

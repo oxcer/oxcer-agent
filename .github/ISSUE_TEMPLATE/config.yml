@@ -1,0 +1,19 @@
+blank_issues_enabled: false
+
+contact_links:
+  - name: Question or usage help
+    url: https://github.com/oxcer/oxcer-agent/discussions
+    about: >
+      Not sure if something is a bug, or just need help getting Oxcer set up?
+      Use Discussions — it's the right place for questions, troubleshooting,
+      and general conversation. Do not paste file contents or personal data
+      in public threads.
+
+  - name: Security vulnerability or privacy concern
+    url: https://github.com/oxcer/oxcer-agent/security/advisories/new
+    about: >
+      If you believe you've found a bug that may break Oxcer's local-first
+      guarantees — unexpected network activity, data written outside configured
+      folders, credentials exposed in logs — please use GitHub's private
+      security advisory flow above, or email security@oxcer.app.
+      Do not file a public issue for potential security vulnerabilities.
