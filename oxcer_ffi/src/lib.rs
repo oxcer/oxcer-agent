@@ -1278,8 +1278,8 @@ mod tests {
     #[test]
     fn load_session_log_requires_session_id() {
         let r = load_session_log("some-session".to_string(), String::new());
-        if r.is_ok() {
-            assert!(r.unwrap().iter().all(|e| !e.session_id.is_empty()));
+        if let Ok(events) = r {
+            assert!(events.iter().all(|e| !e.session_id.is_empty()));
         }
     }
 

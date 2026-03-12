@@ -904,7 +904,7 @@ pub fn start_session(
     }
     // ─────────────────────────────────────────────────────────────────────────
 
-    let first_intent = session.plan.get(0).cloned();
+    let first_intent = session.plan.first().cloned();
 
     (session, first_intent)
 }

@@ -539,7 +539,7 @@ mod tests {
     #[test]
     fn read_document_unsupported_format_returns_err() {
         let (tmp, exec) = setup();
-        fs::write(tmp.path().join("binary.exe"), &[0u8; 16]).unwrap();
+        fs::write(tmp.path().join("binary.exe"), [0u8; 16]).unwrap();
         let result = exec.execute(&ToolCall::ReadDocument(PathBuf::from("binary.exe")));
         assert!(matches!(result, Err(ExecutorError::UnsupportedFormat(_))));
     }

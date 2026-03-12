@@ -3,10 +3,9 @@
 //! Complements sprint8_telemetry_integration.rs with robustness checks.
 
 use oxcer_core::telemetry::{
-    list_sessions_from_dir, load_session_log_from_dir, log_event, LogMetrics,
+    list_sessions_from_dir, load_session_log_from_dir,
 };
 use std::fs;
-use std::path::Path;
 
 const SESSION_ID: &str = "sprint-telemetry-edge";
 

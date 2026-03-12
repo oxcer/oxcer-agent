@@ -50,7 +50,7 @@ fn workspace_cleanup_removes_workspace_and_pending_approvals() {
     );
     store.insert(record);
 
-    settings_save(app_config_path, &*state.lock().unwrap()).expect("save config");
+    settings_save(app_config_path, &state.lock().unwrap()).expect("save config");
 
     let mut emitted = None;
     workspace_cleanup_impl(app_config_path, &state, Some(&store), WORKSPACE_ID, |id| {

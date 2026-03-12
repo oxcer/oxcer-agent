@@ -12,7 +12,6 @@ Do **not** include highly sensitive information (passwords, full credit card num
 For sensitive data, use the **local-only** mode so data stays on this device."#;
 
 use std::path::Path;
-use std::sync::Arc;
 
 use tauri::AppHandle;
 use tauri::Emitter;
@@ -171,6 +170,6 @@ pub fn complete_setup(app: &AppHandle, profile: String) -> Result<(), String> {
     } else {
         profile
     };
-    settings::save(&app_config_dir, &*guard)?;
+    settings::save(&app_config_dir, &guard)?;
     Ok(())
 }

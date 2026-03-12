@@ -572,8 +572,10 @@ mod tests {
     #[test]
     fn route_task_planning_by_length_when_over_threshold() {
         let long_task = "We need to refactor the entire module. The function is too long and the class has too many responsibilities. We should split the implementation and add tests. Also consider the imports and exports.";
-        let mut config = RouterConfig::default();
-        config.planning_length_threshold = 100;
+        let config = RouterConfig {
+            planning_length_threshold: 100,
+            ..RouterConfig::default()
+        };
         let out = route_task(long_task, &ctx_empty(), &config);
         assert_eq!(out.category, TaskCategory::Planning);
         assert_eq!(out.strategy, Strategy::ExpensiveModel);
@@ -606,8 +608,10 @@ mod tests {
 
     #[test]
     fn route_task_with_classifier_borderline() {
-        let mut config = RouterConfig::default();
-        config.use_llm_for_borderline = true;
+        let config = RouterConfig {
+            use_llm_for_borderline: true,
+            ..RouterConfig::default()
+        };
         let out = route_task_with_classifier(
             "Do something useful with the project",
             &ctx_empty(),

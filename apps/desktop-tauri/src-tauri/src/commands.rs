@@ -38,7 +38,7 @@ pub fn workspace_cleanup_impl(
 
     let mut guard = state.lock().expect("settings lock");
     guard.workspace_directories.retain(|w| w.id != workspace_id);
-    settings::save(app_config_dir, &*guard)?;
+    settings::save(app_config_dir, &guard)?;
 
     let _ = event_log::append(
         app_config_dir,
@@ -66,8 +66,8 @@ pub fn workspace_cleanup_on_delete(
     let store = app.try_state::<PendingApprovalsStore>();
     workspace_cleanup_impl(
         &app_config_dir,
-        &*state,
-        store.as_ref().map(|s| &**s),
+        &state,
+        store.as_deref(),
         workspace_id,
         |id| {
             let _ = app.emit("workspace_deleted", id);

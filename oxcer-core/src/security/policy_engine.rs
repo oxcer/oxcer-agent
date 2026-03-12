@@ -196,6 +196,7 @@ fn loaded_policy() -> &'static crate::security::policy_config::PolicyConfig {
 /// Initializes the policy with a config (e.g. default + plugin rules).
 /// Must be called before any `evaluate()`. Typically called at app startup.
 /// Returns `Err(())` if policy was already initialized.
+#[allow(clippy::result_unit_err)]
 pub fn init_policy_with_config(
     config: crate::security::policy_config::PolicyConfig,
 ) -> Result<(), ()> {
@@ -693,7 +694,8 @@ mod tests {
 
     #[test]
     fn default_deny_is_true() {
-        assert!(DEFAULT_DENY);
+        // Compile-time constant; this test documents the invariant rather than asserting it.
+        const _: () = assert!(DEFAULT_DENY);
     }
 }
 

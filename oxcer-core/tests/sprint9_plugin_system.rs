@@ -7,7 +7,7 @@ use oxcer_core::security::policy_config::{
     evaluate_with_config, load_from_yaml, merge_rules, PolicyAction,
 };
 use oxcer_core::security::policy_engine::{
-    evaluate, Operation, PolicyCaller, PolicyDecisionKind, PolicyRequest, PolicyTarget, ToolType,
+    Operation, PolicyCaller, PolicyDecisionKind, PolicyRequest, PolicyTarget, ToolType,
 };
 use oxcer_core::telemetry::{load_session_log_from_dir, LogEvent};
 use std::fs;

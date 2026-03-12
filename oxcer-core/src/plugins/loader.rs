@@ -97,7 +97,7 @@ pub fn load_plugins_from_dir(plugins_dir: &Path) -> LoadResult {
         .filter_map(|e| e.ok())
         .filter_map(|e| {
             let p = e.path();
-            if p.is_file() && p.extension().map_or(false, |e| e == "yaml" || e == "yml") {
+            if p.is_file() && p.extension().is_some_and(|e| e == "yaml" || e == "yml") {
                 Some(p)
             } else {
                 None
@@ -176,7 +176,7 @@ fn validate_and_convert(
     for op in &raw.security.operations {
         let o = op.to_lowercase();
         let normalized = if o == "execute" { "exec" } else { o.as_str() };
-        if !VALID_OPERATIONS.iter().any(|v| *v == normalized) {
+        if !VALID_OPERATIONS.contains(&normalized) {
             return Err(PluginLoadError::Validation(format!(
                 "security.operations must be from {:?}, got: {}",
                 VALID_OPERATIONS, op
@@ -242,9 +242,9 @@ pub fn plugin_rules_from_descriptors(
             d.security.tool_types.clone()
         };
         // Shell invocations always use Operation::Exec; map plugin "read" (semantic) to "exec" for match.
-        let ops: Vec<String> = if tool_types.iter().any(|t| t.eq_ignore_ascii_case("shell")) {
-            vec!["exec".to_string()]
-        } else if d.security.operations.is_empty() {
+        let ops: Vec<String> = if tool_types.iter().any(|t| t.eq_ignore_ascii_case("shell"))
+            || d.security.operations.is_empty()
+        {
             vec!["exec".to_string()]
         } else {
             d.security

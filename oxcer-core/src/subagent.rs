@@ -100,7 +100,7 @@ impl SubAgent {
         match self.role {
             AgentRole::Explore => self.explore(),
             AgentRole::Plan => self.plan(input),
-            AgentRole::Execute => self.execute(input, &String::new(), llm),
+            AgentRole::Execute => self.execute(input, "", llm),
         }
     }
 

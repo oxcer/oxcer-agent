@@ -593,9 +593,9 @@ pub fn rule_matches(
 
 fn expand_home_pattern(pattern: &str, home_dir: Option<&std::path::Path>) -> std::path::PathBuf {
     let s = pattern.trim();
-    if s.starts_with("~/") {
+    if let Some(stripped) = s.strip_prefix("~/") {
         if let Some(home) = home_dir {
-            return home.join(&s[2..]);
+            return home.join(stripped);
         }
     }
     if s == "~" {
@@ -692,6 +692,24 @@ pub fn evaluate_with_config(
             "tool_type": format!("{:?}", request.tool_type),
             "operation": format!("{:?}", request.operation),
         })),
+    }
+}
+
+fn reason_code_from_str(s: &str) -> crate::security::policy_engine::ReasonCode {
+    use crate::security::policy_engine::ReasonCode;
+    match s.to_uppercase().as_str() {
+        "FS_PATH_IN_BLOCKLIST" => ReasonCode::FsPathInBlocklist,
+        "SHELL_COMMAND_BLACKLISTED" => ReasonCode::ShellCommandBlacklisted,
+        "DESTRUCTIVE_FS_REQUIRES_APPROVAL" => ReasonCode::DestructiveFsRequiresApproval,
+        "HIGH_RISK_TOOL_REQUIRES_APPROVAL" => ReasonCode::HighRiskToolRequiresApproval,
+        "AGENT_WRITE_REQUIRES_APPROVAL" => ReasonCode::AgentWriteRequiresApproval,
+        "AGENT_EXEC_REQUIRES_APPROVAL" => ReasonCode::AgentExecRequiresApproval,
+        "AGENT_DESTRUCTIVE_REQUIRES_APPROVAL" => ReasonCode::AgentDestructiveRequiresApproval,
+        "EXPLICIT_ALLOW" => ReasonCode::ExplicitAllow,
+        "INTERNAL_SYSTEM" => ReasonCode::InternalSystem,
+        "DATA_SENSITIVITY_DENY" => ReasonCode::DataSensitivityDeny,
+        "DATA_SENSITIVITY_REQUIRE_APPROVAL" => ReasonCode::DataSensitivityRequireApproval,
+        _ => ReasonCode::DefaultDeny,
     }
 }
 
@@ -954,23 +972,5 @@ rules:
             let cfg = load_from_yaml(yaml);
             assert_not_more_permissive(&cfg);
         }
-    }
-}
-
-fn reason_code_from_str(s: &str) -> crate::security::policy_engine::ReasonCode {
-    use crate::security::policy_engine::ReasonCode;
-    match s.to_uppercase().as_str() {
-        "FS_PATH_IN_BLOCKLIST" => ReasonCode::FsPathInBlocklist,
-        "SHELL_COMMAND_BLACKLISTED" => ReasonCode::ShellCommandBlacklisted,
-        "DESTRUCTIVE_FS_REQUIRES_APPROVAL" => ReasonCode::DestructiveFsRequiresApproval,
-        "HIGH_RISK_TOOL_REQUIRES_APPROVAL" => ReasonCode::HighRiskToolRequiresApproval,
-        "AGENT_WRITE_REQUIRES_APPROVAL" => ReasonCode::AgentWriteRequiresApproval,
-        "AGENT_EXEC_REQUIRES_APPROVAL" => ReasonCode::AgentExecRequiresApproval,
-        "AGENT_DESTRUCTIVE_REQUIRES_APPROVAL" => ReasonCode::AgentDestructiveRequiresApproval,
-        "EXPLICIT_ALLOW" => ReasonCode::ExplicitAllow,
-        "INTERNAL_SYSTEM" => ReasonCode::InternalSystem,
-        "DATA_SENSITIVITY_DENY" => ReasonCode::DataSensitivityDeny,
-        "DATA_SENSITIVITY_REQUIRE_APPROVAL" => ReasonCode::DataSensitivityRequireApproval,
-        _ => ReasonCode::DefaultDeny,
     }
 }

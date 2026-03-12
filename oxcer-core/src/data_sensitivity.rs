@@ -515,7 +515,7 @@ fn merge_findings(findings: &mut Vec<SensitivityFinding>) {
         return;
     }
     findings.sort_by_key(|f| (f.span_start, std::cmp::Reverse(f.level)));
-    let merged = merge_overlapping_spans(findings.drain(..).collect());
+    let merged = merge_overlapping_spans(std::mem::take(findings));
     *findings = merged;
 }
 
@@ -716,8 +716,10 @@ mod tests {
 
     #[test]
     fn options_drop_large_blocks() {
-        let mut opts = ClassifierOptions::default();
-        opts.drop_high_risk_blocks_over_bytes = 50;
+        let opts = ClassifierOptions {
+            drop_high_risk_blocks_over_bytes: 50,
+            ..ClassifierOptions::default()
+        };
         // NOTE: dummy PEM block for redaction tests only; body is clearly fake and non-sensitive.
         let pem = "-----BEGIN RSA PRIVATE KEY-----\nFAKEPRIVATEKEYDATAFORTESTSFAKEPRIVATEKEYDATAFORTESTSFAKEPRIVATEKEYDATA\n-----END RSA PRIVATE KEY-----";
         let r = classify_and_mask(pem, &opts);
@@ -773,9 +775,11 @@ mod tests {
     fn low_workspace_path_normalized() {
         let root = "/Users/jane/project";
         let s = format!("See {} for the crate.", root);
-        let mut opts = ClassifierOptions::default();
-        opts.workspace_root = Some(root.to_string());
-        opts.normalize_paths = true;
+        let opts = ClassifierOptions {
+            workspace_root: Some(root.to_string()),
+            normalize_paths: true,
+            ..ClassifierOptions::default()
+        };
         let r = classify_and_mask(&s, &opts);
         assert_eq!(r.level, SensitivityLevel::Low);
         assert!(

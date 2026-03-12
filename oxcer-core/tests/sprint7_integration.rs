@@ -161,7 +161,6 @@ rules:
             canonical_path: "/tmp/workspace/file.txt".to_string(),
         },
         content_sensitivity: Some(high_content),
-        ..Default::default()
     };
     let dec = evaluate_with_config(&req, &cfg);
     assert_eq!(dec.decision, PolicyDecisionKind::Deny);
@@ -199,7 +198,6 @@ rules:
             canonical_path: "/tmp/workspace/file.txt".to_string(),
         },
         content_sensitivity: Some(high_content),
-        ..Default::default()
     };
     let dec = evaluate_with_config(&req, &cfg);
     assert_eq!(dec.decision, PolicyDecisionKind::RequireApproval);

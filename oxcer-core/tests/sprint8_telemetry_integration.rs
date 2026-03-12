@@ -69,7 +69,6 @@ fn e2e_session_trace_produces_jsonl_with_expected_components_and_metrics() {
             tokens_out: Some(40),
             latency_ms: Some(250),
             cost_usd: Some(0.002),
-            ..Default::default()
         },
         serde_json::json!({ "model": "gemini-1.5-flash" }),
     )

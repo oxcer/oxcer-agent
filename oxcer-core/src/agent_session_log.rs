@@ -185,7 +185,7 @@ impl AgentSessionLog {
                 step_index: 0,
                 kind: AgentStepKind::ModelCall,
                 model_call: Some(ModelCallLog {
-                    response_summary: final_answer.map(|s| scrub_for_log(s)),
+                    response_summary: final_answer.map(scrub_for_log),
                     ..Default::default()
                 }),
                 tool_call: None,

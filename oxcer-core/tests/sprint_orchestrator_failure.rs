@@ -62,7 +62,7 @@ fn orchestrator_step_error_propagates_to_complete() {
             assert!(result
                 .final_answer
                 .as_ref()
-                .map_or(false, |s| s.contains("503")));
+                .is_some_and(|s| s.contains("503")));
             assert_eq!(result.tool_traces.len(), 1);
             assert_eq!(
                 result.tool_traces[0].result_summary.as_deref(),

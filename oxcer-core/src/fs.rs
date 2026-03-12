@@ -204,9 +204,9 @@ fn now_iso8601() -> String {
     }
 }
 
-fn log_fs_event<'a>(
+fn log_fs_event(
     caller: FsCaller,
-    operation: &'a str,
+    operation: &str,
     normalized: &NormalizedPath,
     decision: &SecurityDecision,
     size_bytes: Option<u64>,
@@ -724,7 +724,7 @@ mod tests {
         };
         let err = normalize_and_resolve(&ctx, &base, "../outside.txt").unwrap_err();
 
-        assert_eq!(matches!(err.kind, FsErrorKind::InvalidPath), true);
+        assert!(matches!(err.kind, FsErrorKind::InvalidPath));
     }
 
     #[test]
@@ -751,7 +751,7 @@ mod tests {
         )
         .unwrap_err();
 
-        assert_eq!(matches!(err.kind, FsErrorKind::Forbidden), true);
+        assert!(matches!(err.kind, FsErrorKind::Forbidden));
     }
 
     #[test]

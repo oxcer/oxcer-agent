@@ -27,7 +27,6 @@ use http::{header::CONTENT_TYPE, Response, StatusCode};
 use tauri::menu::{MenuBuilder, MenuItem, PredefinedMenuItem, SubmenuBuilder};
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
-use tauri_plugin_fs;
 use uuid::Uuid;
 
 use oxcer_core::agent_session_log::AgentSessionLog;
@@ -40,7 +39,7 @@ use oxcer_core::network::{
     gemini_client::{self, GeminiChatRequest},
     grok_client::{self, GrokChatRequest},
     openai_client::{self, OpenAIChatRequest},
-    HttpClient, HttpError, NetworkTool,
+    HttpClient, NetworkTool,
 };
 use oxcer_core::orchestrator::{
     next_action, run_first_step, OrchestratorAction, SessionState, StepResult,
@@ -1545,7 +1544,7 @@ fn cmd_workspace_add(app: AppHandle, path: String) -> Result<(), String> {
         name: name.clone(),
         path: path_str.clone(),
     });
-    settings_save(&app_config_dir, &*guard)?;
+    settings_save(&app_config_dir, &guard)?;
     let _ = event_log::append(
         &app_config_dir,
         "workspace_added",
@@ -1852,9 +1851,11 @@ fn cmd_scrub_payload_for_llm(
     raw_payload: String,
     workspace_root: Option<String>,
 ) -> Result<String, String> {
-    let mut opts = oxcer_core::data_sensitivity::ClassifierOptions::default();
-    opts.normalize_paths = workspace_root.is_some();
-    opts.workspace_root = workspace_root;
+    let opts = oxcer_core::data_sensitivity::ClassifierOptions {
+        normalize_paths: workspace_root.is_some(),
+        workspace_root,
+        ..oxcer_core::data_sensitivity::ClassifierOptions::default()
+    };
     let sid = session_id.as_deref().unwrap_or("");
     let (result, audit_entry) =
         prompt_sanitizer::scrub_for_llm_call_audit(&raw_payload, &opts, sid);
@@ -1891,7 +1892,7 @@ fn cmd_agent_step(
             | OrchestratorAction::AwaitingApproval { session: s, .. } => {
                 store.insert(session_id.clone(), s.clone())
             }
-            OrchestratorAction::Complete { session: s, .. } => {
+            OrchestratorAction::Complete { session: _s, .. } => {
                 store.remove(&session_id);
             }
         }
@@ -2044,7 +2045,7 @@ fn cmd_agent_step(
                         .filter(|t| {
                             !t.result_summary
                                 .as_deref()
-                                .map_or(false, |s| s.starts_with("Error"))
+                                .is_some_and(|s| s.starts_with("Error"))
                         })
                         .count();
                     let tool_success_rate = if tool_total > 0 {

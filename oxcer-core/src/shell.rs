@@ -160,9 +160,9 @@ fn now_iso8601() -> String {
 
 /// Logs a shell event as JSON to stdout (same as FS logs). Sprint 3: single log
 /// after completion. args_redacted is raw args for now; masking can be added later.
-fn log_shell_event<'a>(
+fn log_shell_event(
     caller: ShellCaller,
-    command_id: &'a str,
+    command_id: &str,
     bound: Option<&BoundCommand>,
     decision: &SecurityDecision,
     result: Option<&ShellResult>,

@@ -237,7 +237,7 @@ pub fn next_action(
                     } else {
                         session.accumulated_response = Some(text.to_string());
                     }
-                } else if let Some(s) = serde_json::to_string(payload).ok() {
+                } else if let Ok(s) = serde_json::to_string(payload) {
                     session.accumulated_response = Some(s);
                 }
                 session.step_index += 1;
@@ -475,7 +475,7 @@ pub fn agent_step(
         // ── Tracing: init outcome ─────────────────────────────────────────────
         let first_desc = first_intent
             .as_ref()
-            .map(|i| intent_tool_name(i))
+            .map(intent_tool_name)
             .unwrap_or_else(|| "none".to_string());
         agent_event!(INFO, session.session_id, "agent_step_init",
             first_intent = %first_desc,
@@ -1002,7 +1002,7 @@ mod tests {
             Some("ws1".to_string()),
             Some("/tmp/ws".to_string()),
         );
-        assert!(session.plan.len() >= 1, "plan must have at least one step");
+        assert!(!session.plan.is_empty(), "plan must have at least one step");
         assert!(
             matches!(&session.plan[0], ToolCallIntent::FsListDir { .. }),
             "step 0 should be FsListDir when no explicit path, got {:?}",

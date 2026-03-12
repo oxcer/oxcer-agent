@@ -98,7 +98,7 @@ pub fn is_sensitive_path(path: &str) -> bool {
         }
     }
 
-    let filename = path_lower.split('/').last().unwrap_or(path_lower);
+    let filename = path_lower.split('/').next_back().unwrap_or(path_lower);
     for pat in sensitive_filename_patterns() {
         if filename.ends_with(&pat.to_lowercase()) || filename.contains(pat) {
             return true;

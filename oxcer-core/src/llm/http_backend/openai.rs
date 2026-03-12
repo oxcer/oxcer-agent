@@ -46,6 +46,7 @@ pub struct OpenAiMessageOut {
 
 /// Call OpenAI-compatible `/v1/chat/completions` with blocking HTTP.
 /// Returns the first choice content as a string.
+#[allow(clippy::too_many_arguments)]
 pub fn call_openai_completions_blocking(
     endpoint_url: &str,
     api_key: &str,

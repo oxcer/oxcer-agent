@@ -323,6 +323,7 @@ impl PendingApprovalsStore {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn create_record(
         &self,
         request_id: String,
@@ -464,7 +465,7 @@ pub fn to_requested_payload(record: &ApprovalRequestRecord) -> ApprovalRequested
                 .and_then(|n| n.to_str())
                 .unwrap_or(rel_path)
                 .to_string();
-            let target = format!("{}", dest_rel_path);
+            let target = dest_rel_path.to_string();
             let impact = ImpactSummary {
                 item_count: 1,
                 affected_items: vec![AffectedItem {
@@ -843,7 +844,7 @@ mod tests {
 
         let results: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
 
-        let retrieved: Vec<_> = results.into_iter().filter_map(|r| r).collect();
+        let retrieved: Vec<_> = results.into_iter().flatten().collect();
         assert_eq!(
             retrieved.len(),
             1,

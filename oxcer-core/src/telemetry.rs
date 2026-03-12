@@ -112,6 +112,7 @@ fn session_log_path(app_config_dir: &Path, session_id: &str) -> PathBuf {
 ///
 /// Callers must ensure `details` has already been scrubbed (Sprint 7); raw secrets
 /// must never be passed here.
+#[allow(clippy::too_many_arguments)]
 pub fn log_event(
     app_config_dir: &Path,
     session_id: &str,
@@ -182,7 +183,7 @@ pub fn rotate_retention(path: &Path, cutoff: chrono::DateTime<chrono::Utc>) -> R
     let reader = BufReader::new(file);
     let lines: Vec<String> = reader
         .lines()
-        .filter_map(|r| r.ok())
+        .map_while(|r| r.ok())
         .filter(|s| !s.is_empty())
         .collect();
     if lines.is_empty() {
@@ -243,7 +244,7 @@ pub fn list_sessions_from_dir(app_config_dir: &Path) -> Result<Vec<SessionSummar
     for entry in dir_entries {
         let entry = entry.map_err(|e| e.to_string())?;
         let path = entry.path();
-        if path.extension().map_or(true, |e| e != "jsonl") {
+        if path.extension().is_none_or(|e| e != "jsonl") {
             continue;
         }
         let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
