@@ -1156,37 +1156,44 @@ struct ThinkingIndicator: View {
 
 /// Context-aware phase indicator shown while `streamingAnswer` is empty.
 ///
-/// Replaces `ThinkingIndicator` — reads the live `AgentPhase` from the session to show
-/// a tool icon and contextual label (e.g. "Listing files") when a tool is executing,
-/// or the generic "Oxcer is thinking" label + animated dots when the model is reasoning.
+/// Primary line: generic "Thinking…" + animated dots, optionally preceded by a tool icon.
+/// Secondary line (optional): a specific operation label (e.g. "Summarizing your document",
+///   "Reading file") shown only when the intent is clearly known. Absent for plain chat.
 struct AgentPhaseIndicator: View {
     let phase: AgentPhase
 
     @State private var dotCount = 0
 
     var body: some View {
-        HStack(spacing: 6) {
-            // Tool icon — present only during executingTool phase.
-            if let iconName = phase.toolIconName {
-                Image(systemName: iconName)
-                    .font(.system(.caption, weight: .medium))
-                    .foregroundStyle(OxcerTheme.accent)
+        VStack(alignment: .leading, spacing: 2) {
+            // Primary row: optional tool icon + "Thinking…" + animated dots.
+            HStack(spacing: 6) {
+                if let iconName = phase.toolIconName {
+                    Image(systemName: iconName)
+                        .font(.system(.caption, weight: .medium))
+                        .foregroundStyle(OxcerTheme.accent)
+                }
+
+                Text(phase.displayLabel.isEmpty ? "Thinking…" : phase.displayLabel)
+                    .font(.system(.body))
+                    .foregroundStyle(OxcerTheme.textTertiary)
+
+                HStack(spacing: 3) {
+                    ForEach(0..<3, id: \.self) { i in
+                        Circle()
+                            .fill(OxcerTheme.textTertiary)
+                            .frame(width: 4, height: 4)
+                            .opacity(i < dotCount ? 1.0 : 0.25)
+                            .animation(.easeInOut(duration: 0.2), value: dotCount)
+                    }
+                }
             }
 
-            // Phase label. Falls back to "Oxcer is thinking" for .idle (shouldn't occur in practice).
-            Text(phase.displayLabel.isEmpty ? "Oxcer is thinking" : phase.displayLabel)
-                .font(.system(.body))
-                .foregroundStyle(OxcerTheme.textTertiary)
-
-            // Animated dots — shown for all phases so the indicator always "breathes".
-            HStack(spacing: 3) {
-                ForEach(0..<3, id: \.self) { i in
-                    Circle()
-                        .fill(OxcerTheme.textTertiary)
-                        .frame(width: 4, height: 4)
-                        .opacity(i < dotCount ? 1.0 : 0.25)
-                        .animation(.easeInOut(duration: 0.2), value: dotCount)
-                }
+            // Secondary row: shown only when the specific operation is identified.
+            if let subtext = phase.subtextLabel {
+                Text(subtext)
+                    .font(.system(.caption))
+                    .foregroundStyle(OxcerTheme.textTertiary.opacity(0.65))
             }
         }
         .padding(.vertical, 4)

@@ -15,16 +15,30 @@ import SwiftUI
 enum AgentPhase: Equatable {
     case idle
     case thinking
-    case executingTool(name: String)
+    /// `taskLabel` is an optional secondary line derived from the original request.
+    /// It is nil when the operation is a generic LLM call (e.g. "Hi").
+    case executingTool(name: String, taskLabel: String? = nil)
 
-    /// Human-readable label shown in `AgentPhaseIndicator`.
+    /// Primary busy label — always a calm, generic phrase suitable for any request.
+    /// The `AgentPhaseIndicator` view shows this on the main line for all non-idle phases.
     var displayLabel: String {
         switch self {
-        case .idle:
-            return ""
-        case .thinking:
-            return "Oxcer is thinking"
-        case .executingTool(let name):
+        case .idle:             return ""
+        case .thinking:         return "Thinking…"
+        case .executingTool:    return "Thinking…"
+        }
+    }
+
+    /// Optional secondary label shown below the primary when the specific operation is known.
+    /// Nil for `.thinking` and for generic LLM calls (e.g. plain chat).
+    var subtextLabel: String? {
+        switch self {
+        case .idle, .thinking:
+            return nil
+        case .executingTool(let name, let taskLabel):
+            // For llm_generate the label is caller-derived (may be nil for simple chat).
+            if name == "llm_generate" { return taskLabel }
+            // All file-system and shell tools always have an accurate, known description.
             switch name {
             case "fs_list_dir":   return "Listing files"
             case "fs_read_file":  return "Reading file"
@@ -34,17 +48,15 @@ enum AgentPhase: Equatable {
             case "fs_move":       return "Moving file"
             case "fs_create_dir": return "Creating folder"
             case "shell_run":     return "Running command"
-            case "llm_generate":  return "Summarizing"
             default:
-                let pretty = name.replacingOccurrences(of: "_", with: " ")
-                return "Running \(pretty)"
+                return name.replacingOccurrences(of: "_", with: " ").capitalized
             }
         }
     }
 
     /// SF Symbols icon for the executing-tool state; nil for .thinking and .idle.
     var toolIconName: String? {
-        guard case .executingTool(let name) = self else { return nil }
+        guard case .executingTool(let name, _) = self else { return nil }
         switch name {
         case "fs_list_dir":               return "folder"
         case "fs_read_file":              return "doc.text"
