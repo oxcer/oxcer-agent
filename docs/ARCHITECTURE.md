@@ -87,7 +87,7 @@ Key modules:
 | `security/policy_engine` | Evaluates `PolicyRequest` → `Allow / Deny / RequireApproval` |
 | `data_sensitivity` | DLP classifier: 14 regex rules covering credentials, keys, tokens |
 | `prompt_sanitizer` | Redacts sensitive findings before any LLM call; blocks on hard never-send rules |
-| `plugins/loader` | Loads YAML plugin descriptors; merges into command catalog and capability registry |
+| `plugins/loader` | Loads YAML plugin descriptors; merges into command catalog and capability registry (loaded at startup; not wired into the agent loop in v0.1) |
 
 ---
 
@@ -138,12 +138,12 @@ When the Rust API in `oxcer_ffi/src/lib.rs` changes, bindings must be regenerate
 
 This rebuilds the release dylib, runs `uniffi-bindgen`, diffs, and copies both generated files into the Xcode project. CI enforces that the committed bindings exactly match what the current Rust source would produce.
 
-See [docs/development.md](development.md) for the full workflow.
+See [docs/DEVELOPMENT.md](DEVELOPMENT.md) for the full workflow.
 
 ---
 
 ## Security Model
 
-All filesystem and shell operations require explicit user approval before execution. The agent is treated as an untrusted client — it can propose actions, but it cannot execute them without the user's consent.
+Destructive and write operations (delete, move, rename, write, shell) require explicit user approval before execution. Read-only operations (`fs_list_dir`, `fs_read_file`) on files the user named do not require a separate approval step. The agent is treated as an untrusted client — it can propose actions, but it cannot execute destructive ones without the user's consent.
 
 See [docs/security.md](security.md) for the full security architecture.

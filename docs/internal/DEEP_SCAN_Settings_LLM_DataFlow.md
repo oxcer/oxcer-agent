@@ -1,5 +1,7 @@
 # Deep Scan: Settings, Local LLM, and Data Flow
 
+> **STALE (v0.1):** Written when local LLM (then Phi-3) was a stub with GGUF loading unwired. In v0.1, Llama-3 8B Instruct is fully wired via llama.cpp + Metal. SettingsView is implemented in SwiftUI. The data-flow diagram and FFI surface notes are superseded by `docs/ARCHITECTURE.md`.
+
 Structural overview of where Settings and Local LLM (Phi-3) live, how config is persisted, what is exposed to Swift via FFI, and the SwiftUI -> ViewModel -> Rust data flow.
 
 ---

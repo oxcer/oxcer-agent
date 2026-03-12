@@ -1,5 +1,7 @@
 # Plugin System (Sprint 9)
 
+> **v0.1 status:** Plugin loading (`plugins/loader`) is implemented in oxcer-core and YAML descriptors are parsed at startup, but plugins are not wired into the agent loop. No plugin-derived tool intents are emitted by the planner in v0.1. This document describes the intended design for a future release; see ROADMAP.md.
+
 ## Overview
 
 Oxcer supports a YAML-defined plugin system for extending capabilities without recompiling. All plugin execution goes through:

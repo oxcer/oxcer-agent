@@ -1,5 +1,7 @@
 # Agent Orchestrator & Semantic Router (Sprint 6)
 
+> **STALE (pre-v0.1):** Describes Sprint 6 remote-API model backends (OpenAI, Gemini, Anthropic, Grok) and the old `cmd_agent_step(session_id, task, input, last_result?)` FFI surface. The current FFI is `ffi_agent_step()` backed by local Llama-3 8B inference. Kept for historical context only.
+
 ## Goal
 
 Cost-aware, security-first Agent Orchestrator on top of the existing tools-only skeleton. A **Semantic Router** decides between cheap model, expensive model, or tools-only; all tool execution goes through the Security Policy Engine and approval flow.

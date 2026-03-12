@@ -1,5 +1,7 @@
 # config.json schema and UI mapping (Sprint 5)
 
+> **STALE (v0.1):** The `model.default_id` field shown below references `"gemini-2.5-flash"` (a remote model). v0.1 uses a local Llama-3 8B GGUF model; the path is configured via SettingsView and stored in `config.json` separately. The workspace schema is still accurate.
+
 Settings file: `config.json` under the app config directory (e.g. `~/Library/Application Support/Oxcer/config.json` on macOS, or `%APPDATA%/Oxcer/config.json` on Windows).
 
 ## Schema

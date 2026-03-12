@@ -46,7 +46,7 @@ Replace `Test1_doc.md` with any `.md`, `.txt`, `.pdf`, or `.csv` file that exist
 |---|---|
 | **On-device LLM** | Meta Llama 3 8B Instruct (Q4 GGUF) via llama.cpp + Metal |
 | **Multi-session chat** | Sidebar with unlimited sessions; pin, rename, delete |
-| **Agent tool loop** | `fs_list_dir`, `fs_read_file`, `fs_write_file`, `fs_delete`, `fs_rename`, `fs_move`, `shell_run` |
+| **Agent tool loop** | `fs_list_dir`, `fs_read_file`, `fs_write_file`, `fs_delete`, `fs_rename`, `fs_move`, `fs_create_dir`, `shell_run` |
 | **Human-in-the-loop** | Destructive and write operations (delete, move, write, shell) require explicit approval. Read-only access to files the user names does not. |
 | **Data sensitivity** | Pre-prompt DLP scanner redacts credentials, API keys, JWTs, and PEM keys before any LLM call |
 | **Structured logging** | JSON tracing (Rust) + `os.Logger` (Swift), filterable with `jq` or Console.app |
@@ -157,6 +157,7 @@ scripts/             # regen-ffi.sh and other dev helpers
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Build system, testing, FFI workflow |
 | [docs/security.md](docs/security.md) | Security model, policy engine, HITL approval |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute, code style, PR workflow |
+| [ROADMAP.md](ROADMAP.md) | Upcoming milestones and how to get involved |
 
 Design notes, refactor analysis, and investigation reports live in [`docs/internal/`](docs/internal/).
 
@@ -188,17 +189,9 @@ cargo check --workspace
 
 ## Roadmap
 
-This is a directional plan, not a commitment. Priorities may shift.
+v0.1 ships one stable workflow (named-file summarization). Upcoming milestones: multi-file summary (v0.2), file organization (v0.3), model-based intent routing (v0.4), streaming output (v0.5), and cross-platform launchers.
 
-| Milestone | Description |
-|---|---|
-| **v0.1 — Named-file summary** | ✅ Stable. Summarize a single named file from Downloads, Desktop, or Documents. |
-| **v0.2 — Multi-file summary** | Summarize a batch of files in one directory into a single overview. Requires context-budget handling for the local model. |
-| **v0.3 — File organization** | Move a set of files into a new folder by describing the operation in plain English. |
-| **v0.4 — LLM-backed intent routing** | Replace the current string-match heuristics with a model-based classifier so phrasing variation is handled gracefully. |
-| **v0.5 — Streaming output** | Stream model output token-by-token to the UI so long summaries appear incrementally. |
-| **Additional backends** | GPU-accelerated and ONNX runtime options; optional cloud model toggle. |
-| **Windows / Linux** | OxcerLauncher on Windows (WinUI 3 or Tauri) and a headless Linux mode. |
+See **[ROADMAP.md](ROADMAP.md)** for the full plan, per-milestone details, and how to get involved.
 
 ---
 
