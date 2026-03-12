@@ -10,11 +10,12 @@ Thank you for your interest in contributing. This guide covers everything you ne
 
 1. [Filing Issues](#filing-issues)
 2. [Contributing Code](#contributing-code)
-3. [Code Style](#code-style)
-4. [Network Access Policy](#network-access-policy)
-5. [Testing](#testing)
-6. [Commit Conventions](#commit-conventions)
-7. [License](#license)
+3. [Local Development Setup](#local-development-setup)
+4. [Code Style](#code-style)
+5. [Network Access Policy](#network-access-policy)
+6. [Testing](#testing)
+7. [Commit Conventions](#commit-conventions)
+8. [License](#license)
 
 ---
 
@@ -101,6 +102,97 @@ git add oxcer_ffi/src/lib.rs \
 ```
 
 CI enforces binding freshness; PRs with stale bindings will fail automatically.
+
+---
+
+## Local Development Setup
+
+### Running tests
+
+```bash
+# Rust core — unit + integration tests (~3–5 s on a warm build)
+cargo test -p oxcer-core
+
+# FFI contract tests — catches stale bindings and wrong return types
+cargo test -p oxcer_ffi
+
+# Full workspace type-check (no link step; faster than cargo build)
+cargo check --workspace
+```
+
+All three must pass before opening a PR. CI runs them with `--locked` (pinned `Cargo.lock`), so your local results should match.
+
+### Pre-commit hooks
+
+Hooks mirror the CI lint job so you catch formatting issues before pushing.
+
+**Install once:**
+
+```bash
+pip install pre-commit        # or: brew install pre-commit
+pre-commit install            # wires the hooks into .git/hooks/pre-commit
+brew install swiftformat      # required by the swiftformat hook (macOS only)
+```
+
+**What runs on every `git commit`:**
+
+| Hook | What it checks | Speed |
+|------|---------------|-------|
+| `cargo-fmt` | Rust formatting (`cargo fmt --check`) | Fast (~1 s) |
+| `swiftformat` | Swift formatting (`--lint`, macOS only) | Fast (~1 s) |
+| `detect-private-key` | PEM keys / credentials in staged files | Instant |
+| `check-yaml` / `check-json` | Syntax of `.yaml` / `.json` files | Instant |
+| `check-merge-conflict` | Unresolved conflict markers | Instant |
+| `end-of-file-fixer` | Trailing newlines | Instant |
+| `trailing-whitespace` | Trailing spaces | Instant |
+
+**What does NOT run on every commit (too slow):**
+
+`cargo-clippy` is in the `manual` stage — it triggers a full incremental compile which can take 10–60 seconds. Run it explicitly when you want the full lint check:
+
+```bash
+pre-commit run --hook-stage manual cargo-clippy --all-files
+```
+
+CI always runs `cargo clippy --all-targets -D warnings` on every PR regardless.
+
+**Run all hooks against the whole tree (useful before a first PR):**
+
+```bash
+pre-commit run --all-files
+```
+
+### CI overview
+
+Three jobs run on every PR and push to `main`:
+
+| Job | Runs on | Approx. time | What it checks |
+|-----|---------|-------------|----------------|
+| **Lint (fmt + clippy)** | Linux | ~2–3 min | `cargo fmt --check`, `cargo clippy --all-targets -D warnings` |
+| **Rust tests** | Linux | ~3–5 min | `cargo check --workspace`, `cargo test` for `oxcer-core` + `oxcer_ffi` |
+| **macOS build & FFI bindings** | macOS | ~10–15 min | Dylib build, Xcode build, UniFFI binding freshness (both `.swift` and `.h`) |
+
+The macOS job only starts after both Linux jobs pass, so you get fast failure feedback without burning macOS runner minutes.
+
+### Fixing common CI failures
+
+**`cargo fmt --check` fails:**
+```bash
+cargo fmt   # auto-formats in place
+git add -u && git commit --amend --no-edit
+```
+
+**`cargo clippy` fails:**
+Fix the reported warnings. If a lint is a genuine false positive, suppress with `#[allow(reason)]` and a comment explaining why.
+
+**`macOS build & FFI bindings` fails on binding freshness:**
+```bash
+./scripts/regen-ffi.sh
+git add oxcer_ffi/src/lib.rs \
+        apps/OxcerLauncher/OxcerLauncher/oxcer_ffi.swift \
+        apps/OxcerLauncher/OxcerLauncher/oxcer_ffiFFI.h
+git commit -m 'ffi: regenerate bindings'
+```
 
 ---
 

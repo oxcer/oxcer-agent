@@ -1,57 +1,86 @@
 # .pre-commit-config.yaml
 #
-# Install pre-commit:    pip install pre-commit
-# Install hooks:         pre-commit install
-# Run manually:          pre-commit run --all-files
-# Update hook versions:  pre-commit autoupdate
+# Mirrors the CI lint job so contributors get fast local feedback before push.
+#
+# Install:      pip install pre-commit && pre-commit install
+# Run all:      pre-commit run --all-files
+# Run one hook: pre-commit run cargo-fmt --all-files
+# Update revs:  pre-commit autoupdate
+#
+# Slow hooks (cargo-clippy) are in the "manual" stage only:
+#   pre-commit run --hook-stage manual cargo-clippy --all-files
+# They are NOT run on every commit to keep the hook fast.
 
 repos:
   # ── Rust ───────────────────────────────────────────────────────────────────
 
   - repo: local
     hooks:
+      # Fast: cargo fmt reads the AST but does not compile. < 1 second.
       - id: cargo-fmt
         name: cargo fmt (check)
         language: system
         entry: cargo fmt --check
         types: [rust]
-        # Run once for the workspace, not per-file.
         pass_filenames: false
 
+      # Slow: cargo clippy triggers a full incremental compile (~10–60 s
+      # depending on how much changed). Placed in the "manual" stage so it
+      # does NOT run on every `git commit`. Run it explicitly with:
+      #   pre-commit run --hook-stage manual cargo-clippy --all-files
+      # CI always runs it (see .github/workflows/ci.yml: lint job).
       - id: cargo-clippy
-        name: cargo clippy
+        name: cargo clippy (manual)
         language: system
-        # -D warnings turns all warnings into errors.
-        entry: cargo clippy -- -D warnings
+        entry: cargo clippy --all-targets -- -D warnings
         types: [rust]
         pass_filenames: false
+        stages: [manual]
 
   # ── Swift ──────────────────────────────────────────────────────────────────
 
   - repo: local
     hooks:
+      # Requires: brew install swiftformat
+      # --lint exits non-zero if any file would be reformatted (does not write).
+      # Only runs on macOS (swiftformat is not available on Linux).
       - id: swiftformat
         name: swiftformat (lint)
         language: system
-        # Requires: brew install swiftformat
-        # --lint exits non-zero if any file would be reformatted.
         entry: swiftformat --lint apps/OxcerLauncher/OxcerLauncher/
         types: [swift]
         pass_filenames: false
 
-  # ── General ────────────────────────────────────────────────────────────────
+  # ── General file hygiene ───────────────────────────────────────────────────
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.6.0
     hooks:
-      # Prevent committing files > 1 MB (catches accidental model/dylib adds).
+      # Block files > 1 MB. Catches accidental model (.gguf), dylib, or
+      # binary additions before they reach the repository.
       - id: check-added-large-files
         args: [--maxkb=1024]
+
+      # Catch credentials, RSA/EC private keys, and PEM blocks before commit.
+      # Relevant for a security-conscious project where source files may contain
+      # redaction tests or policy YAML with example key patterns.
+      - id: detect-private-key
+
+      # Validate YAML syntax (catches bad CI workflow edits, plugin YAML, etc.).
+      - id: check-yaml
+        exclude: '^(target/|\.cargo/|node_modules/)'
+
+      # Validate JSON syntax (catches bad package.json, config.json edits).
+      - id: check-json
+        exclude: '^(target/|\.cargo/|node_modules/)'
+
+      # Catch unresolved merge conflict markers (<<<<<<<, =======, >>>>>>>).
+      - id: check-merge-conflict
+
       # Ensure files end with a newline.
       - id: end-of-file-fixer
         exclude: '^(target/|\.cargo/|node_modules/|reference/)'
+
       # Remove trailing whitespace.
       - id: trailing-whitespace
         exclude: '^(target/|\.cargo/|node_modules/|reference/)'
-      # Catch debug merge conflict markers left in source.
-      - id: check-merge-conflict

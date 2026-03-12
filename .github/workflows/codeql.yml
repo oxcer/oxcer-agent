@@ -1,0 +1,73 @@
+name: CodeQL
+
+# Languages analyzed in this repository:
+#
+#   swift  — OxcerLauncher (macOS SwiftUI app in apps/OxcerLauncher/)
+#
+# NOTE: Rust is not supported by CodeQL. For Rust dependency vulnerability
+# scanning, use `cargo audit` (the RustSec advisory database). A minimal
+# setup:
+#
+#   cargo install cargo-audit
+#   cargo audit
+#
+# or add a scheduled GitHub Actions job:
+#   uses: actions-rust-lang/audit@v1
+#
+# See: https://rustsec.org
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Run once a week (Monday 06:15 UTC) so new CVEs are caught even when
+    # the codebase hasn't changed.
+    - cron: '15 6 * * 1'
+
+permissions:
+  contents: read
+  security-events: write  # Required to upload SARIF results to GitHub
+
+jobs:
+  analyze:
+    name: Analyze Swift
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Pre-build: Rust dylib ─────────────────────────────────────────────
+      #
+      # CodeQL's autobuild will try to compile OxcerLauncher via Xcode.
+      # The Xcode target links against liboxcer_ffi.dylib, so that dylib
+      # must exist before autobuild runs — otherwise the build fails and
+      # CodeQL produces no results.
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: v1-codeql
+
+      - name: Install cmake (required by llama-cpp-sys)
+        run: brew install cmake
+
+      - name: Build oxcer_ffi dylib (required by OxcerLauncher)
+        run: cargo build --locked --release -p oxcer_ffi
+
+      # ── CodeQL analysis ───────────────────────────────────────────────────
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: swift
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:swift
