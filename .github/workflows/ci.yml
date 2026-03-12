@@ -195,7 +195,7 @@ jobs:
       - name: Generate fresh Swift bindings
         run: |
           mkdir -p /tmp/uniffi_fresh
-          cargo run --bin uniffi-bindgen -- generate \
+          cargo run --locked --bin uniffi-bindgen -- generate \
             --library target/release/liboxcer_ffi.dylib \
             --language swift \
             --out-dir /tmp/uniffi_fresh
