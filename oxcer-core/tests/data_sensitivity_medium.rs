@@ -2,7 +2,10 @@
 
 use oxcer_core::data_sensitivity::{classify_and_mask_default, SensitivityLevel};
 
-fn has_pattern(findings: &[oxcer_core::data_sensitivity::SensitivityFinding], pattern_id: &str) -> bool {
+fn has_pattern(
+    findings: &[oxcer_core::data_sensitivity::SensitivityFinding],
+    pattern_id: &str,
+) -> bool {
     findings.iter().any(|f| f.pattern_id == pattern_id)
 }
 
@@ -28,10 +31,7 @@ fn keychain_path_should_match() {
 
 #[test]
 fn keychain_path_should_not_match() {
-    let cases = [
-        "keychain as a word",
-        "/tmp/random/file.txt",
-    ];
+    let cases = ["keychain as a word", "/tmp/random/file.txt"];
     for s in cases {
         let r = classify_and_mask_default(s);
         assert!(
@@ -62,10 +62,7 @@ fn ip_port_should_match() {
 
 #[test]
 fn ip_port_should_not_match() {
-    let cases = [
-        "no IP address in this text",
-        "the quick brown fox",
-    ];
+    let cases = ["no IP address in this text", "the quick brown fox"];
     for s in cases {
         let r = classify_and_mask_default(s);
         assert!(

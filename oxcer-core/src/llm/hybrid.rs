@@ -26,13 +26,15 @@ impl HybridEngine {
             Ok(out) => Ok(out),
             Err(e) => {
                 log::warn!("Local LLM failed, falling back to external: {}", e);
-                self.fallback.generate(prompt, params).map_err(|fallback_e| {
-                    log::error!("Hybrid fallback also failed: {}", fallback_e);
-                    LlmError::GenerationFailed(format!(
-                        "primary failed: {}; fallback failed: {}",
-                        e, fallback_e
-                    ))
-                })
+                self.fallback
+                    .generate(prompt, params)
+                    .map_err(|fallback_e| {
+                        log::error!("Hybrid fallback also failed: {}", fallback_e);
+                        LlmError::GenerationFailed(format!(
+                            "primary failed: {}; fallback failed: {}",
+                            e, fallback_e
+                        ))
+                    })
             }
         }
     }

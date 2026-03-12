@@ -275,8 +275,8 @@ pub fn load(app_config_dir: &Path) -> AppSettings {
             } else {
                 DEFAULT_MODEL.to_string()
             };
-            let destructive = cfg.security.destructive_fs.enabled
-                || cfg.fs.destructive_operations_enabled;
+            let destructive =
+                cfg.security.destructive_fs.enabled || cfg.fs.destructive_operations_enabled;
             return AppSettings {
                 workspace_directories,
                 default_model_id: default_id,

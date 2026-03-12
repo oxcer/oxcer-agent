@@ -225,11 +225,9 @@ const PATTERN_PASSWORD_EQUALS: &str =
 const PATTERN_PASS_IN_URL: &str =
     r#"(?i)(https?://[^:\s]+:[^@\s]+@[^\s]+)|(?:pass(?:word)?\s*[=:]\s*)[^\s&'"]+"#;
 /// Matches: *SECRET= or *PASSWORD= env vars (uppercase) with value 4+ chars.
-const PATTERN_ENV_SECRET_PASS: &str =
-    r#"(?i)(?:^|\s)((?:[A-Z_][A-Z0-9_]*SECRET|[A-Z_][A-Z0-9_]*PASSWORD)\s*[=:]\s*['"]?)[^\s'"]{4,}"#;
+const PATTERN_ENV_SECRET_PASS: &str = r#"(?i)(?:^|\s)((?:[A-Z_][A-Z0-9_]*SECRET|[A-Z_][A-Z0-9_]*PASSWORD)\s*[=:]\s*['"]?)[^\s'"]{4,}"#;
 /// Matches: OPENAI_API_KEY=, GITHUB_TOKEN=, api_key=, etc. with value 16+ chars.
-const PATTERN_API_KEY_SECRET_VAL: &str =
-    r#"(?i)(OPENAI_API_KEY|GITHUB_TOKEN|SLACK_TOKEN|STRIPE_SECRET_KEY|api_key|secret_key)\s*[=:]\s*['"]?[A-Za-z0-9_\-./=]{16,}['"]?"#;
+const PATTERN_API_KEY_SECRET_VAL: &str = r#"(?i)(OPENAI_API_KEY|GITHUB_TOKEN|SLACK_TOKEN|STRIPE_SECRET_KEY|api_key|secret_key)\s*[=:]\s*['"]?[A-Za-z0-9_\-./=]{16,}['"]?"#;
 /// Matches: Keychain paths (~/Library/Keychains, .keychain, KeePass, 1Password).
 const PATTERN_KEYCHAIN_PATH: &str =
     r#"(?i)(?:~/Library/Keychains|/.*Keychain|KeePass|1Password|\.keychain)[^\s'"]*"#;
@@ -316,8 +314,7 @@ fn re_password_equals() -> &'static Regex {
 }
 
 fn re_pass_in_url() -> &'static Regex {
-    RE_PASS_IN_URL
-        .get_or_init(|| Regex::new(PATTERN_PASS_IN_URL).expect("pass_in_url regex"))
+    RE_PASS_IN_URL.get_or_init(|| Regex::new(PATTERN_PASS_IN_URL).expect("pass_in_url regex"))
 }
 
 fn re_env_secret_pass() -> &'static Regex {
@@ -336,8 +333,7 @@ fn re_api_key_prefix() -> &'static Regex {
 }
 
 fn re_keychain_path() -> &'static Regex {
-    RE_KEYCHAIN_PATH
-        .get_or_init(|| Regex::new(PATTERN_KEYCHAIN_PATH).expect("keychain_path regex"))
+    RE_KEYCHAIN_PATH.get_or_init(|| Regex::new(PATTERN_KEYCHAIN_PATH).expect("keychain_path regex"))
 }
 
 fn re_ip_port() -> &'static Regex {
@@ -345,13 +341,11 @@ fn re_ip_port() -> &'static Regex {
 }
 
 fn re_base64_long() -> &'static Regex {
-    RE_BASE64_LONG
-        .get_or_init(|| Regex::new(PATTERN_BASE64_LONG).expect("base64_long regex"))
+    RE_BASE64_LONG.get_or_init(|| Regex::new(PATTERN_BASE64_LONG).expect("base64_long regex"))
 }
 
 fn re_auth_bearer() -> &'static Regex {
-    RE_AUTH_BEARER
-        .get_or_init(|| Regex::new(PATTERN_AUTH_BEARER).expect("auth_bearer regex"))
+    RE_AUTH_BEARER.get_or_init(|| Regex::new(PATTERN_AUTH_BEARER).expect("auth_bearer regex"))
 }
 
 // -----------------------------------------------------------------------------
@@ -401,7 +395,9 @@ fn run_high_rules(input: &str, findings: &mut Vec<SensitivityFinding>) {
     }
     // PEM header only (if not already covered by block - e.g. truncated content)
     for m in re_pem_private_key().find_iter(input) {
-        if !findings.iter().any(|f| f.pattern_id == "pem_block" && m.start() >= f.span_start && m.end() <= f.span_end) {
+        if !findings.iter().any(|f| {
+            f.pattern_id == "pem_block" && m.start() >= f.span_start && m.end() <= f.span_end
+        }) {
             findings.push(SensitivityFinding {
                 level: SensitivityLevel::High,
                 span_start: m.start(),
@@ -568,9 +564,7 @@ fn apply_masking(
     let mut out = input.to_string();
     for f in findings.iter().rev() {
         let len = f.span_end.saturating_sub(f.span_start);
-        let drop_block = drop_over > 0
-            && f.level == SensitivityLevel::High
-            && len > drop_over;
+        let drop_block = drop_over > 0 && f.level == SensitivityLevel::High && len > drop_over;
         let replacement = if drop_block {
             String::new()
         } else {
@@ -713,10 +707,7 @@ mod tests {
     /// Ensures call sites that iterate over Vec<String> can pass &s to classify_and_mask_default.
     #[test]
     fn classify_and_mask_default_accepts_borrowed_string_in_iteration() {
-        let cases: Vec<String> = vec![
-            "Hello".to_string(),
-            "AKIAIOSFODNN7EXAMPLE".to_string(),
-        ];
+        let cases: Vec<String> = vec!["Hello".to_string(), "AKIAIOSFODNN7EXAMPLE".to_string()];
         for s in &cases {
             let r = classify_and_mask_default(s);
             assert!(r.original_length > 0);
@@ -787,7 +778,9 @@ mod tests {
         opts.normalize_paths = true;
         let r = classify_and_mask(&s, &opts);
         assert_eq!(r.level, SensitivityLevel::Low);
-        assert!(r.masked_content.contains(".") && !r.masked_content.contains("/Users/jane/project"));
+        assert!(
+            r.masked_content.contains(".") && !r.masked_content.contains("/Users/jane/project")
+        );
     }
 
     /// Micro-bench style: classify_and_mask_default on a long synthetic input.

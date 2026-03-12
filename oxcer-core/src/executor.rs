@@ -53,10 +53,7 @@ pub enum ToolCall {
     /// Read the text content of a file.
     FsReadFile(PathBuf),
     /// Run a shell command with zero or more arguments.
-    ShellRun {
-        command: String,
-        args: Vec<String>,
-    },
+    ShellRun { command: String, args: Vec<String> },
     /// Extract and return text from a TXT / PDF / DOCX / XLSX document.
     ReadDocument(PathBuf),
     /// Move a file from `source` to `dest` within the workspace.
@@ -77,9 +74,7 @@ impl UniversalExecutor {
     pub fn new(workspace_root: impl AsRef<Path>) -> Result<Self, ExecutorError> {
         let root = workspace_root.as_ref();
         if !root.exists() {
-            return Err(ExecutorError::WorkspaceNotFound(
-                root.display().to_string(),
-            ));
+            return Err(ExecutorError::WorkspaceNotFound(root.display().to_string()));
         }
         Ok(Self {
             workspace_root: root.to_path_buf(),
@@ -180,9 +175,7 @@ impl UniversalExecutor {
         // Truncate to keep LLM context budget safe.
         if text.len() > READ_DOCUMENT_MAX_BYTES {
             let mut truncated = text[..READ_DOCUMENT_MAX_BYTES].to_string();
-            truncated.push_str(
-                "\n\n[WARNING] Document truncated to avoid exceeding LLM context.",
-            );
+            truncated.push_str("\n\n[WARNING] Document truncated to avoid exceeding LLM context.");
             Ok(truncated)
         } else {
             Ok(text)
@@ -212,8 +205,7 @@ impl UniversalExecutor {
     fn exec_trash_file(&self, path: &Path) -> Result<String, ExecutorError> {
         let guarded = self.guard_path(path)?;
 
-        trash::delete(&guarded)
-            .map_err(|e| ExecutorError::Trash(format!("{e}")))?;
+        trash::delete(&guarded).map_err(|e| ExecutorError::Trash(format!("{e}")))?;
 
         Ok(format!("'{}' moved to trash", path.display()))
     }
@@ -247,9 +239,7 @@ impl UniversalExecutor {
         };
 
         if !canonical_target.starts_with(&canonical_root) {
-            return Err(ExecutorError::PathTraversal(
-                target.display().to_string(),
-            ));
+            return Err(ExecutorError::PathTraversal(target.display().to_string()));
         }
         Ok(canonical_target)
     }
@@ -294,13 +284,11 @@ fn extract_docx_text(path: &Path) -> Result<String, ExecutorError> {
 
     let mut xml = String::new();
     {
-        let mut doc_entry = archive
-            .by_name("word/document.xml")
-            .map_err(|_| {
-                ExecutorError::DocumentParse(
-                    "DOCX: word/document.xml not found — file may not be a valid .docx".to_string(),
-                )
-            })?;
+        let mut doc_entry = archive.by_name("word/document.xml").map_err(|_| {
+            ExecutorError::DocumentParse(
+                "DOCX: word/document.xml not found — file may not be a valid .docx".to_string(),
+            )
+        })?;
         doc_entry.read_to_string(&mut xml)?;
     }
 
@@ -446,7 +434,9 @@ mod tests {
         fs::write(tmp.path().join("a.txt"), "a").unwrap();
         fs::create_dir(tmp.path().join("subdir")).unwrap();
 
-        let out = exec.execute(&ToolCall::FsListDir(PathBuf::from("."))).unwrap();
+        let out = exec
+            .execute(&ToolCall::FsListDir(PathBuf::from(".")))
+            .unwrap();
         let lines: Vec<&str> = out.lines().collect();
         assert!(lines.contains(&"a.txt"));
         assert!(lines.contains(&"b.txt"));
@@ -570,8 +560,7 @@ mod tests {
     #[test]
     fn read_document_path_traversal_denied() {
         let (_tmp, exec) = setup();
-        let result =
-            exec.execute(&ToolCall::ReadDocument(PathBuf::from("../../etc/passwd")));
+        let result = exec.execute(&ToolCall::ReadDocument(PathBuf::from("../../etc/passwd")));
         assert!(matches!(result, Err(ExecutorError::PathTraversal(_))));
     }
 
@@ -592,7 +581,10 @@ mod tests {
         assert!(out.contains("Moved"));
         assert!(!tmp.path().join("old.txt").exists());
         assert!(tmp.path().join("new.txt").exists());
-        assert_eq!(fs::read_to_string(tmp.path().join("new.txt")).unwrap(), "content");
+        assert_eq!(
+            fs::read_to_string(tmp.path().join("new.txt")).unwrap(),
+            "content"
+        );
     }
 
     #[test]
@@ -622,8 +614,7 @@ mod tests {
     #[test]
     fn trash_file_path_traversal_denied() {
         let (_tmp, exec) = setup();
-        let result =
-            exec.execute(&ToolCall::TrashFile(PathBuf::from("../../etc/passwd")));
+        let result = exec.execute(&ToolCall::TrashFile(PathBuf::from("../../etc/passwd")));
         assert!(matches!(result, Err(ExecutorError::PathTraversal(_))));
     }
 

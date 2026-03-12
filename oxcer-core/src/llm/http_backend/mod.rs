@@ -8,8 +8,8 @@ mod cloud;
 mod gemini;
 mod openai;
 
-pub use cloud::CloudLlmEngine;
 use crate::llm::{GenerationParams, LlmEngine, LlmError};
+pub use cloud::CloudLlmEngine;
 
 /// Configuration for the HTTP LLM backend (endpoint, model, API key).
 #[derive(Clone, Debug)]

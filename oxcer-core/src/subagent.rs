@@ -161,7 +161,12 @@ impl SubAgent {
                     file_path,
                     content.len()
                 ));
-                if context_parts.iter().map(|s: &String| s.len()).sum::<usize>() < 16_000 {
+                if context_parts
+                    .iter()
+                    .map(|s: &String| s.len())
+                    .sum::<usize>()
+                    < 16_000
+                {
                     context_parts.push(content);
                 }
             }
@@ -340,8 +345,8 @@ fn summarize_file_list(output: &str) -> String {
 /// Extract short, meaningful keywords from a query for grep fallback.
 fn extract_keywords(query: &str) -> Vec<String> {
     const STOPWORDS: &[&str] = &[
-        "the", "and", "for", "with", "what", "how", "does", "can", "you",
-        "this", "that", "have", "from", "file", "show", "tell", "please",
+        "the", "and", "for", "with", "what", "how", "does", "can", "you", "this", "that", "have",
+        "from", "file", "show", "tell", "please",
     ];
     query
         .split_whitespace()
@@ -355,8 +360,8 @@ fn extract_keywords(query: &str) -> Vec<String> {
 }
 
 const FILE_EXTS: &[&str] = &[
-    ".rs", ".swift", ".py", ".ts", ".tsx", ".js", ".jsx", ".md", ".toml",
-    ".json", ".yaml", ".yml", ".txt", ".sh", ".csv", ".pdf", ".docx", ".log",
+    ".rs", ".swift", ".py", ".ts", ".tsx", ".js", ".jsx", ".md", ".toml", ".json", ".yaml", ".yml",
+    ".txt", ".sh", ".csv", ".pdf", ".docx", ".log",
 ];
 
 fn has_file_ext(token: &str) -> bool {
@@ -412,7 +417,11 @@ mod tests {
             "fn main() {\n    println!(\"Hello, Oxcer!\");\n}\n",
         )
         .unwrap();
-        fs::write(tmp.path().join("Cargo.toml"), "[package]\nname = \"test\"\n").unwrap();
+        fs::write(
+            tmp.path().join("Cargo.toml"),
+            "[package]\nname = \"test\"\n",
+        )
+        .unwrap();
         let src = tmp.path().join("src");
         fs::create_dir(&src).unwrap();
         fs::write(
@@ -435,7 +444,12 @@ mod tests {
             !agent.memory.facts.is_empty(),
             "explore should record at least one fact"
         );
-        let all_content: String = agent.memory.facts.iter().map(|f| f.content.as_str()).collect();
+        let all_content: String = agent
+            .memory
+            .facts
+            .iter()
+            .map(|f| f.content.as_str())
+            .collect();
         assert!(all_content.contains("Explore:"), "fact: {all_content}");
     }
 
@@ -523,7 +537,10 @@ mod tests {
             Some(&StubLlm),
         );
         assert!(!answer.is_empty(), "answer should not be empty");
-        assert!(answer.contains("[STUB_LLM:"), "expected stub marker, got: {answer}");
+        assert!(
+            answer.contains("[STUB_LLM:"),
+            "expected stub marker, got: {answer}"
+        );
     }
 
     #[test]
@@ -559,10 +576,16 @@ mod tests {
             Some(&StubLlm),
         );
 
-        assert!(mem_path.exists(), "memory.md should be created after orchestrate");
+        assert!(
+            mem_path.exists(),
+            "memory.md should be created after orchestrate"
+        );
         let md = fs::read_to_string(&mem_path).unwrap();
         assert!(md.contains("# Oxcer Memory"), "got: {md}");
-        assert!(md.contains("Explore:"), "should contain explore facts, got: {md}");
+        assert!(
+            md.contains("Explore:"),
+            "should contain explore facts, got: {md}"
+        );
     }
 
     #[test]
@@ -586,7 +609,12 @@ mod tests {
     fn orchestrate_without_llm_returns_stub() {
         let (_tmp, root) = setup_workspace();
         let mem_path = _tmp.path().join("memory.md");
-        let out = orchestrate("summarize main.rs", &root, &mem_path.to_string_lossy(), None);
+        let out = orchestrate(
+            "summarize main.rs",
+            &root,
+            &mem_path.to_string_lossy(),
+            None,
+        );
         assert!(!out.is_empty());
         assert!(out.contains("[EXECUTE_STUB]"), "got: {out}");
     }
@@ -597,10 +625,7 @@ mod tests {
     fn extract_keywords_filters_stopwords() {
         let kws = extract_keywords("what is in the main.rs file");
         // "what", "the", "file" are stopwords; "main" should remain
-        assert!(
-            kws.iter().any(|k| k.contains("main")),
-            "keywords: {kws:?}"
-        );
+        assert!(kws.iter().any(|k| k.contains("main")), "keywords: {kws:?}");
         assert!(!kws.contains(&"what".to_string()));
         assert!(!kws.contains(&"the".to_string()));
     }
@@ -625,7 +650,11 @@ mod tests {
 
     #[test]
     fn build_prompt_with_context_contains_query() {
-        let p = build_prompt("explain main.rs", "[FILE_CONTENTS:main.rs]\nfn main() {}\n", "");
+        let p = build_prompt(
+            "explain main.rs",
+            "[FILE_CONTENTS:main.rs]\nfn main() {}\n",
+            "",
+        );
         assert!(p.contains("explain main.rs"), "query in prompt: {p}");
         assert!(p.contains("fn main()"), "context in prompt: {p}");
     }

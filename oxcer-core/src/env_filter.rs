@@ -100,17 +100,12 @@ where
 /// Returns true if the current process env was filtered (any high-risk key was dropped).
 /// Use when logging "scrubbed env" for child process start.
 pub fn env_has_high_risk_keys() -> bool {
-    std::env::vars()
-        .any(|(k, _)| is_high_risk_key(&k))
+    std::env::vars().any(|(k, _)| is_high_risk_key(&k))
 }
 
 /// Build the minimal safe env for a child: filtered parent env plus required vars.
 /// Overrides PATH, LANG, TERM with safe defaults if not provided.
-pub fn safe_env_for_child(
-    path: &str,
-    lang: &str,
-    term: &str,
-) -> HashMap<String, String> {
+pub fn safe_env_for_child(path: &str, lang: &str, term: &str) -> HashMap<String, String> {
     let mut env = filter_env_for_child(std::env::vars());
     env.insert("PATH".to_string(), path.to_string());
     env.insert("LANG".to_string(), lang.to_string());

@@ -312,8 +312,8 @@ fn derive_tags(content: &str) -> Vec<String> {
 
 fn has_file_ext(lower: &str) -> bool {
     const EXTS: &[&str] = &[
-        ".rs", ".swift", ".py", ".ts", ".js", ".md", ".toml", ".json", ".yaml",
-        ".yml", ".txt", ".sh", ".csv", ".pdf", ".docx",
+        ".rs", ".swift", ".py", ".ts", ".js", ".md", ".toml", ".json", ".yaml", ".yml", ".txt",
+        ".sh", ".csv", ".pdf", ".docx",
     ];
     EXTS.iter().any(|ext| lower.contains(ext))
 }

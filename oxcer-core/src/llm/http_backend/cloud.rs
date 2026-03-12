@@ -104,7 +104,11 @@ impl CloudLlmEngine {
     /// provider's cost-efficient default (see `ProviderKind::default_model`).
     pub fn new(provider: ProviderKind, api_key: String) -> Self {
         let model = provider.default_model().to_string();
-        Self { provider, api_key, model }
+        Self {
+            provider,
+            api_key,
+            model,
+        }
     }
 
     fn http_client() -> Result<reqwest::blocking::Client, LlmError> {

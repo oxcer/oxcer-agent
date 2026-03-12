@@ -67,12 +67,7 @@ fn price_per_million(provider: &str, model_id: &str) -> (f64, f64) {
 }
 
 /// Compute cost in USD for given input/output token counts.
-pub fn cost_usd(
-    provider: &str,
-    model_id: &str,
-    tokens_in: u32,
-    tokens_out: u32,
-) -> f64 {
+pub fn cost_usd(provider: &str, model_id: &str, tokens_in: u32, tokens_out: u32) -> f64 {
     let (in_per_m, out_per_m) = price_per_million(provider, model_id);
     let in_cost = (tokens_in as f64 / 1_000_000.0) * in_per_m;
     let out_cost = (tokens_out as f64 / 1_000_000.0) * out_per_m;
@@ -111,7 +106,12 @@ mod tests {
         // gemini flash: 0.075 per 1M in, 0.30 per 1M out (from price_per_million)
         let c = cost_usd("gemini", "gemini-2.5-flash", 1_000_000, 1_000_000);
         let expected = 0.075 + 0.30;
-        assert!((c - expected).abs() < 1e-6, "expected {} got {}", expected, c);
+        assert!(
+            (c - expected).abs() < 1e-6,
+            "expected {} got {}",
+            expected,
+            c
+        );
 
         // 1000 in, 500 out -> 0.000075 + 0.00015 = 0.000225
         let c2 = cost_usd("gemini", "gemini-2.5-flash", 1000, 500);

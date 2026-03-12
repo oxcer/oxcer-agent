@@ -49,10 +49,7 @@ impl CapabilityRegistry {
 
         if let Some(ref hint) = added.category_hint {
             let key = hint.to_lowercase();
-            self.by_category
-                .entry(key)
-                .or_default()
-                .push(idx);
+            self.by_category.entry(key).or_default().push(idx);
         }
         if let Some(ref tags) = added.tags {
             for tag in tags {
@@ -75,12 +72,7 @@ impl CapabilityRegistry {
         let key = category.to_lowercase();
         self.by_category
             .get(&key)
-            .map(|indices| {
-                indices
-                    .iter()
-                    .filter_map(|&i| self.tools.get(i))
-                    .collect()
-            })
+            .map(|indices| indices.iter().filter_map(|&i| self.tools.get(i)).collect())
             .unwrap_or_default()
     }
 
@@ -89,12 +81,7 @@ impl CapabilityRegistry {
         let key = tag.to_lowercase();
         self.by_tag
             .get(&key)
-            .map(|indices| {
-                indices
-                    .iter()
-                    .filter_map(|&i| self.tools.get(i))
-                    .collect()
-            })
+            .map(|indices| indices.iter().filter_map(|&i| self.tools.get(i)).collect())
             .unwrap_or_default()
     }
 

@@ -40,7 +40,10 @@ impl LocalPhi3Engine {
                     Some(t)
                 }
                 Err(e) => {
-                    log::warn!("Tokenizer load failed ({}); continuing without HF tokenizer", e);
+                    log::warn!(
+                        "Tokenizer load failed ({}); continuing without HF tokenizer",
+                        e
+                    );
                     None
                 }
             }
@@ -88,13 +91,16 @@ impl LlmEngine for LocalPhi3Engine {
             )
         })?;
 
-        let encoding = tokenizer.encode(prompt, true).map_err(|e| {
-            LlmError::GenerationFailed(format!("Tokenization failed: {}", e))
-        })?;
+        let encoding = tokenizer
+            .encode(prompt, true)
+            .map_err(|e| LlmError::GenerationFailed(format!("Tokenization failed: {}", e)))?;
         let input_ids: Vec<u32> = encoding.get_ids().to_vec();
 
         if input_ids.is_empty() {
-            tracing::warn!(event = "local_phi3_tokenize_empty", "tokenization produced 0 tokens");
+            tracing::warn!(
+                event = "local_phi3_tokenize_empty",
+                "tokenization produced 0 tokens"
+            );
             return Ok(String::new());
         }
 
@@ -106,12 +112,15 @@ impl LlmEngine for LocalPhi3Engine {
 
         // Detokenize.
         if output_ids.is_empty() {
-            tracing::warn!(event = "local_phi3_output_empty", "runtime returned 0 output tokens");
+            tracing::warn!(
+                event = "local_phi3_output_empty",
+                "runtime returned 0 output tokens"
+            );
             return Ok(String::new());
         }
-        let decoded = tokenizer.decode(&output_ids, true).map_err(|e| {
-            LlmError::GenerationFailed(format!("Detokenization failed: {}", e))
-        })?;
+        let decoded = tokenizer
+            .decode(&output_ids, true)
+            .map_err(|e| LlmError::GenerationFailed(format!("Detokenization failed: {}", e)))?;
         Ok(decoded)
     }
 }

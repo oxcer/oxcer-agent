@@ -59,8 +59,7 @@ pub async fn download_file(
     let callback_clone = Arc::clone(&callback);
 
     while let Some(chunk) = stream.next().await {
-        let chunk =
-            chunk.map_err(|e| LlmError::NotAvailable(format!("Stream error: {}", e)))?;
+        let chunk = chunk.map_err(|e| LlmError::NotAvailable(format!("Stream error: {}", e)))?;
 
         let len = chunk.len() as u64;
         file.write_all(&chunk)
@@ -72,16 +71,11 @@ pub async fn download_file(
         if let Some(total) = total_bytes {
             let progress = (downloaded as f64) / (total as f64);
             let pct = (progress * 100.0) as u32;
-            callback_clone.on_progress(
-                progress,
-                format!("Downloading... {}%", pct),
-            );
+            callback_clone.on_progress(progress, format!("Downloading... {}%", pct));
         } else {
             // Total unknown; report "downloading" with indeterminate progress
-            callback_clone.on_progress(
-                0.0,
-                format!("Downloading... {} MB", downloaded / 1_048_576),
-            );
+            callback_clone
+                .on_progress(0.0, format!("Downloading... {} MB", downloaded / 1_048_576));
         }
     }
 
@@ -94,9 +88,7 @@ pub async fn download_file(
         .map_err(|e| LlmError::Config(format!("Failed to stat {:?}: {}", dest, e)))?;
 
     if meta.len() == 0 {
-        return Err(LlmError::Config(
-            "Downloaded file is empty".to_string(),
-        ));
+        return Err(LlmError::Config("Downloaded file is empty".to_string()));
     }
 
     Ok(())

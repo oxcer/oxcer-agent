@@ -25,8 +25,8 @@ use std::time::{Duration, Instant};
 
 use oxcer_core::fs;
 use oxcer_core::security::policy_engine::{
-    Operation, PolicyCaller, PolicyDecision, PolicyDecisionKind, PolicyRequest,
-    PolicyTarget, ToolType,
+    Operation, PolicyCaller, PolicyDecision, PolicyDecisionKind, PolicyRequest, PolicyTarget,
+    ToolType,
 };
 use oxcer_core::shell;
 use serde::{Deserialize, Serialize};
@@ -545,10 +545,7 @@ impl PendingApprovalsStore {
 
     fn cleanup_expired(&self) {
         let now = Instant::now();
-        self.inner
-            .lock()
-            .unwrap()
-            .retain(|_, v| !v.is_expired(now));
+        self.inner.lock().unwrap().retain(|_, v| !v.is_expired(now));
     }
 
     /// Cancel all pending approvals that reference this workspace (by root path).
@@ -587,7 +584,9 @@ impl Default for PendingApprovalsStore {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum RouterError {
     /// User config has disabled destructive operations.
-    ConfigDisabled { message: String },
+    ConfigDisabled {
+        message: String,
+    },
     PolicyDenied {
         reason_code: String,
         message: String,
@@ -729,7 +728,10 @@ mod tests {
         let taken = store.take("req-1");
         assert!(taken.is_some());
         assert_eq!(taken.as_ref().unwrap().request_id, "req-1");
-        assert!(matches!(taken.as_ref().unwrap().status, ApprovalStatus::Pending));
+        assert!(matches!(
+            taken.as_ref().unwrap().status,
+            ApprovalStatus::Pending
+        ));
         // Second take returns None (already removed)
         assert!(store.take("req-1").is_none());
     }
@@ -783,10 +785,15 @@ mod tests {
         );
         store.insert(record);
         let taken = store.take("req-approve");
-        assert!(taken.is_some(), "approved request must be retrievable for execution");
+        assert!(
+            taken.is_some(),
+            "approved request must be retrievable for execution"
+        );
         let op = &taken.unwrap().operation_payload;
         match op {
-            PendingOperation::FsWrite { rel_path, contents, .. } => {
+            PendingOperation::FsWrite {
+                rel_path, contents, ..
+            } => {
                 assert_eq!(rel_path, "approved.txt");
                 assert_eq!(contents, b"approved");
             }
@@ -834,10 +841,7 @@ mod tests {
             }));
         }
 
-        let results: Vec<_> = handles
-            .into_iter()
-            .map(|h| h.join().unwrap())
-            .collect();
+        let results: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
 
         let retrieved: Vec<_> = results.into_iter().filter_map(|r| r).collect();
         assert_eq!(

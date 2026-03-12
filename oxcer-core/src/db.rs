@@ -147,7 +147,8 @@ mod tests {
     fn get_recent_context_respects_limit() {
         let db = db();
         for i in 0..5 {
-            db.insert_fact(&format!("q{i}"), &format!("obs{i}")).unwrap();
+            db.insert_fact(&format!("q{i}"), &format!("obs{i}"))
+                .unwrap();
         }
         let facts = db.get_recent_context(3).unwrap();
         assert_eq!(facts.len(), 3);

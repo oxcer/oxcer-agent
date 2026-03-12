@@ -9,8 +9,8 @@ pub mod commands;
 pub mod event_log;
 pub mod router;
 pub mod scrubbing_log;
-pub mod setup;
 pub mod settings;
+pub mod setup;
 pub mod telemetry_viewer;
 
 #[cfg(feature = "test")]

@@ -140,7 +140,9 @@ impl AgentSessionLog {
                 })
                 .unwrap_or("unknown")
                 .to_string();
-            let approval_outcome = trace.approved.map(|b| if b { "approved" } else { "denied" }.to_string());
+            let approval_outcome = trace
+                .approved
+                .map(|b| if b { "approved" } else { "denied" }.to_string());
 
             let result_summary = trace
                 .result_summary

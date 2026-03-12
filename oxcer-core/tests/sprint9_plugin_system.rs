@@ -3,7 +3,9 @@
 use oxcer_core::plugins::{
     load_plugins_from_dir, load_plugins_from_dir_with_telemetry, plugin_rules_from_descriptors,
 };
-use oxcer_core::security::policy_config::{evaluate_with_config, load_from_yaml, merge_rules, PolicyAction};
+use oxcer_core::security::policy_config::{
+    evaluate_with_config, load_from_yaml, merge_rules, PolicyAction,
+};
 use oxcer_core::security::policy_engine::{
     evaluate, Operation, PolicyCaller, PolicyDecisionKind, PolicyRequest, PolicyTarget, ToolType,
 };
@@ -111,7 +113,10 @@ security:
     let mut catalog = shell::default_catalog();
     let specs = shell_plugins_to_command_specs(&descriptors);
     catalog.merge_plugin_commands(specs);
-    assert!(catalog.get("shell.git_status").is_some(), "git_status must be in catalog");
+    assert!(
+        catalog.get("shell.git_status").is_some(),
+        "git_status must be in catalog"
+    );
 
     let plugin_rules = plugin_rules_from_descriptors(&descriptors);
     let base = load_from_yaml(include_str!("../policies/default.yaml").as_bytes());
@@ -169,16 +174,14 @@ security:
     )
     .unwrap();
 
-    let _ = load_plugins_from_dir_with_telemetry(
-        plugins_dir,
-        &app_config_dir,
-        "sprint9-telemetry",
-    );
+    let _ = load_plugins_from_dir_with_telemetry(plugins_dir, &app_config_dir, "sprint9-telemetry");
 
     let events = load_session_log_from_dir(&app_config_dir, "sprint9-telemetry").unwrap();
     let plugin_events: Vec<&LogEvent> = events
         .iter()
-        .filter(|e| e.component == "plugin" && (e.action == "plugin_start" || e.action == "plugin_end"))
+        .filter(|e| {
+            e.component == "plugin" && (e.action == "plugin_start" || e.action == "plugin_end")
+        })
         .collect();
 
     assert!(

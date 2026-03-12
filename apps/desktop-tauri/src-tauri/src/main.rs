@@ -25,17 +25,13 @@ use std::sync::{Arc, Mutex};
 
 use http::{header::CONTENT_TYPE, Response, StatusCode};
 use tauri::menu::{MenuBuilder, MenuItem, PredefinedMenuItem, SubmenuBuilder};
-use tauri_plugin_dialog::DialogExt;
 use tauri::{AppHandle, Emitter, Manager};
+use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_fs;
 use uuid::Uuid;
 
 use oxcer_core::agent_session_log::AgentSessionLog;
 use oxcer_core::fs;
-use oxcer_core::orchestrator::{
-    next_action, run_first_step, OrchestratorAction, SessionState, StepResult,
-};
-use oxcer_core::semantic_router::{category_for_log, strategy_for_log, RouterInput};
 use oxcer_core::llm_metrics::{
     cost_usd as llm_cost_usd, estimate_tokens_from_chars, provider_for_model,
 };
@@ -46,31 +42,38 @@ use oxcer_core::network::{
     openai_client::{self, OpenAIChatRequest},
     HttpClient, HttpError, NetworkTool,
 };
-use oxcer_core::telemetry::{log_event, LogEvent, LogMetrics};
-use oxcer_core::security::policy_engine::{
-    evaluate, Operation, PolicyCaller, PolicyDecision, PolicyDecisionKind, PolicyRequest,
-    PolicyTarget, ToolType,
+use oxcer_core::orchestrator::{
+    next_action, run_first_step, OrchestratorAction, SessionState, StepResult,
 };
-use oxcer_core::prompt_sanitizer::{self, ScrubbingError};
 use oxcer_core::plugins::{
     build_capability_registry, load_plugins_from_dir_with_telemetry, plugin_rules_from_descriptors,
     shell_plugins_to_command_specs,
 };
+use oxcer_core::prompt_sanitizer::{self, ScrubbingError};
 use oxcer_core::security::policy_config::{load_from_yaml, merge_rules};
 use oxcer_core::security::policy_engine::init_policy_with_config;
+use oxcer_core::security::policy_engine::{
+    evaluate, Operation, PolicyCaller, PolicyDecision, PolicyDecisionKind, PolicyRequest,
+    PolicyTarget, ToolType,
+};
+use oxcer_core::semantic_router::{category_for_log, strategy_for_log, RouterInput};
 use oxcer_core::shell;
+use oxcer_core::telemetry::{log_event, LogEvent, LogMetrics};
 
 use oxcer::event_log;
 use oxcer::router;
 use oxcer::router::{
-    get_destructive_command_visibility, ApprovalRequestedPayload, CommandVisibilityContext,
-    PendingApprovalsStore, PendingOperation, RouterError, to_requested_payload,
+    get_destructive_command_visibility, to_requested_payload, ApprovalRequestedPayload,
+    CommandVisibilityContext, PendingApprovalsStore, PendingOperation, RouterError,
 };
-use oxcer::setup::{complete_setup as setup_complete, get_setup_status as setup_get_status, start_model_download as setup_start_download};
 use oxcer::settings::{
     get_effective_fs_policy as settings_get_effective_fs_policy, is_forbidden_workspace_path,
     load as settings_load, log_destructive_setting_change as settings_log_destructive_change,
-    save as settings_save, AppSettings, to_workspace_roots, WorkspaceDirectory, EffectiveFsPolicy,
+    save as settings_save, to_workspace_roots, AppSettings, EffectiveFsPolicy, WorkspaceDirectory,
+};
+use oxcer::setup::{
+    complete_setup as setup_complete, get_setup_status as setup_get_status,
+    start_model_download as setup_start_download,
 };
 
 /// If session cost exceeds the configured threshold, emit a cost_threshold_exceeded LogEvent
@@ -79,7 +82,10 @@ fn check_cost_threshold_and_alert(app: &AppHandle, session_id: &str, session_cos
     let threshold = app
         .try_state::<Mutex<AppSettings>>()
         .and_then(|state| {
-            state.lock().ok().map(|guard| guard.observability.max_session_cost_usd)
+            state
+                .lock()
+                .ok()
+                .map(|guard| guard.observability.max_session_cost_usd)
         })
         .unwrap_or(0.5);
     if session_cost_usd <= threshold {
@@ -277,7 +283,11 @@ fn ctx_and_workspace_id(
         if w.path == path_buf {
             Some(w.id.clone())
         } else if let Some(ref can) = canonical {
-            w.path.canonicalize().ok().filter(|cw| cw == can).map(|_| w.id.clone())
+            w.path
+                .canonicalize()
+                .ok()
+                .filter(|cw| cw == can)
+                .map(|_| w.id.clone())
         } else {
             None
         }
@@ -308,13 +318,23 @@ impl AgentSessionStore {
         Self(Mutex::new(HashMap::new()))
     }
     fn insert(&self, session_id: String, state: SessionState) {
-        self.0.lock().expect("session store lock").insert(session_id, state);
+        self.0
+            .lock()
+            .expect("session store lock")
+            .insert(session_id, state);
     }
     fn get(&self, session_id: &str) -> Option<SessionState> {
-        self.0.lock().expect("session store lock").get(session_id).cloned()
+        self.0
+            .lock()
+            .expect("session store lock")
+            .get(session_id)
+            .cloned()
     }
     fn remove(&self, session_id: &str) -> Option<SessionState> {
-        self.0.lock().expect("session store lock").remove(session_id)
+        self.0
+            .lock()
+            .expect("session store lock")
+            .remove(session_id)
     }
 }
 
@@ -355,7 +375,10 @@ impl SessionLlmMetricsStore {
             .cloned()
     }
     pub fn take(&self, session_id: &str) -> Option<SessionLlmTotals> {
-        self.0.lock().expect("session llm metrics lock").remove(session_id)
+        self.0
+            .lock()
+            .expect("session llm metrics lock")
+            .remove(session_id)
     }
 }
 
@@ -367,10 +390,16 @@ impl SessionCostAlertedStore {
         Self(Mutex::new(std::collections::HashSet::new()))
     }
     pub fn mark_alerted(&self, session_id: &str) {
-        self.0.lock().expect("cost alerted lock").insert(session_id.to_string());
+        self.0
+            .lock()
+            .expect("cost alerted lock")
+            .insert(session_id.to_string());
     }
     pub fn has_alerted(&self, session_id: &str) -> bool {
-        self.0.lock().expect("cost alerted lock").contains(session_id)
+        self.0
+            .lock()
+            .expect("cost alerted lock")
+            .contains(session_id)
     }
 }
 
@@ -442,9 +471,10 @@ fn emit_policy_evaluate_telemetry(
         Operation::Chmod => "chmod",
         Operation::Exec => "exec",
     };
-    let data_sensitivity_level = request.content_sensitivity.as_ref().map(|s| {
-        format!("{:?}", s.level).to_lowercase()
-    });
+    let data_sensitivity_level = request
+        .content_sensitivity
+        .as_ref()
+        .map(|s| format!("{:?}", s.level).to_lowercase());
     let details = serde_json::json!({
         "tool": tool_name,
         "operation": operation_str,
@@ -500,7 +530,9 @@ fn cmd_fs_list_dir(
     let policy_caller = router::parse_caller(caller.as_deref());
     let (ctx, workspace_id) = ctx_and_workspace_id(&app, &workspace_root)?;
 
-    let base = fs::BaseDirKind::Workspace { id: workspace_id.clone() };
+    let base = fs::BaseDirKind::Workspace {
+        id: workspace_id.clone(),
+    };
     let normalized = fs::normalize_and_resolve(&ctx, &base, &rel_path)?;
 
     let request = PolicyRequest {
@@ -542,7 +574,9 @@ fn cmd_fs_read_file(
     let policy_caller = router::parse_caller(caller.as_deref());
     let (ctx, workspace_id) = ctx_and_workspace_id(&app, &workspace_root)?;
 
-    let base = fs::BaseDirKind::Workspace { id: workspace_id.clone() };
+    let base = fs::BaseDirKind::Workspace {
+        id: workspace_id.clone(),
+    };
     let normalized = fs::normalize_and_resolve(&ctx, &base, &rel_path)?;
 
     let request = PolicyRequest {
@@ -651,8 +685,7 @@ fn cmd_fs_write_file(
     .map_err(RouterError::from)
 }
 
-const DESTRUCTIVE_DISABLED_MSG: &str =
-    "Destructive file operations are disabled in Settings.";
+const DESTRUCTIVE_DISABLED_MSG: &str = "Destructive file operations are disabled in Settings.";
 
 /// Emit event when a high-risk FS op completes (for toast feedback).
 fn emit_destructive_op_executed(app: &AppHandle, summary: &str) {
@@ -684,7 +717,9 @@ fn cmd_fs_delete(
     let policy_caller = router::parse_caller(caller.as_deref());
     let (ctx, workspace_id) = ctx_and_workspace_id(&app, &workspace_root)?;
 
-    let base = fs::BaseDirKind::Workspace { id: workspace_id.clone() };
+    let base = fs::BaseDirKind::Workspace {
+        id: workspace_id.clone(),
+    };
     let normalized = fs::normalize_and_resolve(&ctx, &base, &rel_path)?;
 
     let request = PolicyRequest {
@@ -781,13 +816,18 @@ fn cmd_fs_delete(
     fs::fs_remove_file(
         fs_caller_from_policy(policy_caller),
         &ctx,
-        fs::BaseDirKind::Workspace { id: workspace_id.clone() },
+        fs::BaseDirKind::Workspace {
+            id: workspace_id.clone(),
+        },
         &rel_path,
     )
     .map_err(RouterError::from)?;
     emit_destructive_op_executed(
         &app,
-        &format!("Deleted {} in \"{}/\". (Destructive operations enabled in Settings.)", rel_path, workspace_id),
+        &format!(
+            "Deleted {} in \"{}/\". (Destructive operations enabled in Settings.)",
+            rel_path, workspace_id
+        ),
     );
     Ok(())
 }
@@ -812,7 +852,9 @@ fn cmd_fs_rename(
     let policy_caller = router::parse_caller(caller.as_deref());
     let (ctx, workspace_id) = ctx_and_workspace_id(&app, &workspace_root)?;
 
-    let base = fs::BaseDirKind::Workspace { id: workspace_id.clone() };
+    let base = fs::BaseDirKind::Workspace {
+        id: workspace_id.clone(),
+    };
     let normalized = fs::normalize_and_resolve(&ctx, &base, &rel_path)?;
 
     let request = PolicyRequest {
@@ -911,14 +953,19 @@ fn cmd_fs_rename(
     fs::fs_rename(
         fs_caller_from_policy(policy_caller),
         &ctx,
-        fs::BaseDirKind::Workspace { id: workspace_id.clone() },
+        fs::BaseDirKind::Workspace {
+            id: workspace_id.clone(),
+        },
         &rel_path,
         &new_rel_path,
     )
     .map_err(RouterError::from)?;
     emit_destructive_op_executed(
         &app,
-        &format!("Renamed {} -> {} in \"{}/\". (Destructive operations enabled in Settings.)", rel_path, new_rel_path, workspace_id),
+        &format!(
+            "Renamed {} -> {} in \"{}/\". (Destructive operations enabled in Settings.)",
+            rel_path, new_rel_path, workspace_id
+        ),
     );
     Ok(())
 }
@@ -945,7 +992,9 @@ fn cmd_fs_move(
     let (ctx, src_workspace_id) = ctx_and_workspace_id(&app, &workspace_root)?;
     let (_, dest_workspace_id) = ctx_and_workspace_id(&app, &dest_workspace_root)?;
 
-    let src_base = fs::BaseDirKind::Workspace { id: src_workspace_id.clone() };
+    let src_base = fs::BaseDirKind::Workspace {
+        id: src_workspace_id.clone(),
+    };
     let normalized = fs::normalize_and_resolve(&ctx, &src_base, &rel_path)?;
 
     let request = PolicyRequest {
@@ -960,7 +1009,10 @@ fn cmd_fs_move(
 
     if policy_caller == PolicyCaller::AgentOrchestrator {
         let request_id = Uuid::new_v4().to_string();
-        let summary = format!("Move {} -> {}/{}", rel_path, dest_workspace_root, dest_rel_path);
+        let summary = format!(
+            "Move {} -> {}/{}",
+            rel_path, dest_workspace_root, dest_rel_path
+        );
         let store = app.state::<PendingApprovalsStore>();
         let record = store.create_record(
             request_id.clone(),
@@ -1015,7 +1067,10 @@ fn cmd_fs_move(
     }
     if decision.decision == PolicyDecisionKind::RequireApproval {
         let request_id = Uuid::new_v4().to_string();
-        let summary = format!("Move {} -> {}/{}", rel_path, dest_workspace_root, dest_rel_path);
+        let summary = format!(
+            "Move {} -> {}/{}",
+            rel_path, dest_workspace_root, dest_rel_path
+        );
         let store = app.state::<PendingApprovalsStore>();
         let record = store.create_record(
             request_id.clone(),
@@ -1047,15 +1102,22 @@ fn cmd_fs_move(
     fs::fs_move(
         fs_caller_from_policy(policy_caller),
         &ctx,
-        fs::BaseDirKind::Workspace { id: src_workspace_id.clone() },
+        fs::BaseDirKind::Workspace {
+            id: src_workspace_id.clone(),
+        },
         &rel_path,
-        fs::BaseDirKind::Workspace { id: dest_workspace_id.clone() },
+        fs::BaseDirKind::Workspace {
+            id: dest_workspace_id.clone(),
+        },
         &dest_rel_path,
     )
     .map_err(RouterError::from)?;
     emit_destructive_op_executed(
         &app,
-        &format!("Moved {} -> \"{}/{}\". (Destructive operations enabled in Settings.)", rel_path, dest_workspace_id, dest_rel_path),
+        &format!(
+            "Moved {} -> \"{}/{}\". (Destructive operations enabled in Settings.)",
+            rel_path, dest_workspace_id, dest_rel_path
+        ),
     );
     Ok(())
 }
@@ -1153,12 +1215,12 @@ fn cmd_approve_and_execute(
     approved: bool,
 ) -> Result<serde_json::Value, RouterError> {
     let store = app.state::<PendingApprovalsStore>();
-    let record = store.take(&request_id).ok_or_else(|| {
-        RouterError::PolicyDenied {
+    let record = store
+        .take(&request_id)
+        .ok_or_else(|| RouterError::PolicyDenied {
             reason_code: "EXPIRED_OR_UNKNOWN".to_string(),
             message: "Approval request expired or not found".to_string(),
-        }
-    })?;
+        })?;
 
     let is_destructive = matches!(
         record.operation_payload,
@@ -1259,13 +1321,18 @@ fn cmd_approve_and_execute(
             fs::fs_remove_file(
                 fs::FsCaller::Agent,
                 &ctx,
-                fs::BaseDirKind::Workspace { id: workspace_id.clone() },
+                fs::BaseDirKind::Workspace {
+                    id: workspace_id.clone(),
+                },
                 &rel_path,
             )
             .map_err(RouterError::from)?;
             emit_destructive_op_executed(
                 &app,
-                &format!("Deleted {} in \"{}/\". (Destructive operations enabled in Settings.)", rel_path, workspace_id),
+                &format!(
+                    "Deleted {} in \"{}/\". (Destructive operations enabled in Settings.)",
+                    rel_path, workspace_id
+                ),
             );
             Ok(serde_json::json!({ "success": true }))
         }
@@ -1278,14 +1345,19 @@ fn cmd_approve_and_execute(
             fs::fs_rename(
                 fs::FsCaller::Agent,
                 &ctx,
-                fs::BaseDirKind::Workspace { id: workspace_id.clone() },
+                fs::BaseDirKind::Workspace {
+                    id: workspace_id.clone(),
+                },
                 &rel_path,
                 &new_rel_path,
             )
             .map_err(RouterError::from)?;
             emit_destructive_op_executed(
                 &app,
-                &format!("Renamed {} -> {} in \"{}/\". (Destructive operations enabled in Settings.)", rel_path, new_rel_path, workspace_id),
+                &format!(
+                    "Renamed {} -> {} in \"{}/\". (Destructive operations enabled in Settings.)",
+                    rel_path, new_rel_path, workspace_id
+                ),
             );
             Ok(serde_json::json!({ "success": true }))
         }
@@ -1300,15 +1372,22 @@ fn cmd_approve_and_execute(
             fs::fs_move(
                 fs::FsCaller::Agent,
                 &ctx,
-                fs::BaseDirKind::Workspace { id: src_workspace_id },
+                fs::BaseDirKind::Workspace {
+                    id: src_workspace_id,
+                },
                 &rel_path,
-                fs::BaseDirKind::Workspace { id: dest_workspace_id.clone() },
+                fs::BaseDirKind::Workspace {
+                    id: dest_workspace_id.clone(),
+                },
                 &dest_rel_path,
             )
             .map_err(RouterError::from)?;
             emit_destructive_op_executed(
                 &app,
-                &format!("Moved {} -> \"{}/{}\". (Destructive operations enabled in Settings.)", rel_path, dest_workspace_id, dest_rel_path),
+                &format!(
+                    "Moved {} -> \"{}/{}\". (Destructive operations enabled in Settings.)",
+                    rel_path, dest_workspace_id, dest_rel_path
+                ),
             );
             Ok(serde_json::json!({ "success": true }))
         }
@@ -1435,7 +1514,9 @@ fn cmd_workspace_add(app: AppHandle, path: String) -> Result<(), String> {
         return Err("Path is not a directory".to_string());
     }
     if is_forbidden_workspace_path(&path_buf) {
-        return Err("This directory cannot be used as a workspace (home or parent of home)".to_string());
+        return Err(
+            "This directory cannot be used as a workspace (home or parent of home)".to_string(),
+        );
     }
     let app_config_dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
     let state = app
@@ -1445,11 +1526,19 @@ fn cmd_workspace_add(app: AppHandle, path: String) -> Result<(), String> {
     let canonical = path_buf.canonicalize().map_err(|e| e.to_string())?;
     let path_str = canonical.display().to_string();
     if guard.workspace_directories.iter().any(|w| {
-        PathBuf::from(&w.path).canonicalize().as_ref().map(|p| p == &canonical).unwrap_or(false)
+        PathBuf::from(&w.path)
+            .canonicalize()
+            .as_ref()
+            .map(|p| p == &canonical)
+            .unwrap_or(false)
     }) {
         return Err("This workspace is already added".to_string());
     }
-    let name = path_buf.file_name().and_then(|n| n.to_str()).unwrap_or("Workspace").to_string();
+    let name = path_buf
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("Workspace")
+        .to_string();
     let id = uuid::Uuid::new_v4().to_string();
     guard.workspace_directories.push(WorkspaceDirectory {
         id: id.clone(),
@@ -1537,12 +1626,21 @@ fn cmd_plugin_capabilities(
 fn cmd_models_list() -> Vec<(String, String)> {
     vec![
         (String::new(), "— Select model —".to_string()),
-        ("gemini-2.5-flash".to_string(), "Gemini 2.5 Flash (Default)".to_string()),
+        (
+            "gemini-2.5-flash".to_string(),
+            "Gemini 2.5 Flash (Default)".to_string(),
+        ),
         ("gemini-2.5-pro".to_string(), "Gemini 2.5 Pro".to_string()),
-        ("gemini-1.5-flash".to_string(), "Gemini 1.5 Flash".to_string()),
+        (
+            "gemini-1.5-flash".to_string(),
+            "Gemini 1.5 Flash".to_string(),
+        ),
         ("gpt-4.1-mini".to_string(), "GPT-4.1 Mini".to_string()),
         ("gpt-4o-mini".to_string(), "GPT-4o Mini".to_string()),
-        ("claude-3.5-sonnet-latest".to_string(), "Claude 3.5 Sonnet (Latest)".to_string()),
+        (
+            "claude-3.5-sonnet-latest".to_string(),
+            "Claude 3.5 Sonnet (Latest)".to_string(),
+        ),
         ("grok-4.1-fast".to_string(), "Grok 4.1 Fast".to_string()),
         ("grok-3-mini".to_string(), "Grok 3 Mini".to_string()),
     ]
@@ -1576,8 +1674,7 @@ async fn cmd_llm_invoke(
             let api_key = std::env::var("GOOGLE_API_KEY")
                 .or_else(|_| std::env::var("GEMINI_API_KEY"))
                 .map_err(|_| "GOOGLE_API_KEY or GEMINI_API_KEY not set".to_string())?;
-            let client = HttpClient::for_tool(NetworkTool::Gemini)
-                .map_err(|e| e.message)?;
+            let client = HttpClient::for_tool(NetworkTool::Gemini).map_err(|e| e.message)?;
             let request = GeminiChatRequest {
                 contents: vec![serde_json::json!({"parts": [{"text": task}]})],
                 generation_config: None,
@@ -1647,8 +1744,8 @@ async fn cmd_llm_invoke(
             }
         }
         "grok" => {
-            let api_key = std::env::var("XAI_API_KEY")
-                .map_err(|_| "XAI_API_KEY not set".to_string())?;
+            let api_key =
+                std::env::var("XAI_API_KEY").map_err(|_| "XAI_API_KEY not set".to_string())?;
             let client = HttpClient::for_tool(NetworkTool::Grok).map_err(|e| e.message)?;
             let request = GrokChatRequest {
                 model: model_id.clone(),
@@ -1669,7 +1766,9 @@ async fn cmd_llm_invoke(
                 Err(e) => (String::new(), 0, Some(e.message)),
             }
         }
-        _ => return Err("Unsupported model (provider not openai/gemini/anthropic/grok)".to_string()),
+        _ => {
+            return Err("Unsupported model (provider not openai/gemini/anthropic/grok)".to_string())
+        }
     };
 
     let latency_ms = start.elapsed().as_millis() as u64;
@@ -1757,7 +1856,8 @@ fn cmd_scrub_payload_for_llm(
     opts.normalize_paths = workspace_root.is_some();
     opts.workspace_root = workspace_root;
     let sid = session_id.as_deref().unwrap_or("");
-    let (result, audit_entry) = prompt_sanitizer::scrub_for_llm_call_audit(&raw_payload, &opts, sid);
+    let (result, audit_entry) =
+        prompt_sanitizer::scrub_for_llm_call_audit(&raw_payload, &opts, sid);
     if let Ok(app_config_dir) = app.path().app_config_dir() {
         let _ = oxcer::scrubbing_log::append(&app_config_dir, &audit_entry);
     }
@@ -1782,20 +1882,24 @@ fn cmd_agent_step(
     let (default_ws_id, default_ws_root) = default_workspace_from_app(&app);
     let context_workspace_id = input.context.workspace_id.clone();
 
-    let action = if let (Some(result), Some(session)) = (last_result.as_ref(), store.get(&session_id)) {
+    let action = if let (Some(result), Some(session)) =
+        (last_result.as_ref(), store.get(&session_id))
+    {
         let out = next_action(session, Some(result.clone())).map_err(|e| e.to_string())?;
         match &out {
             OrchestratorAction::ToolCall { session: s, .. }
-            | OrchestratorAction::AwaitingApproval { session: s, .. } => store.insert(session_id.clone(), s.clone()),
+            | OrchestratorAction::AwaitingApproval { session: s, .. } => {
+                store.insert(session_id.clone(), s.clone())
+            }
             OrchestratorAction::Complete { session: s, .. } => {
                 store.remove(&session_id);
             }
         }
         out
     } else if last_result.is_none() {
-    let capabilities = app
-        .try_state::<Mutex<oxcer_core::plugins::CapabilityRegistry>>()
-        .and_then(|state| state.lock().ok().map(|guard| guard.list().to_vec()));
+        let capabilities = app
+            .try_state::<Mutex<oxcer_core::plugins::CapabilityRegistry>>()
+            .and_then(|state| state.lock().ok().map(|guard| guard.list().to_vec()));
         let input_with_task = RouterInput {
             task_description: task.clone(),
             capabilities: capabilities.or(input.capabilities),
@@ -1821,18 +1925,16 @@ fn cmd_agent_step(
         ) {
             let input_length_chars = task.len();
             let tokens_in_approx = (input_length_chars / 4).max(1) as u32;
-            let selected_model = app
-                .try_state::<Mutex<AppSettings>>()
-                .and_then(|state| {
-                    state.lock().ok().and_then(|guard| {
-                        let id = guard.default_model_id.clone();
-                        if id.is_empty() {
-                            None
-                        } else {
-                            Some(id)
-                        }
-                    })
-                });
+            let selected_model = app.try_state::<Mutex<AppSettings>>().and_then(|state| {
+                state.lock().ok().and_then(|guard| {
+                    let id = guard.default_model_id.clone();
+                    if id.is_empty() {
+                        None
+                    } else {
+                        Some(id)
+                    }
+                })
+            });
             let details = serde_json::json!({
                 "category": category_for_log(router_output.category),
                 "strategy": strategy_for_log(router_output.strategy),
@@ -1861,20 +1963,23 @@ fn cmd_agent_step(
 
         match &action {
             OrchestratorAction::ToolCall { session: s, .. }
-            | OrchestratorAction::AwaitingApproval { session: s, .. } => store.insert(session_id.clone(), s.clone()),
+            | OrchestratorAction::AwaitingApproval { session: s, .. } => {
+                store.insert(session_id.clone(), s.clone())
+            }
             OrchestratorAction::Complete { .. } => {}
         }
         action
     } else {
-        return Err("Missing session for this session_id; start a new run without last_result.".to_string());
+        return Err(
+            "Missing session for this session_id; start a new run without last_result.".to_string(),
+        );
     };
 
     // Persist agent session log when complete (for explainability and evaluation).
     if let OrchestratorAction::Complete { session, .. } = &action {
-        if let (Some(router_decision), Ok(app_config_dir)) = (
-            session.router_output.as_ref(),
-            app.path().app_config_dir(),
-        ) {
+        if let (Some(router_decision), Ok(app_config_dir)) =
+            (session.router_output.as_ref(), app.path().app_config_dir())
+        {
             let workspace_id = context_workspace_id
                 .as_deref()
                 .or(default_ws_id.as_deref())
@@ -1882,7 +1987,10 @@ fn cmd_agent_step(
             let selected_model = app
                 .try_state::<Mutex<AppSettings>>()
                 .and_then(|state| {
-                    state.lock().ok().map(|guard| guard.default_model_id.clone())
+                    state
+                        .lock()
+                        .ok()
+                        .map(|guard| guard.default_model_id.clone())
                 })
                 .filter(|s| !s.is_empty());
             let log = AgentSessionLog::from_completed_session(
@@ -1900,7 +2008,13 @@ fn cmd_agent_step(
             let outcome = session
                 .accumulated_response
                 .as_deref()
-                .map_or("success", |r| if r.starts_with("Error:") { "error" } else { "success" });
+                .map_or("success", |r| {
+                    if r.starts_with("Error:") {
+                        "error"
+                    } else {
+                        "success"
+                    }
+                });
             let details = serde_json::json!({
                 "outcome": outcome,
                 "category": category_for_log(router_decision.category),
@@ -1927,7 +2041,11 @@ fn cmd_agent_step(
                     let tool_ok = session
                         .tool_traces
                         .iter()
-                        .filter(|t| !t.result_summary.as_deref().map_or(false, |s| s.starts_with("Error")))
+                        .filter(|t| {
+                            !t.result_summary
+                                .as_deref()
+                                .map_or(false, |s| s.starts_with("Error"))
+                        })
                         .count();
                     let tool_success_rate = if tool_total > 0 {
                         (tool_ok as f64) / (tool_total as f64)
@@ -2005,7 +2123,8 @@ fn main() {
         .setup(|app| {
             let handle = app.handle();
             let app_config_dir = handle.path().app_config_dir().expect("app_config_dir");
-            std::fs::create_dir_all(&app_config_dir).expect("failed to create app config directory");
+            std::fs::create_dir_all(&app_config_dir)
+                .expect("failed to create app config directory");
             let loaded = settings_load(&app_config_dir);
             if let Some(state) = handle.try_state::<Mutex<AppSettings>>() {
                 *state.lock().expect("settings lock") = loaded;
@@ -2013,17 +2132,15 @@ fn main() {
 
             // Sprint 9: Load plugins, merge into catalog, init policy with plugin rules
             let plugins_dir = app_config_dir.join("plugins");
-            let descriptors = match load_plugins_from_dir_with_telemetry(
-                &plugins_dir,
-                &app_config_dir,
-                "system",
-            ) {
-                Ok(d) => d,
-                Err(e) => {
-                    eprintln!("[plugins] load failed: {}", e);
-                    vec![]
-                }
-            };
+            let descriptors =
+                match load_plugins_from_dir_with_telemetry(&plugins_dir, &app_config_dir, "system")
+                {
+                    Ok(d) => d,
+                    Err(e) => {
+                        eprintln!("[plugins] load failed: {}", e);
+                        vec![]
+                    }
+                };
             let plugin_rules = plugin_rules_from_descriptors(&descriptors);
             let base_yaml = include_str!("../../../../oxcer-core/policies/default.yaml");
             let base_config = load_from_yaml(base_yaml.as_bytes());
@@ -2040,9 +2157,7 @@ fn main() {
 
             // App menu: Oxcer (Quit); in debug builds also View -> Toggle Developer Tools
             let quit = PredefinedMenuItem::quit(handle, None)?;
-            let app_sub = SubmenuBuilder::new(handle, "Oxcer")
-                .item(&quit)
-                .build()?;
+            let app_sub = SubmenuBuilder::new(handle, "Oxcer").item(&quit).build()?;
 
             #[cfg(debug_assertions)]
             {
@@ -2053,8 +2168,9 @@ fn main() {
                     true,
                     Some("CmdOrCtrl+Shift+I"),
                 )?;
-                let view_sub =
-                    SubmenuBuilder::new(handle, "View").item(&devtools_item).build()?;
+                let view_sub = SubmenuBuilder::new(handle, "View")
+                    .item(&devtools_item)
+                    .build()?;
                 let menu = MenuBuilder::new(handle)
                     .items(&[&app_sub, &view_sub])
                     .build()?;
@@ -2085,14 +2201,12 @@ fn main() {
         .register_uri_scheme_protocol("oxcer", |_ctx, request| {
             let path = request.uri().path();
             let (status, body, content_type) = match path {
-                "/main" | "main" | "/" | "" => {
-                    (StatusCode::OK, DASHBOARD_HTML.as_bytes().to_vec(), "text/html; charset=utf-8")
-                }
-                _ => (
-                    StatusCode::NOT_FOUND,
-                    b"Not Found".to_vec(),
-                    "text/plain",
+                "/main" | "main" | "/" | "" => (
+                    StatusCode::OK,
+                    DASHBOARD_HTML.as_bytes().to_vec(),
+                    "text/html; charset=utf-8",
                 ),
+                _ => (StatusCode::NOT_FOUND, b"Not Found".to_vec(), "text/plain"),
             };
             Response::builder()
                 .status(status)

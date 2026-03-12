@@ -2,7 +2,9 @@
 //!
 //! Complements sprint8_telemetry_integration.rs with robustness checks.
 
-use oxcer_core::telemetry::{list_sessions_from_dir, load_session_log_from_dir, log_event, LogMetrics};
+use oxcer_core::telemetry::{
+    list_sessions_from_dir, load_session_log_from_dir, log_event, LogMetrics,
+};
 use std::fs;
 use std::path::Path;
 
@@ -21,7 +23,11 @@ fn list_sessions_skips_corrupted_lines_returns_valid_sessions() {
     let valid1 = r#"{"timestamp":"2025-01-01T00:00:01.000Z","session_id":"sprint-telemetry-edge","request_id":"r1","caller":"test","component":"router","action":"classify","metrics":{},"details":{}}"#;
     let corrupted = "{ invalid json }";
     let valid2 = r#"{"timestamp":"2025-01-01T00:00:02.000Z","session_id":"sprint-telemetry-edge","request_id":"r1","caller":"test","component":"orchestrator","action":"session_complete","decision":"success","metrics":{},"details":{"outcome":"success"}}"#;
-    fs::write(&session_path, format!("{}\n{}\n{}\n", valid1, corrupted, valid2)).unwrap();
+    fs::write(
+        &session_path,
+        format!("{}\n{}\n{}\n", valid1, corrupted, valid2),
+    )
+    .unwrap();
 
     let summaries = list_sessions_from_dir(app_config).unwrap();
     assert_eq!(summaries.len(), 1);

@@ -2,13 +2,13 @@
 //! Also contains the narration sanitizer, precondition guards, and all unit tests.
 
 use super::planning::{
-    do_expand_plan, start_session,
-    FS_RESULT_PLACEHOLDER, FILE_CONTENTS_PLACEHOLDER, MOST_RECENT_FILE_PLACEHOLDER,
+    do_expand_plan, start_session, FILE_CONTENTS_PLACEHOLDER, FS_RESULT_PLACEHOLDER,
+    MOST_RECENT_FILE_PLACEHOLDER,
 };
 use super::types::{
-    AgentConfig, AgentSessionState, AgentStepOutcome, AgentTaskInput, AgentTaskResult,
-    OrchestratorAction, SessionKind, SessionState, StepResult, TaskState,
-    ToolCallIntent, build_tool_trace, format_tool_call, intent_tool_name,
+    build_tool_trace, format_tool_call, intent_tool_name, AgentConfig, AgentSessionState,
+    AgentStepOutcome, AgentTaskInput, AgentTaskResult, OrchestratorAction, SessionKind,
+    SessionState, StepResult, TaskState, ToolCallIntent,
 };
 
 // -----------------------------------------------------------------------------
@@ -97,10 +97,7 @@ fn sanitize_llm_generate_output(raw: &str) -> Result<String, SanitizedError> {
 /// Note: this function inspects the ORIGINAL plan entry (before placeholder
 /// substitution), so the checks are accurate even when called before the
 /// substitution block runs.
-fn check_llm_generate_precondition(
-    session: &SessionState,
-    step_idx: usize,
-) -> Option<String> {
+fn check_llm_generate_precondition(session: &SessionState, step_idx: usize) -> Option<String> {
     let ToolCallIntent::LlmGenerate { task, .. } = session.plan.get(step_idx)? else {
         return None; // not an LlmGenerate step; no precondition to check
     };
@@ -227,9 +224,10 @@ pub fn next_action(
                             Err(e) => {
                                 session.state = TaskState::Complete;
                                 session.accumulated_response = Some(e.message.clone());
-                                session
-                                    .intermediate_observations
-                                    .push(format!("LlmGenerate sanitizer blocked narration: {}", e.message));
+                                session.intermediate_observations.push(format!(
+                                    "LlmGenerate sanitizer blocked narration: {}",
+                                    e.message
+                                ));
                                 return Ok(OrchestratorAction::Complete {
                                     response: e.message,
                                     session,
@@ -294,10 +292,7 @@ pub fn next_action(
             );
         }
         // ─────────────────────────────────────────────────────────────────────
-        return Ok(OrchestratorAction::ToolCall {
-            intent,
-            session,
-        });
+        return Ok(OrchestratorAction::ToolCall { intent, session });
     }
 
     // More steps?
@@ -331,7 +326,10 @@ pub fn next_action(
             if rel_path.contains(MOST_RECENT_FILE_PLACEHOLDER) {
                 match session.last_dir_listing_sorted.first().cloned() {
                     Some(resolved) => {
-                        if let ToolCallIntent::FsReadFile { ref mut rel_path, .. } = intent {
+                        if let ToolCallIntent::FsReadFile {
+                            ref mut rel_path, ..
+                        } = intent
+                        {
                             *rel_path = rel_path.replace(MOST_RECENT_FILE_PLACEHOLDER, &resolved);
                         }
                     }
@@ -404,10 +402,7 @@ pub fn next_action(
         }
         // ─────────────────────────────────────────────────────────────────────
 
-        return Ok(OrchestratorAction::ToolCall {
-            intent,
-            session,
-        });
+        return Ok(OrchestratorAction::ToolCall { intent, session });
     }
 
     // No more steps
@@ -416,10 +411,7 @@ pub fn next_action(
         .accumulated_response
         .clone()
         .unwrap_or_else(|| "Done.".to_string());
-    Ok(OrchestratorAction::Complete {
-        response,
-        session,
-    })
+    Ok(OrchestratorAction::Complete { response, session })
 }
 
 fn build_agent_task_result(session: &SessionState) -> AgentTaskResult {
@@ -435,7 +427,11 @@ pub trait AgentToolExecutor {
     /// Execute one tool intent. Returns outcome or error.
     fn execute_tool(&self, intent: ToolCallIntent) -> Result<super::types::ToolOutcome, String>;
     /// Block until approval is resolved and return the execution result (or error if denied).
-    fn resolve_approval(&self, request_id: &str, approved: bool) -> Result<serde_json::Value, String>;
+    fn resolve_approval(
+        &self,
+        request_id: &str,
+        approved: bool,
+    ) -> Result<serde_json::Value, String>;
 }
 
 /// Agent step (API): one step of the orchestrator. Update session in place; return outcome.
@@ -477,7 +473,8 @@ pub fn agent_step(
         );
         *session = new_session;
         // ── Tracing: init outcome ─────────────────────────────────────────────
-        let first_desc = first_intent.as_ref()
+        let first_desc = first_intent
+            .as_ref()
             .map(|i| intent_tool_name(i))
             .unwrap_or_else(|| "none".to_string());
         agent_event!(INFO, session.session_id, "agent_step_init",
@@ -498,7 +495,12 @@ pub fn agent_step(
         match action {
             OrchestratorAction::Complete { session: s, .. } => {
                 *session = s;
-                agent_event!(INFO, session.session_id, "agent_step_done", outcome = "complete",);
+                agent_event!(
+                    INFO,
+                    session.session_id,
+                    "agent_step_done",
+                    outcome = "complete",
+                );
                 Ok(AgentStepOutcome::Complete(build_agent_task_result(session)))
             }
             OrchestratorAction::ToolCall { intent, session: s } => {
@@ -514,7 +516,10 @@ pub fn agent_step(
                     session: session.clone(),
                 })
             }
-            OrchestratorAction::AwaitingApproval { request_id, session: s } => {
+            OrchestratorAction::AwaitingApproval {
+                request_id,
+                session: s,
+            } => {
                 *session = s;
                 agent_event!(INFO, session.session_id, "agent_step_done",
                     outcome = "awaiting_approval",
@@ -556,9 +561,7 @@ pub fn agent_request(
             }
             AgentStepOutcome::AwaitingApproval { request_id, .. } => {
                 let resolved = executor.resolve_approval(&request_id, true)?;
-                last_result = Some(StepResult::Ok {
-                    payload: resolved,
-                });
+                last_result = Some(StepResult::Ok { payload: resolved });
             }
         }
     }
@@ -579,10 +582,7 @@ pub fn run_first_step(
     );
 
     if let Some(intent) = first_intent {
-        return Ok(OrchestratorAction::ToolCall {
-            intent,
-            session,
-        });
+        return Ok(OrchestratorAction::ToolCall { intent, session });
     }
 
     // Empty plan (e.g. tools_only with no heuristic steps)
@@ -597,11 +597,10 @@ pub fn run_first_step(
 mod tests {
     use super::*;
     use crate::orchestrator::{
-        start_session, do_expand_plan,
-        ExpansionKind, SessionKind, SessionState, TaskState, ToolCallIntent, StepResult,
-        OrchestratorAction, AgentStepOutcome, AgentConfig, AgentTaskInput,
-        SUMMARIZER_SYSTEM_HINT, FS_RESULT_PLACEHOLDER, FILE_CONTENTS_PLACEHOLDER,
-        MOST_RECENT_FILE_PLACEHOLDER,
+        do_expand_plan, start_session, AgentConfig, AgentStepOutcome, AgentTaskInput,
+        ExpansionKind, OrchestratorAction, SessionKind, SessionState, StepResult, TaskState,
+        ToolCallIntent, FILE_CONTENTS_PLACEHOLDER, FS_RESULT_PLACEHOLDER,
+        MOST_RECENT_FILE_PLACEHOLDER, SUMMARIZER_SYSTEM_HINT,
     };
     use crate::semantic_router::{RouterConfig, RouterInput, TaskContext};
 
@@ -613,15 +612,13 @@ mod tests {
             config: Default::default(),
             capabilities: None,
         };
-        let (session, first) = start_session(
-            "s1".to_string(),
-            input,
-            None,
-            None,
-        );
+        let (session, first) = start_session("s1".to_string(), input, None, None);
         assert_eq!(session.state, TaskState::Executing);
         assert_eq!(session.plan.len(), 1);
-        assert!(matches!(&session.plan[0], ToolCallIntent::LlmGenerate { .. }));
+        assert!(matches!(
+            &session.plan[0],
+            ToolCallIntent::LlmGenerate { .. }
+        ));
         assert!(first.is_some());
     }
 
@@ -749,7 +746,11 @@ mod tests {
         assert_eq!(session.state, TaskState::Executing);
         assert_eq!(session.plan.len(), 1);
         match &session.plan[0] {
-            ToolCallIntent::FsDelete { rel_path, workspace_id, .. } => {
+            ToolCallIntent::FsDelete {
+                rel_path,
+                workspace_id,
+                ..
+            } => {
                 assert_eq!(rel_path, "foo.txt");
                 assert_eq!(workspace_id, "ws1");
             }
@@ -862,7 +863,11 @@ mod tests {
             Some("ws1".to_string()),
             Some("/tmp".to_string()),
         );
-        assert_eq!(session.plan.len(), 2, "should have FsReadFile + LlmGenerate");
+        assert_eq!(
+            session.plan.len(),
+            2,
+            "should have FsReadFile + LlmGenerate"
+        );
         assert!(
             matches!(&session.plan[0], ToolCallIntent::FsReadFile { .. }),
             "step 0 should be FsReadFile, got {:?}",
@@ -897,7 +902,11 @@ mod tests {
             Some("ws1".to_string()),
             Some("/tmp/ws".to_string()),
         );
-        assert_eq!(session.plan.len(), 3, "should have FsListDir + FsReadFile + LlmGenerate");
+        assert_eq!(
+            session.plan.len(),
+            3,
+            "should have FsListDir + FsReadFile + LlmGenerate"
+        );
         assert!(
             matches!(&session.plan[0], ToolCallIntent::FsListDir { .. }),
             "step 0 should be FsListDir"
@@ -993,10 +1002,7 @@ mod tests {
             Some("ws1".to_string()),
             Some("/tmp/ws".to_string()),
         );
-        assert!(
-            session.plan.len() >= 1,
-            "plan must have at least one step"
-        );
+        assert!(session.plan.len() >= 1, "plan must have at least one step");
         assert!(
             matches!(&session.plan[0], ToolCallIntent::FsListDir { .. }),
             "step 0 should be FsListDir when no explicit path, got {:?}",
@@ -1116,19 +1122,32 @@ mod tests {
             session.plan
         );
         match &session.plan[0] {
-            ToolCallIntent::FsReadFile { workspace_root, rel_path, .. } => {
+            ToolCallIntent::FsReadFile {
+                workspace_root,
+                rel_path,
+                ..
+            } => {
                 assert!(
                     workspace_root.contains("Downloads"),
                     "workspace_root should be the Downloads directory, got {:?}",
                     workspace_root
                 );
-                assert_eq!(rel_path, "Test1_doc.md", "rel_path must be the bare filename");
+                assert_eq!(
+                    rel_path, "Test1_doc.md",
+                    "rel_path must be the bare filename"
+                );
             }
             other => panic!("step 0 should be FsReadFile, got {:?}", other),
         }
-        assert!(matches!(&session.plan[1], ToolCallIntent::LlmGenerate { .. }));
+        assert!(matches!(
+            &session.plan[1],
+            ToolCallIntent::LlmGenerate { .. }
+        ));
         assert!(matches!(first, Some(ToolCallIntent::FsReadFile { .. })));
-        assert!(session.pending_expansion.is_none(), "no expansion for single-file workflow");
+        assert!(
+            session.pending_expansion.is_none(),
+            "no expansion for single-file workflow"
+        );
     }
 
     /// Workflow 2: "Summarize the 20 Test2_doc reports in Downloads into one overview" →
@@ -1142,8 +1161,8 @@ mod tests {
     #[ignore = "Workflow 2 disabled for v0.1 — re-enable match arm in planning.rs first"]
     fn start_session_multi_file_summarize_builds_sentinel() {
         let input = RouterInput {
-            task_description:
-                "Summarize the 20 Test2_doc reports in Downloads into one overview".to_string(),
+            task_description: "Summarize the 20 Test2_doc reports in Downloads into one overview"
+                .to_string(),
             context: TaskContext::default(),
             config: RouterConfig::default(),
             capabilities: None,
@@ -1160,7 +1179,10 @@ mod tests {
             "sentinel plan should have [FsListDir, LlmGenerate], got {:?}",
             session.plan
         );
-        assert!(matches!(&session.plan[0], ToolCallIntent::FsListDir { .. }), "step 0 = FsListDir");
+        assert!(
+            matches!(&session.plan[0], ToolCallIntent::FsListDir { .. }),
+            "step 0 = FsListDir"
+        );
         match &session.plan[1] {
             ToolCallIntent::LlmGenerate { task, .. } => {
                 assert!(
@@ -1212,13 +1234,18 @@ mod tests {
             "sentinel plan should have [FsListDir, LlmGenerate], got {:?}",
             session.plan
         );
-        assert!(matches!(&session.plan[0], ToolCallIntent::FsListDir { workspace_root, .. }
+        assert!(
+            matches!(&session.plan[0], ToolCallIntent::FsListDir { workspace_root, .. }
             if workspace_root.contains("Downloads")),
             "FsListDir must target Downloads"
         );
         assert!(matches!(first, Some(ToolCallIntent::FsListDir { .. })));
         match &session.pending_expansion {
-            Some(ExpansionKind::MoveToDir { dest_rel_dir, dest_workspace_root, .. }) => {
+            Some(ExpansionKind::MoveToDir {
+                dest_rel_dir,
+                dest_workspace_root,
+                ..
+            }) => {
                 assert_eq!(dest_rel_dir, "Test_folder", "dest folder name preserved");
                 assert!(
                     dest_workspace_root.contains("Desktop"),
@@ -1252,8 +1279,12 @@ mod tests {
         ];
         session.step_index = 1;
         session.confirmed_root = Some(ws_root.clone());
-        session.last_dir_listing_sorted =
-            vec!["a.md".to_string(), "b.txt".to_string(), ".hidden".to_string(), "image.png".to_string()];
+        session.last_dir_listing_sorted = vec![
+            "a.md".to_string(),
+            "b.txt".to_string(),
+            ".hidden".to_string(),
+            "image.png".to_string(),
+        ];
 
         let expansion = ExpansionKind::ReadAndSummarize { file_filter: None };
         do_expand_plan(&mut session, expansion);
@@ -1268,7 +1299,11 @@ mod tests {
         );
         assert!(matches!(&session.plan[0], ToolCallIntent::FsListDir { .. }));
         match &session.plan[1] {
-            ToolCallIntent::FsReadFile { rel_path, workspace_root: wr, .. } => {
+            ToolCallIntent::FsReadFile {
+                rel_path,
+                workspace_root: wr,
+                ..
+            } => {
                 assert_eq!(rel_path, "a.md");
                 assert_eq!(wr, &ws_root);
             }
@@ -1278,7 +1313,10 @@ mod tests {
             ToolCallIntent::FsReadFile { rel_path, .. } => assert_eq!(rel_path, "b.txt"),
             other => panic!("plan[2] should be FsReadFile(b.txt), got {:?}", other),
         }
-        assert!(matches!(&session.plan[3], ToolCallIntent::LlmGenerate { .. }));
+        assert!(matches!(
+            &session.plan[3],
+            ToolCallIntent::LlmGenerate { .. }
+        ));
     }
 
     /// `do_expand_plan` with MoveToDir: inserts [FsCreateDir, FsMove×N] before sentinel LlmGenerate.
@@ -1303,8 +1341,11 @@ mod tests {
         ];
         session.step_index = 1;
         session.confirmed_root = Some(src_root.clone());
-        session.last_dir_listing_sorted =
-            vec!["file1.md".to_string(), "file2.md".to_string(), "other.png".to_string()];
+        session.last_dir_listing_sorted = vec![
+            "file1.md".to_string(),
+            "file2.md".to_string(),
+            "other.png".to_string(),
+        ];
 
         let expansion = ExpansionKind::MoveToDir {
             dest_workspace_id: "ws1".to_string(),
@@ -1323,14 +1364,24 @@ mod tests {
         );
         assert!(matches!(&session.plan[0], ToolCallIntent::FsListDir { .. }));
         match &session.plan[1] {
-            ToolCallIntent::FsCreateDir { workspace_root: wr, rel_path, .. } => {
+            ToolCallIntent::FsCreateDir {
+                workspace_root: wr,
+                rel_path,
+                ..
+            } => {
                 assert_eq!(wr, &dest_root);
                 assert_eq!(rel_path, "MyFolder");
             }
             other => panic!("plan[1] should be FsCreateDir, got {:?}", other),
         }
         match &session.plan[2] {
-            ToolCallIntent::FsMove { workspace_root: sr, rel_path, dest_workspace_root: dr, dest_rel_path, .. } => {
+            ToolCallIntent::FsMove {
+                workspace_root: sr,
+                rel_path,
+                dest_workspace_root: dr,
+                dest_rel_path,
+                ..
+            } => {
                 assert_eq!(sr, &src_root);
                 assert_eq!(rel_path, "file1.md");
                 assert_eq!(dr, &dest_root);
@@ -1339,13 +1390,20 @@ mod tests {
             other => panic!("plan[2] should be FsMove(file1.md), got {:?}", other),
         }
         match &session.plan[3] {
-            ToolCallIntent::FsMove { rel_path, dest_rel_path, .. } => {
+            ToolCallIntent::FsMove {
+                rel_path,
+                dest_rel_path,
+                ..
+            } => {
                 assert_eq!(rel_path, "file2.md");
                 assert_eq!(dest_rel_path, "MyFolder/file2.md");
             }
             other => panic!("plan[3] should be FsMove(file2.md), got {:?}", other),
         }
-        assert!(matches!(&session.plan[4], ToolCallIntent::LlmGenerate { .. }));
+        assert!(matches!(
+            &session.plan[4],
+            ToolCallIntent::LlmGenerate { .. }
+        ));
     }
 
     /// After two FsReadFile results, `content_accumulator` has 2 entries and the final
@@ -1393,7 +1451,11 @@ mod tests {
             OrchestratorAction::ToolCall { session: s, .. } => s,
             other => panic!("expected ToolCall after first read, got {:?}", other),
         };
-        assert_eq!(session2.content_accumulator.len(), 1, "one file read so far");
+        assert_eq!(
+            session2.content_accumulator.len(),
+            1,
+            "one file read so far"
+        );
         assert_eq!(session2.content_accumulator[0], "Content of file A");
 
         // Simulate FsReadFile(b.md) result
@@ -1414,8 +1476,14 @@ mod tests {
                             !task.contains(FILE_CONTENTS_PLACEHOLDER),
                             "placeholder must be substituted"
                         );
-                        assert!(task.contains("Content of file A"), "file A content must appear");
-                        assert!(task.contains("Content of file B"), "file B content must appear");
+                        assert!(
+                            task.contains("Content of file A"),
+                            "file A content must appear"
+                        );
+                        assert!(
+                            task.contains("Content of file B"),
+                            "file B content must appear"
+                        );
                         assert!(task.contains("---"), "separator between files must appear");
                     }
                     other => panic!("expected LlmGenerate, got {:?}", other),
@@ -1508,22 +1576,23 @@ mod tests {
         .unwrap();
 
         match action {
-            OrchestratorAction::ToolCall { intent, .. } => {
-                match intent {
-                    ToolCallIntent::LlmGenerate { task, .. } => {
-                        assert!(
-                            !task.contains(FILE_CONTENTS_PLACEHOLDER),
-                            "placeholder must be substituted"
-                        );
-                        assert!(
-                            task.contains("Real file content."),
-                            "real content must appear in the task"
-                        );
-                    }
-                    other => panic!("expected LlmGenerate, got {:?}", other),
+            OrchestratorAction::ToolCall { intent, .. } => match intent {
+                ToolCallIntent::LlmGenerate { task, .. } => {
+                    assert!(
+                        !task.contains(FILE_CONTENTS_PLACEHOLDER),
+                        "placeholder must be substituted"
+                    );
+                    assert!(
+                        task.contains("Real file content."),
+                        "real content must appear in the task"
+                    );
                 }
-            }
-            other => panic!("guard should not have fired; expected ToolCall, got {:?}", other),
+                other => panic!("expected LlmGenerate, got {:?}", other),
+            },
+            other => panic!(
+                "guard should not have fired; expected ToolCall, got {:?}",
+                other
+            ),
         }
     }
 

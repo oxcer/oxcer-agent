@@ -5,8 +5,8 @@
 //! Manual QA: In the Launcher dashboard, open "Recent Sessions", confirm the list
 //! loads and that filtering by component and decision works.
 
-use oxcer_core::telemetry::{log_event, LogMetrics};
 use oxcer::telemetry_viewer;
+use oxcer_core::telemetry::{log_event, LogMetrics};
 
 const SESSION_ID: &str = "sprint8-recent";
 

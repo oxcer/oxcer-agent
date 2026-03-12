@@ -47,21 +47,19 @@ macro_rules! agent_event {
 
 // ── Submodules (implementation detail — not part of the external API) ─────────
 
-mod types;
-mod planning;
 mod execution;
+mod planning;
+mod types;
 
 // ── Public API re-exports ──────────────────────────────────────────────────────
 
 pub use types::{
     AgentConfig, AgentSessionState, AgentStepOutcome, AgentTaskInput, AgentTaskResult,
-    ExpansionKind, OrchestratorAction, PolicyDecisionKind, SessionKind, SessionState,
-    StepResult, TaskState, ToolCallIntent, ToolOutcome, ToolTrace,
+    ExpansionKind, OrchestratorAction, PolicyDecisionKind, SessionKind, SessionState, StepResult,
+    TaskState, ToolCallIntent, ToolOutcome, ToolTrace,
 };
 
-pub use execution::{
-    agent_request, agent_step, run_first_step, AgentToolExecutor,
-};
+pub use execution::{agent_request, agent_step, run_first_step, AgentToolExecutor};
 
 pub use planning::start_session;
 
@@ -72,9 +70,6 @@ pub use execution::next_action;
 
 #[cfg(test)]
 pub(crate) use planning::{
-    do_expand_plan,
-    FS_RESULT_PLACEHOLDER,
-    FILE_CONTENTS_PLACEHOLDER,
-    MOST_RECENT_FILE_PLACEHOLDER,
+    do_expand_plan, FILE_CONTENTS_PLACEHOLDER, FS_RESULT_PLACEHOLDER, MOST_RECENT_FILE_PLACEHOLDER,
     SUMMARIZER_SYSTEM_HINT,
 };

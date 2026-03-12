@@ -44,11 +44,12 @@ impl TerminalExecutor {
     ) -> Result<String, TerminalError> {
         // Compile the regex once per process (OnceLock = zero-cost after first call).
         static ACTION_RE: OnceLock<Regex> = OnceLock::new();
-        let re = ACTION_RE.get_or_init(|| {
-            Regex::new(r"(?i)Action:\s*(\S+)").expect("hardcoded regex is valid")
-        });
+        let re = ACTION_RE
+            .get_or_init(|| Regex::new(r"(?i)Action:\s*(\S+)").expect("hardcoded regex is valid"));
 
-        let cap = re.captures(llm_output).ok_or(TerminalError::NoActionFound)?;
+        let cap = re
+            .captures(llm_output)
+            .ok_or(TerminalError::NoActionFound)?;
         let action = cap.get(1).unwrap().as_str();
 
         match action.to_lowercase().as_str() {
@@ -99,7 +100,10 @@ mod tests {
         let result = TerminalExecutor::execute_llm_action("Action: ls", None);
         assert!(result.is_ok(), "ls should succeed: {result:?}");
         let out = result.unwrap();
-        assert!(out.starts_with("[LS_OUTPUT:"), "expected prefix, got: {out}");
+        assert!(
+            out.starts_with("[LS_OUTPUT:"),
+            "expected prefix, got: {out}"
+        );
         assert!(out.ends_with(']'), "expected closing bracket, got: {out}");
     }
 
@@ -113,8 +117,7 @@ mod tests {
     fn ls_with_explicit_dir() {
         let dir = std::env::temp_dir();
         let dir_str = dir.to_string_lossy();
-        let result =
-            TerminalExecutor::execute_llm_action("Action: ls", Some(dir_str.as_ref()));
+        let result = TerminalExecutor::execute_llm_action("Action: ls", Some(dir_str.as_ref()));
         assert!(result.is_ok(), "ls /tmp should succeed: {result:?}");
         let out = result.unwrap();
         assert!(out.starts_with("[LS_OUTPUT:"), "{out}");
@@ -144,7 +147,10 @@ mod tests {
     fn prose_before_action_is_ignored() {
         let llm_output = "I will now list the files.\nThought: I should use ls.\nAction: ls";
         let result = TerminalExecutor::execute_llm_action(llm_output, None);
-        assert!(result.is_ok(), "should parse action from multi-line output: {result:?}");
+        assert!(
+            result.is_ok(),
+            "should parse action from multi-line output: {result:?}"
+        );
     }
 
     #[test]

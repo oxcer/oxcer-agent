@@ -93,9 +93,8 @@ pub fn call_openai_completions_blocking(
         )));
     }
 
-    let parsed: OpenAiChatResponse = serde_json::from_str(&body).map_err(|e| {
-        LlmError::GenerationFailed(format!("OpenAI response parse error: {}", e))
-    })?;
+    let parsed: OpenAiChatResponse = serde_json::from_str(&body)
+        .map_err(|e| LlmError::GenerationFailed(format!("OpenAI response parse error: {}", e)))?;
 
     let text = parsed
         .choices

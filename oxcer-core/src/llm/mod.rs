@@ -10,16 +10,16 @@
 mod bootstrap;
 mod config;
 mod downloader;
-mod hybrid;
 mod http_backend;
+mod hybrid;
 mod local_phi3;
 mod model_downloader;
 
 pub use bootstrap::create_engine_for_profile;
 pub use config::{load_llm_profiles, load_models_config, LlmProfilesConfig, ModelsConfig};
 pub use downloader::{download_file, DownloadProgressCallback};
-pub use hybrid::HybridEngine;
 pub use http_backend::{CloudLlmEngine, HttpLlmConfig, HttpLlmEngine};
+pub use hybrid::HybridEngine;
 pub use local_phi3::LocalPhi3Engine;
 pub use model_downloader::{ensure_model_present, DownloadProgress};
 

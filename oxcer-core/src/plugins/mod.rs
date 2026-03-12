@@ -21,17 +21,11 @@ pub fn matching_ids_for_task(capabilities: &[ToolCapability], task: &str) -> Vec
     for (_i, cap) in capabilities.iter().enumerate() {
         let id = cap.id.as_str();
         if let Some(ref hint) = cap.category_hint {
-            by_category
-                .entry(hint.to_lowercase())
-                .or_default()
-                .push(id);
+            by_category.entry(hint.to_lowercase()).or_default().push(id);
         }
         if let Some(ref tags) = cap.tags {
             for tag in tags {
-                by_tag
-                    .entry(tag.to_lowercase())
-                    .or_default()
-                    .push(id);
+                by_tag.entry(tag.to_lowercase()).or_default().push(id);
             }
         }
     }

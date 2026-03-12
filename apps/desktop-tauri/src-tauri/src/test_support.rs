@@ -5,8 +5,8 @@
 
 use std::sync::Mutex;
 
-use tauri::Manager;
 use tauri::test::{mock_context, noop_assets};
+use tauri::Manager;
 
 use crate::router::PendingApprovalsStore;
 use crate::settings::{load as settings_load, AppSettings};

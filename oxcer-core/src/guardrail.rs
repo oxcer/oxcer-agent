@@ -103,7 +103,9 @@ pub fn validate_action_selection(output: &str) -> Result<ActionSpec, AgenticErro
                     "read_document requires a path argument".to_string(),
                 ));
             }
-            Ok(ActionSpec::Tool(ToolCall::ReadDocument(PathBuf::from(rest))))
+            Ok(ActionSpec::Tool(ToolCall::ReadDocument(PathBuf::from(
+                rest,
+            ))))
         }
 
         "move_file" => {
@@ -267,8 +269,7 @@ mod tests {
 
     #[test]
     fn move_file_pipe_format() {
-        let spec =
-            validate_action_selection("move_file docs/old.txt | docs/new.txt").unwrap();
+        let spec = validate_action_selection("move_file docs/old.txt | docs/new.txt").unwrap();
         if let ActionSpec::Tool(ToolCall::MoveFile { source, dest }) = spec {
             assert_eq!(source, PathBuf::from("docs/old.txt"));
             assert_eq!(dest, PathBuf::from("docs/new.txt"));

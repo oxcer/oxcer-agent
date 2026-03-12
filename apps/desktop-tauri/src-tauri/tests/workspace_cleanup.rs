@@ -10,9 +10,7 @@ use std::sync::Mutex;
 use oxcer::commands::workspace_cleanup_impl;
 use oxcer::router::{PendingApprovalsStore, PendingOperation};
 use oxcer::settings::{save as settings_save, AppSettings, WorkspaceDirectory};
-use oxcer_core::security::policy_engine::{
-    Operation, PolicyCaller, PolicyTarget, ToolType,
-};
+use oxcer_core::security::policy_engine::{Operation, PolicyCaller, PolicyTarget, ToolType};
 
 const WORKSPACE_ID: &str = "ws-cleanup-test";
 
@@ -55,23 +53,24 @@ fn workspace_cleanup_removes_workspace_and_pending_approvals() {
     settings_save(app_config_path, &*state.lock().unwrap()).expect("save config");
 
     let mut emitted = None;
-    workspace_cleanup_impl(
-        app_config_path,
-        &state,
-        Some(&store),
-        WORKSPACE_ID,
-        |id| {
-            emitted = Some(id.to_string());
-        },
-    )
+    workspace_cleanup_impl(app_config_path, &state, Some(&store), WORKSPACE_ID, |id| {
+        emitted = Some(id.to_string());
+    })
     .expect("cleanup");
 
-    assert_eq!(emitted.as_deref(), Some(WORKSPACE_ID), "emit callback should run");
+    assert_eq!(
+        emitted.as_deref(),
+        Some(WORKSPACE_ID),
+        "emit callback should run"
+    );
 
     {
         let guard = state.lock().unwrap();
         assert!(
-            !guard.workspace_directories.iter().any(|w| w.id == WORKSPACE_ID),
+            !guard
+                .workspace_directories
+                .iter()
+                .any(|w| w.id == WORKSPACE_ID),
             "workspace should be removed from settings"
         );
     }

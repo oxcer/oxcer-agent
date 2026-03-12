@@ -67,11 +67,7 @@ fn safe_max_tokens(prompt_tokens: usize, requested_max_tokens: usize) -> Result<
 pub trait PhiRuntime: Send + Sync {
     /// Generate token ids from input ids. Called by [super::LocalPhi3Engine] after tokenizing.
     /// Real runtimes (llama.cpp, ONNX) implement this method.
-    fn generate(
-        &self,
-        input_ids: &[u32],
-        params: &GenerationParams,
-    ) -> Result<Vec<u32>, LlmError>;
+    fn generate(&self, input_ids: &[u32], params: &GenerationParams) -> Result<Vec<u32>, LlmError>;
 
     /// Optional direct-text path: return a complete response string, bypassing the
     /// tokenize → generate → detokenize round-trip.
@@ -98,11 +94,7 @@ pub trait PhiRuntime: Send + Sync {
 pub struct StubPhiRuntime;
 
 impl PhiRuntime for StubPhiRuntime {
-    fn generate(
-        &self,
-        input_ids: &[u32],
-        params: &GenerationParams,
-    ) -> Result<Vec<u32>, LlmError> {
+    fn generate(&self, input_ids: &[u32], params: &GenerationParams) -> Result<Vec<u32>, LlmError> {
         let _ = (input_ids, params);
         Ok(vec![])
     }
@@ -291,15 +283,13 @@ impl LlamaCppPhiRuntime {
 
         // Initialise llama.cpp global state (Metal device discovery, thread pools, etc.).
         // Stored in struct so it lives exactly as long as the model.
-        let backend = LlamaBackend::init().map_err(|e| {
-            LlmError::Config(format!("llama.cpp backend init failed: {e}"))
-        })?;
+        let backend = LlamaBackend::init()
+            .map_err(|e| LlmError::Config(format!("llama.cpp backend init failed: {e}")))?;
 
-        let model_params = LlamaModelParams::default()
-            .with_n_gpu_layers(99); // 0 = CPU-only (for debugging)
+        let model_params = LlamaModelParams::default().with_n_gpu_layers(99); // 0 = CPU-only (for debugging)
 
-        let model = LlamaModel::load_from_file(&backend, model_path, &model_params)
-            .map_err(|e| {
+        let model =
+            LlamaModel::load_from_file(&backend, model_path, &model_params).map_err(|e| {
                 LlmError::Config(format!(
                     "GGUF load failed for {:?}: {}\n\
                      Ensure the file is a Llama-3 GGUF \
@@ -332,9 +322,8 @@ fn check_gguf_magic(path: &Path) -> Result<(), LlmError> {
     })?;
 
     let mut magic = [0u8; 4];
-    f.read_exact(&mut magic).map_err(|e| {
-        LlmError::Config(format!("Cannot read model file {:?}: {}", path, e))
-    })?;
+    f.read_exact(&mut magic)
+        .map_err(|e| LlmError::Config(format!("Cannot read model file {:?}: {}", path, e)))?;
 
     if &magic != b"GGUF" {
         return Err(LlmError::Config(format!(
@@ -395,24 +384,20 @@ impl PhiRuntime for LlamaCppPhiRuntime {
 
         // Fresh context per call — independent KV cache, no cross-request state.
         // Llama-3-8B-Instruct supports an 8 192-token context window.
-        let ctx_params = LlamaContextParams::default()
-            .with_n_ctx(Some(NonZeroU32::new(8192).unwrap()));
+        let ctx_params =
+            LlamaContextParams::default().with_n_ctx(Some(NonZeroU32::new(8192).unwrap()));
 
         let mut ctx = self
             .model
             .new_context(&self.backend, ctx_params)
-            .map_err(|e| {
-                LlmError::GenerationFailed(format!("create_context failed: {e}"))
-            })?;
+            .map_err(|e| LlmError::GenerationFailed(format!("create_context failed: {e}")))?;
 
         // Tokenise using llama.cpp's internal GGUF vocabulary (not the HuggingFace tokenizer).
         // AddBos::Never — <|begin_of_text|> is already the first token in `formatted`.
         let tokens = self
             .model
             .str_to_token(&formatted, AddBos::Never)
-            .map_err(|e| {
-                LlmError::GenerationFailed(format!("tokenisation failed: {e}"))
-            })?;
+            .map_err(|e| LlmError::GenerationFailed(format!("tokenisation failed: {e}")))?;
 
         if tokens.is_empty() {
             return Ok(Some(String::new()));
@@ -482,9 +467,7 @@ impl PhiRuntime for LlamaCppPhiRuntime {
             let piece = self
                 .model
                 .token_to_piece(token, &mut utf8_dec, true, None)
-                .map_err(|e| {
-                    LlmError::GenerationFailed(format!("token_to_piece failed: {e}"))
-                })?;
+                .map_err(|e| LlmError::GenerationFailed(format!("token_to_piece failed: {e}")))?;
             text.push_str(&piece);
 
             // Stop-sequence check: truncate and stop if any sequence is matched.
@@ -503,9 +486,7 @@ impl PhiRuntime for LlamaCppPhiRuntime {
             batch.clear();
             batch
                 .add(token, n_cur, &[0], true)
-                .map_err(|e| {
-                    LlmError::GenerationFailed(format!("batch.add (gen) failed: {e}"))
-                })?;
+                .map_err(|e| LlmError::GenerationFailed(format!("batch.add (gen) failed: {e}")))?;
             n_cur += 1;
 
             ctx.decode(&mut batch).map_err(|e| {

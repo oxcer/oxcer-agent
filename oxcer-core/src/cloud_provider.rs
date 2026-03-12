@@ -14,10 +14,10 @@
 use serde::{Deserialize, Serialize};
 
 use crate::network::{
-    anthropic_client::{AnthropicMessagesRequest, call_anthropic_messages},
-    gemini_client::{GeminiChatRequest, call_gemini_chat},
-    grok_client::{GrokChatRequest, call_grok_chat},
-    openai_client::{OpenAIChatRequest, call_openai_chat},
+    anthropic_client::{call_anthropic_messages, AnthropicMessagesRequest},
+    gemini_client::{call_gemini_chat, GeminiChatRequest},
+    grok_client::{call_grok_chat, GrokChatRequest},
+    openai_client::{call_openai_chat, OpenAIChatRequest},
     HttpClient, NetworkTool,
 };
 
@@ -186,8 +186,16 @@ pub async fn test_provider_connection(provider: ProviderKind, api_key: &str) -> 
     };
 
     match result {
-        Ok(message) => ProviderTestResult { ok: true, provider, message },
-        Err(message) => ProviderTestResult { ok: false, provider, message },
+        Ok(message) => ProviderTestResult {
+            ok: true,
+            provider,
+            message,
+        },
+        Err(message) => ProviderTestResult {
+            ok: false,
+            provider,
+            message,
+        },
     }
 }
 

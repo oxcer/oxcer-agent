@@ -91,11 +91,7 @@ impl AgentFsm {
     }
 
     /// Run the FSM for `query` and return a plain-language answer.
-    pub fn run(
-        &self,
-        query: &str,
-        llm: &dyn LlmCallback,
-    ) -> Result<String, AgenticError> {
+    pub fn run(&self, query: &str, llm: &dyn LlmCallback) -> Result<String, AgenticError> {
         let mut state = AgentState::Init;
         let mut ctx = FsmContext {
             query: query.to_string(),
@@ -171,11 +167,9 @@ impl AgentFsm {
                     let primary_path: Option<PathBuf> = match &tool {
                         ToolCall::FsListDir(p)
                         | ToolCall::FsReadFile(p)
-                        | ToolCall::ReadDocument(p) => Some(
-                            self.executor
-                                .resolve_path(p)
-                                .unwrap_or_else(|_| p.clone()),
-                        ),
+                        | ToolCall::ReadDocument(p) => {
+                            Some(self.executor.resolve_path(p).unwrap_or_else(|_| p.clone()))
+                        }
                         _ => None,
                     };
 
@@ -223,10 +217,7 @@ impl AgentFsm {
                 }
 
                 AgentState::Finalize => {
-                    let prompt = build_finalize_prompt(
-                        &ctx.query,
-                        ctx.tool_output.as_deref(),
-                    );
+                    let prompt = build_finalize_prompt(&ctx.query, ctx.tool_output.as_deref());
                     let raw = llm.generate(&prompt);
                     let mut answer = guardrail::validate_final_answer(&raw)?;
 
@@ -267,8 +258,10 @@ fn build_action_selection_prompt(
     context_section: &str,
 ) -> String {
     let mut parts: Vec<String> = vec![
-        "You are a local OS Agent. You have authorization to read, move, and trash files.".to_string(),
-        "Output EXACTLY one line — the tool call or [NO_TOOL]. No explanation, no markdown.".to_string(),
+        "You are a local OS Agent. You have authorization to read, move, and trash files."
+            .to_string(),
+        "Output EXACTLY one line — the tool call or [NO_TOOL]. No explanation, no markdown."
+            .to_string(),
         String::new(),
         "Available tools:".to_string(),
         "  fs_list_dir <path>              — list directory contents".to_string(),
@@ -281,10 +274,13 @@ fn build_action_selection_prompt(
         String::new(),
         "Rules:".to_string(),
         "  - Do not apologize for modifying files. Execute the user's intent directly.".to_string(),
-        "  - When asked to summarize a document, call read_document first, then [NO_TOOL].".to_string(),
-        "    A <filename>.summary.md will be written automatically beside the source file.".to_string(),
+        "  - When asked to summarize a document, call read_document first, then [NO_TOOL]."
+            .to_string(),
+        "    A <filename>.summary.md will be written automatically beside the source file."
+            .to_string(),
         "  - move_file args are separated by ' | ' (space-pipe-space).".to_string(),
-        "  - Use absolute paths from [CONTEXT] when the user says 'Desktop', 'Downloads',".to_string(),
+        "  - Use absolute paths from [CONTEXT] when the user says 'Desktop', 'Downloads',"
+            .to_string(),
         "    'Documents', 'this file', or 'that file'.".to_string(),
         String::new(),
         format!("Query: {query}"),
@@ -635,7 +631,11 @@ mod tests {
     #[test]
     fn read_document_writes_summary_for_summarization_query() {
         let tmp = tempdir().unwrap();
-        fs::write(tmp.path().join("notes.txt"), "Meeting notes: decided on Q3 goals.").unwrap();
+        fs::write(
+            tmp.path().join("notes.txt"),
+            "Meeting notes: decided on Q3 goals.",
+        )
+        .unwrap();
         let fsm = setup_fsm(&tmp);
 
         let llm = ScriptedLlm::new(vec![
