@@ -35,6 +35,13 @@ pnpm-debug.log*
 .idea/
 *.swp
 
+# Xcode user data (workspace state, breakpoints, per-user settings)
+xcuserdata/
+*.xcuserstate
+*.xccheckout
+*.moved-aside
+DerivedData/
+
 # Misc build/tool caches
 .eslintcache
 .parcel-cache/
