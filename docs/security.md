@@ -1,5 +1,7 @@
 # Security Architecture
 
+> **Read this if** you want to understand the threat model, policy engine, and human-in-the-loop approval design. Also useful before auditing tool execution or data-handling code.
+
 > **Preview — v0.1.0:** The security model described here reflects the design intent for this release. Some mitigations — log-file retention rotation, environment filtering completeness, policy-file hot-reload — are partially implemented and will be hardened in future versions. Do not rely on Oxcer as your sole security boundary for sensitive data in production environments.
 
 Oxcer is **designed on a zero-trust, safe-by-default** principle: the AI agent is treated as an untrusted client. All privileged operations are intended to pass through the policy engine and, where required, receive explicit user approval before execution.

@@ -1,5 +1,7 @@
 # Architecture
 
+> **Read this if** you want to understand how Oxcer's components fit together before reading or modifying the code. Start here if you are new to the codebase.
+
 > **Preview — v0.1.0:** This document describes the current macOS implementation. The runtime described here has been validated on Apple Silicon (M1 and later) only. Intel macOS builds are expected to work but are not regularly tested. Windows and Linux launchers are stubs and not yet functional. Architecture details may change as the project evolves toward a stable release.
 
 Oxcer is a local-first AI agent for macOS. All computation happens on-device; no data is sent to external servers.
@@ -23,7 +25,7 @@ Oxcer is a local-first AI agent for macOS. All computation happens on-device; no
 ┌────────────────────┴────────────────────────────────────────────┐
 │  oxcer_ffi  (Rust FFI crate)                                    │
 │                                                                 │
-│  ffi_agent_step()   generate_text()   list_workspaces()        │
+│  ffi_agent_step()   generate_text()   list_workspaces()         │
 └────────────────────┬────────────────────────────────────────────┘
                      │
 ┌────────────────────┴────────────────────────────────────────────┐

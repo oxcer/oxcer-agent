@@ -9,7 +9,7 @@ crate-type = ["cdylib", "rlib"]
 name = "oxcer_ffi"
 
 [dependencies]
-oxcer-core = { path = "../oxcer-core" }
+oxcer-core = { path = "../oxcer-core", features = ["experimental"] }
 # Direct dep so that llama-cpp-sys-2 build-script link directives (Metal frameworks,
 # static llama/ggml libs, etc.) are applied to this crate's final cdylib link step.
 # cargo:rustc-link-lib from transitive build scripts is not guaranteed to propagate

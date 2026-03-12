@@ -54,10 +54,14 @@ enum AgentRunnerError: LocalizedError {
 // MARK: - Tool kinds requiring approval
 
 /// Tool intent kinds that require explicit user approval before the executor is invoked.
-/// `llm_generate` is excluded — it is pure computation with no filesystem or shell access.
+///
+/// Read-only access (`fs_list_dir`, `fs_read_file`) does **not** require approval:
+/// the user named the file or directory explicitly in their request, so prompting
+/// them a second time before reading it creates friction without security benefit.
+///
+/// Destructive and write operations always require approval before execution.
 private let approvalRequiredKinds: Set<String> = [
-    "fs_list_dir", "fs_read_file", "fs_write_file",
-    "fs_delete", "fs_rename", "fs_move", "shell_run",
+    "fs_write_file", "fs_delete", "fs_rename", "fs_move", "fs_create_dir", "shell_run",
 ]
 
 // MARK: - AgentRunner
@@ -247,6 +251,7 @@ struct AgentRunner {
             case "fs_delete":     return "Allow Oxcer to delete: \(display)"
             case "fs_rename":     return "Allow Oxcer to rename: \(display)"
             case "fs_move":       return "Allow Oxcer to move files from: \(display)"
+            case "fs_create_dir": return "Allow Oxcer to create folder: \(display)"
             default: break
             }
         }

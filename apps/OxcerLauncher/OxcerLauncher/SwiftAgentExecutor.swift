@@ -79,6 +79,7 @@ struct SwiftAgentExecutor {
         case "fs_delete":     return try handleFsDelete(intent.intentJson)
         case "fs_rename":     return try handleFsRename(intent.intentJson)
         case "fs_move":       return try handleFsMove(intent.intentJson)
+        case "fs_create_dir": return try handleFsCreateDir(intent.intentJson)
         case "shell_run":     return try await handleShellRun(intent.intentJson)
         default:
             throw ExecutorError.unknownKind(intent.kind)
@@ -138,9 +139,8 @@ struct SwiftAgentExecutor {
             .standardized
         execLogger.debug("fs_list_dir path=\(dir.path, privacy: .public)")
         let entries = try FileManager.default.contentsOfDirectory(atPath: dir.path)
-        let sorted = entries.sorted()
-        execLogger.info("fs_list_dir entries=\(sorted.count, privacy: .public) path=\(dir.path, privacy: .public)")
-        return try encode(EntriesPayload(entries: sorted))
+        execLogger.info("fs_list_dir entries=\(entries.count, privacy: .public) path=\(dir.path, privacy: .public)")
+        return try encode(EntriesPayload(entries: entries, dirURL: dir))
     }
 
     private func handleFsReadFile(_ json: String) throws -> String {
@@ -189,6 +189,17 @@ struct SwiftAgentExecutor {
         let src = URL(fileURLWithPath: intent.workspaceRoot).appendingPathComponent(intent.relPath).path
         let dst = URL(fileURLWithPath: intent.destWorkspaceRoot).appendingPathComponent(intent.destRelPath).path
         try FileManager.default.moveItem(atPath: src, toPath: dst)
+        return try encode(OkPayload())
+    }
+
+    private func handleFsCreateDir(_ json: String) throws -> String {
+        let intent = try decode(FsPathIntent.self, from: json)
+        let dir = URL(fileURLWithPath: intent.workspaceRoot)
+            .appendingPathComponent(intent.relPath)
+            .standardized
+        execLogger.debug("fs_create_dir path=\(dir.path, privacy: .public)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        execLogger.info("fs_create_dir ok path=\(dir.path, privacy: .public)")
         return try encode(OkPayload())
     }
 
@@ -316,17 +327,29 @@ private struct ShellRunIntent: Decodable {
 private struct TextPayload: Encodable { let text: String }
 
 /// Payload returned by `fs_list_dir`.
-/// `entries` is the raw sorted array (for structured consumers).
-/// `text` is the newline-joined listing picked up by `next_action`'s
-/// `payload.get("text")` path — this is what gets substituted into the
-/// `{{FS_RESULT}}` placeholder in the LlmGenerate task.
+///
+/// - `entries`: alphabetically sorted filenames (stable order for display).
+/// - `sortedByModified`: filenames sorted newest-first by modification date.
+///   Consumed by `next_action` in Rust to resolve the `{{MOST_RECENT_FILE}}`
+///   placeholder in a subsequent `FsReadFile` step.
+/// - `text`: newline-joined alphabetical listing substituted into `{{FS_RESULT}}`
+///   in `LlmGenerate` tasks.
 private struct EntriesPayload: Encodable {
     let entries: [String]
+    let sortedByModified: [String]
     let text: String
 
-    init(entries: [String]) {
-        self.entries = entries
-        self.text = entries.joined(separator: "\n")
+    init(entries: [String], dirURL: URL) {
+        let fm = FileManager.default
+        // Pair each filename with its modification date (distantPast on error).
+        let withDates: [(String, Date)] = entries.map { name in
+            let url = dirURL.appendingPathComponent(name)
+            let date = (try? fm.attributesOfItem(atPath: url.path)[.modificationDate] as? Date) ?? .distantPast
+            return (name, date)
+        }
+        self.sortedByModified = withDates.sorted { $0.1 > $1.1 }.map(\.0)
+        self.entries = entries.sorted()
+        self.text = self.entries.joined(separator: "\n")
     }
 }
 

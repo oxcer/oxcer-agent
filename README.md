@@ -4,10 +4,39 @@
   <img src="readme-main.png" alt="Oxcer app screenshot" width="800">
 </p>
 
-**Oxcer** is a local-first AI assistant. Reading files, generating docs, running shell commands, and reasoning. Nothing leaves your machine.
+**Oxcer reads a file you name and summarizes it using an on-device language model. No data leaves your Mac.**
 
-> **Status: Early Access — v0.1.0**
-> Oxcer is under active development. Features, UI, and the configuration schema may change without notice between releases. Not yet recommended for production or mission-critical use.
+> **v0.1 — Early Access.** One workflow is officially supported in this release: named-file summarization. Read [What Oxcer does in v0.1](#what-oxcer-does-in-v01) before installing.
+
+---
+
+## What Oxcer does in v0.1
+
+Oxcer reads a file you name — by mentioning the filename and its location — and summarizes it locally using a quantized Llama 3 8B model running on Metal. No internet connection is required during summarization. No text is sent to any server.
+
+### Try it
+
+After completing setup, type exactly:
+
+```
+Summarize Test1_doc.md in Downloads
+```
+
+Replace `Test1_doc.md` with any `.md`, `.txt`, `.pdf`, or `.csv` file that exists in your `~/Downloads` folder.
+
+**Hardware:** Apple Silicon Mac (M1 or later). 8 GB RAM minimum; 16 GB recommended when running Oxcer alongside other apps.
+
+**Privacy:** All inference runs on-device via llama.cpp + Metal. Oxcer makes no network requests during summarization.
+
+---
+
+## What Oxcer is not (v0.1)
+
+- **Not a general-purpose AI assistant.** It does not answer arbitrary questions, search the web, or reason about topics outside the file you provide.
+- **Not a file manager.** Moving, renaming, and organizing files are not supported in v0.1.
+- **Not robust to phrasing variation.** Intent detection is heuristic. Phrases like "give me a summary of the thing I downloaded" will not trigger the same workflow as naming a file explicitly.
+- **Not Claude-quality output.** The default model is a 4-bit quantized 8B parameter model running locally. Summaries are useful but not polished prose.
+- **Not tested on Intel Macs.** v0.1 is developed and validated on Apple Silicon. Intel macOS builds are expected to work but are not part of the regular test cycle.
 
 ---
 
@@ -18,7 +47,7 @@
 | **On-device LLM** | Meta Llama 3 8B Instruct (Q4 GGUF) via llama.cpp + Metal |
 | **Multi-session chat** | Sidebar with unlimited sessions; pin, rename, delete |
 | **Agent tool loop** | `fs_list_dir`, `fs_read_file`, `fs_write_file`, `fs_delete`, `fs_rename`, `fs_move`, `shell_run` |
-| **Human-in-the-loop** | Every filesystem and shell action requires explicit approval before execution |
+| **Human-in-the-loop** | Destructive and write operations (delete, move, write, shell) require explicit approval. Read-only access to files the user names does not. |
 | **Data sensitivity** | Pre-prompt DLP scanner redacts credentials, API keys, JWTs, and PEM keys before any LLM call |
 | **Structured logging** | JSON tracing (Rust) + `os.Logger` (Swift), filterable with `jq` or Console.app |
 | **Light / Dark / System theme** | Follows macOS appearance or can be forced |
@@ -124,10 +153,12 @@ scripts/             # regen-ffi.sh and other dev helpers
 
 | Document | Description |
 |---|---|
-| [docs/architecture.md](docs/architecture.md) | Component overview, agent loop, FFI bridge |
-| [docs/development.md](docs/development.md) | Build system, testing, FFI workflow |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Component overview, agent loop, FFI bridge |
+| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Build system, testing, FFI workflow |
 | [docs/security.md](docs/security.md) | Security model, policy engine, HITL approval |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute, code style, PR workflow |
+
+Design notes, refactor analysis, and investigation reports live in [`docs/internal/`](docs/internal/).
 
 ---
 
@@ -155,17 +186,19 @@ cargo check --workspace
 
 ---
 
-## Roadmap (High Level)
+## Roadmap
 
-This is a high-level view of direction, not a commitment. Priorities may shift.
+This is a directional plan, not a commitment. Priorities may shift.
 
 | Milestone | Description |
 |---|---|
-| **v0.x — macOS stability** | Harden error handling, conversation management, model management UI, and test coverage |
-| **Additional backends** | GPU-accelerated and ONNX runtime options beyond llama.cpp; cloud model toggle wired to agent loop |
-| **Windows support** | Bring OxcerLauncher to functional parity on Windows (WinUI 3 or Tauri shell) |
-| **Linux support** | Headless mode and a native Linux launcher |
-| **Plugin marketplace** | Discovery and installation of community plugins from the UI |
+| **v0.1 — Named-file summary** | ✅ Stable. Summarize a single named file from Downloads, Desktop, or Documents. |
+| **v0.2 — Multi-file summary** | Summarize a batch of files in one directory into a single overview. Requires context-budget handling for the local model. |
+| **v0.3 — File organization** | Move a set of files into a new folder by describing the operation in plain English. |
+| **v0.4 — LLM-backed intent routing** | Replace the current string-match heuristics with a model-based classifier so phrasing variation is handled gracefully. |
+| **v0.5 — Streaming output** | Stream model output token-by-token to the UI so long summaries appear incrementally. |
+| **Additional backends** | GPU-accelerated and ONNX runtime options; optional cloud model toggle. |
+| **Windows / Linux** | OxcerLauncher on Windows (WinUI 3 or Tauri) and a headless Linux mode. |
 
 ---
 

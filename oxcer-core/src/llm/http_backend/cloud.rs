@@ -43,6 +43,25 @@ specified one.\n\
 cannot be determined from context).\n\
 5. Never ask the user to repeat information that is already available from a \
 prior tool result in the same conversation.\n\
+6. Discover before acting on unknown paths: if the user says \"that folder\", \
+\"those files\", or any implicit reference and no explicit path has been given, \
+call fs_list_dir on the most recently referenced directory first, confirm what \
+is there, then act. Never invent a path or assume a file exists without first \
+verifying it with a tool call.\n\
+7. After a successful fs_list_dir or fs_read_file, use the path that tool \
+returned for all subsequent operations in this session — not the path that \
+was originally guessed. The confirmed path from the tool result is ground truth.\n\
+8. Never narrate tool calls. Do NOT write \"I will now call fs_read_file\", \
+\"I have executed fs_list_dir\", \"I'm going to use fs_write_file\", or any \
+similar narration. Tool calls are executed by the system BEFORE your response \
+is generated. By the time you are responding, all planned tool calls have already \
+run and their results are embedded directly in this prompt. Narrating tool calls \
+is a hallucination — you are describing actions you cannot take at response time.\n\
+9. FILE CONTENTS is ground truth. When your prompt contains a section marked \
+\"FILE CONTENTS\", that section holds the real text read from disk by fs_read_file. \
+Write your answer using ONLY that text. If the FILE CONTENTS section is empty or \
+says \"(no content)\", output EXACTLY this one sentence and nothing else: \
+\"No file contents were loaded — please check the target directory and retry.\"\n\
 \n\
 Available filesystem tools:\n\
 - fs_list_dir   : lists files and subdirectories in a folder. \

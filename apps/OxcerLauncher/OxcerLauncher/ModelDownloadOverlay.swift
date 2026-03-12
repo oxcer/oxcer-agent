@@ -88,6 +88,10 @@ struct ModelDownloadOverlay: View {
                 .font(.system(.title, design: .rounded, weight: .semibold))
                 .foregroundStyle(OxcerTheme.textPrimary)
 
+            Text("Llama 3 8B · ~4.9 GB · first run only")
+                .font(.system(.subheadline))
+                .foregroundStyle(OxcerTheme.textTertiary)
+
             VStack(spacing: 12) {
                 ProgressView(value: progress, total: 1.0)
                     .progressViewStyle(.linear)

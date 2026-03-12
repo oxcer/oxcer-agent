@@ -1,5 +1,7 @@
 # Development Guide
 
+> **Read this if** you are setting up a local build environment or want to run, test, or contribute to Oxcer. Covers the full build chain from Rust → FFI → Xcode.
+
 > **v0.1.0 — macOS only.** This guide covers the macOS development workflow. Development and testing are currently performed on Apple Silicon machines (M1 and later). Intel macOS builds are expected to work but are not part of the regular test cycle. Windows and Linux support are planned but not yet available. If you are interested in contributing toward cross-platform support, see [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 This guide covers building, testing, and contributing to Oxcer.

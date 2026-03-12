@@ -32,8 +32,9 @@ enum AgentPhase: Equatable {
             case "fs_delete":     return "Deleting file"
             case "fs_rename":     return "Renaming file"
             case "fs_move":       return "Moving file"
+            case "fs_create_dir": return "Creating folder"
             case "shell_run":     return "Running command"
-            case "llm_generate":  return "Generating"
+            case "llm_generate":  return "Summarizing"
             default:
                 let pretty = name.replacingOccurrences(of: "_", with: " ")
                 return "Running \(pretty)"
@@ -50,6 +51,7 @@ enum AgentPhase: Equatable {
         case "fs_write_file":             return "pencil"
         case "fs_delete":                 return "trash"
         case "fs_rename", "fs_move":      return "arrow.right.doc.on.clipboard"
+        case "fs_create_dir":             return "folder.badge.plus"
         case "shell_run":                 return "terminal"
         case "llm_generate":              return "brain"
         default:                          return "bolt"

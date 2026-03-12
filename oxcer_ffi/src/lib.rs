@@ -438,6 +438,7 @@ fn agent_request_impl(
         router_config: Default::default(),
         default_workspace_id: workspace_id,
         default_workspace_root: workspace_root,
+        ..AgentConfig::default()
     };
 
     let result = agent_request(input, &mut session, &config, &executor)
@@ -671,6 +672,7 @@ pub fn ffi_agent_step(
         router_config: RouterConfig::default(),
         default_workspace_id: workspace_id,
         default_workspace_root: workspace_root,
+        ..AgentConfig::default()
     };
     let _ = app_config_dir; // reserved for future use (e.g. telemetry path)
 
@@ -703,6 +705,7 @@ pub fn ffi_agent_step(
             ToolCallIntent::FsDelete { .. } => "fs_delete",
             ToolCallIntent::FsRename { .. } => "fs_rename",
             ToolCallIntent::FsMove { .. } => "fs_move",
+            ToolCallIntent::FsCreateDir { .. } => "fs_create_dir",
             ToolCallIntent::ShellRun { .. } => "shell_run",
             ToolCallIntent::LlmGenerate { .. } => "llm_generate",
         }

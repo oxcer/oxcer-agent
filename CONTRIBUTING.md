@@ -1,5 +1,7 @@
 # Contributing to Oxcer
 
+> **Read this if** you want to open an issue or pull request. Covers code style, the FFI workflow, and what makes a clean contribution.
+
 Thank you for your interest in contributing. This guide covers everything you need to open a useful issue or a clean pull request.
 
 ---

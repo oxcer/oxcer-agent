@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 description = "Core logic for Oxcer: FS Service, Shell Service, Security Policy, Logging"
 
+[features]
+# Enable the experimental FSM-based agent prototype (not used by production launcher).
+experimental = []
+
 [dependencies]
 chrono = { version = "0.4", features = ["serde"] }
 log = "0.4"
