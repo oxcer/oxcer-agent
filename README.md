@@ -204,10 +204,11 @@ Oxcer uses Meta Llama 3 as its default local inference model.
 
 ## Acknowledgements
 
-- [OpenClaw](https://github.com/openclaw) — original concept and architecture
-- [NVIDIA NeMo Guardrails](https://github.com/NVIDIA/NeMo-Guardrails) and [vLLM](https://github.com/vllm-project/vllm) — guardrails and semantic router design
-- [llama.cpp](https://github.com/ggerganov/llama.cpp) and the [llama-cpp-2](https://github.com/utilityai/llama-cpp-rs) Rust bindings
-- [Meta Llama 3](https://llama.meta.com/) — default inference model
+- [Claude](https://claude.ai) and [Claude Code](https://github.com/anthropics/claude-code) — assisted with design, prompting, and agent scaffolding throughout the development of Oxcer.
+- [OpenClaw](https://github.com/openclaw) — original concept and early architecture ideas.
+- [NVIDIA NeMo Guardrails](https://github.com/NVIDIA/NeMo-Guardrails) and [vLLM](https://github.com/vllm-project/vllm) — influenced the guardrails design and semantic router approach.
+- [llama.cpp](https://github.com/ggerganov/llama.cpp) and the [llama-cpp-2](https://github.com/utilityai/llama-cpp-rs) Rust bindings — local inference backend.
+- [Meta Llama 3](https://llama.meta.com/) — default on-device inference model.
 
 ---
 
