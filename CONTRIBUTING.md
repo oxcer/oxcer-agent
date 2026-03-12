@@ -11,9 +11,10 @@ Thank you for your interest in contributing. This guide covers everything you ne
 1. [Filing Issues](#filing-issues)
 2. [Contributing Code](#contributing-code)
 3. [Code Style](#code-style)
-4. [Testing](#testing)
-5. [Commit Conventions](#commit-conventions)
-6. [License](#license)
+4. [Network Access Policy](#network-access-policy)
+5. [Testing](#testing)
+6. [Commit Conventions](#commit-conventions)
+7. [License](#license)
 
 ---
 
@@ -59,7 +60,7 @@ cargo build --release -p oxcer_ffi
 open apps/OxcerLauncher/OxcerLauncher.xcodeproj   # ⌘R should launch the app
 ```
 
-See [docs/development.md](docs/development.md) for the full build guide.
+See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for the full build guide.
 
 ### Fork and Branch
 
@@ -149,6 +150,42 @@ A `.swiftformat` config file at the repo root sets project-wide rules.
 - Views that observe `ObservableObject` properties must use `@ObservedObject`, not `let`. Plain `let` on a struct view does not subscribe to `objectWillChange`.
 - Prefer `os.Logger` over `print()` for all diagnostics. Use `.debug()` for verbose output (compiled out in Release at Info level), `.info()` for lifecycle events, `.error()` for failures.
 - Avoid `.id()` as a "refresh key" on views that own `@StateObject`; it destroys the subtree and recreates state.
+
+---
+
+## Network Access Policy
+
+**Oxcer does not make arbitrary HTTP requests and is not a web-browsing agent.**
+
+This is a deliberate design constraint, not an oversight. Understanding it will save you from opening a PR that cannot be accepted.
+
+### What Oxcer does not do
+
+- Oxcer has no general-purpose HTTP client or fetch capability.
+- It cannot browse URLs, scrape HTML, or retrieve arbitrary web content.
+- No tool in the agent loop (`fs_list_dir`, `fs_read_file`, `shell_run`, etc.) makes outbound network calls.
+- The local inference path (`LlamaCppPhiRuntime` via llama.cpp + Metal) is fully offline. No token or prompt data leaves the machine during inference.
+
+### Why
+
+- **Security.** An open HTTP fetch capability creates a vector for data exfiltration and SSRF. Keeping Oxcer offline-by-default ensures that no file content, credential fragment, or user query can be sent to an attacker-controlled endpoint by a manipulated prompt.
+- **Scope.** Oxcer is a file-task agent, not a research assistant. Adding web access would require a new category of permission, trust boundary, and policy review that is out of scope for this project at this stage.
+
+### What is permitted (future)
+
+Network access may be added in two narrowly scoped forms:
+
+1. **Model download.** `ensure_local_model()` fetches the GGUF file from a fixed, pinned URL over HTTPS on first run, with user awareness. This is the only current outbound call and it is not triggered by the agent loop.
+2. **Cloud model APIs.** A future optional cloud backend (see [ROADMAP.md](ROADMAP.md)) may allow the agent to call a specific model API (Gemini, Anthropic, OpenAI, Grok) if the user explicitly enables it. Any such integration must pass through the same scrubbing and guardrails as local inference. It will be documented and opt-in, not on by default.
+
+### Contributor guidance
+
+Do not add:
+- HTTP client code (`reqwest`, `URLSession`, `curl` subprocess) outside of the model-download path without opening an issue and getting explicit agreement first.
+- Any tool intent that fetches URLs or executes web requests.
+- Shell commands in tests or examples that make outbound connections.
+
+If you are proposing a feature that requires network access, describe the exact scope, endpoint set, and security controls in your issue before writing code.
 
 ---
 

@@ -67,15 +67,32 @@ Stream model output token-by-token to the UI.
 
 ## Later / Community interest
 
-These are on the radar but have no timeline commitment:
+These are on the radar but have no timeline commitment.
 
-| Area | Description |
-|------|-------------|
-| **Eval harness** | Deterministic test fixtures for Workflow 1–3 so regressions are caught in CI, not in manual testing. |
-| **Windows / Linux** | OxcerLauncher on Windows (WinUI 3 or Tauri) and a headless Linux mode. The Rust core is platform-agnostic; the gap is the launcher UI. |
-| **Cloud model toggle** | Optional cloud backend (OpenAI, Anthropic API) as an alternative to the local model for users who prefer it. Requires explicit opt-in and scrubbing guarantees. |
-| **Smaller local model** | Phi-3 Mini or Gemma 2B as a faster, lower-memory alternative for simple tasks on machines with 8 GB RAM. |
-| **Plugin system** | YAML-defined shell and file-indexer plugins that extend the tool catalog. Infrastructure exists; wiring into the agent loop is the remaining work. |
+### Eval harness
+
+Deterministic test fixtures for Workflow 1–3 so regressions are caught in CI, not in manual testing. Each fixture is a (task description, file set, expected plan) triple that can be run with `cargo test`.
+
+### Plugin system
+
+YAML-defined shell and file-indexer plugins that extend the tool catalog. The loader infrastructure exists in `oxcer-core`; wiring plugin-derived tool intents into the planner is the remaining work.
+
+### Platforms & runtimes
+
+- **Windows launcher (WinUI 3).** The target platform for the Windows launcher is WinUI 3, not Tauri. The Rust core is already platform-agnostic; the gap is a native Windows UI shell. A Tauri shell exists in `apps/desktop-tauri/` as a backend-only stub but is not the intended Windows distribution target.
+- **Linux headless mode.** A CLI or minimal GTK/Qt wrapper for Linux, oriented toward headless and server use cases.
+- **GPU-accelerated and ONNX runtime options.** Alternative inference backends for users who want broader hardware support or a runtime other than llama.cpp. Metal (Apple Silicon) is the current GPU path; DirectML/CUDA on Windows and ONNX runtime are candidates.
+
+### Model backends
+
+Oxcer's architecture cleanly separates the agent loop from the inference backend, so the same orchestrator can drive a local or remote model without changing the planner, tools, or security layer. A future optional cloud backend is architecturally feasible, but two conditions must hold before any remote model is treated as a first-class supported backend:
+
+1. **Semantic routing is implemented.** A model-based classifier (see v0.4) must be able to choose between local and remote inference in a principled way — not just a settings toggle that bypasses routing.
+2. **Full workflow parity is verified.** The same Oxcer workflows (Workflow 1 named-file summary, Workflow 2 multi-file summary, Workflow 3 file organization) must pass end-to-end with the remote backend, including guardrail checks, HITL approval, and DLP scrubbing. "It returns some text" is not sufficient.
+
+Candidate APIs: Gemini, Grok, Anthropic (Claude), OpenAI. All would be opt-in, require explicit user configuration, and pass through the same `scrub_for_llm_call` pipeline as local inference.
+
+- **Smaller local model.** Phi-3 Mini or Gemma 2B as a faster, lower-memory alternative for users with 8 GB RAM or for simple tasks where the full 8B model is unnecessary.
 
 ---
 
@@ -87,7 +104,7 @@ These are on the radar but have no timeline commitment:
 
 **Areas where contributors can help most:**
 - Eval fixtures for Workflow 1 (reproducible test files + expected output).
-- Windows launcher (WinUI 3 or Tauri shell).
+- Windows launcher (WinUI 3).
 - Streaming output wiring in `oxcer-core` and `OxcerLauncher`.
 - Smaller local model support and benchmarking.
 
