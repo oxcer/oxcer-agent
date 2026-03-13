@@ -64,22 +64,28 @@ jobs:
         with:
           languages: swift
 
-      # Explicit xcodebuild replaces autobuild because autobuild invokes
-      # xcodebuild with `-target` (no -destination), which causes Xcode to
-      # attempt a multi-arch build including x86_64.  The Rust dylib is
-      # arm64-only (built above for the runner's native arch), so the x86_64
-      # linker step fails with "symbol(s) not found for architecture x86_64".
+      # Explicit xcodebuild replaces autobuild.  Two reasons to use Debug:
       #
-      # Using -scheme + -destination 'platform=macOS' + ONLY_ACTIVE_ARCH=YES
-      # limits the build to the runner's native architecture, matching the dylib.
+      # 1. autobuild invoked `xcodebuild -target` (no -destination), which caused
+      #    Xcode to attempt a multi-arch build including x86_64.  With -scheme
+      #    and -destination 'platform=macOS', Xcode respects ONLY_ACTIVE_ARCH.
+      #
+      # 2. The Release configuration in project.pbxproj does NOT set
+      #    ONLY_ACTIVE_ARCH, so Xcode builds a universal binary for Release and
+      #    the x86_64 linker step fails ("symbol(s) not found for architecture
+      #    x86_64") because the Rust dylib only contains the runner's native arch.
+      #    The Debug configuration already has ONLY_ACTIVE_ARCH = YES baked in at
+      #    both the project and target level — matching what the regular CI job
+      #    uses — so it never attempts an x86_64 slice.
+      #
+      # CodeQL analysis quality is identical for Debug vs Release.
       - name: Build OxcerLauncher (for CodeQL)
         run: |
           xcodebuild \
             -project apps/OxcerLauncher/OxcerLauncher.xcodeproj \
             -scheme OxcerLauncher \
             -destination 'platform=macOS' \
-            -configuration Release \
-            ONLY_ACTIVE_ARCH=YES \
+            -configuration Debug \
             CODE_SIGNING_ALLOWED=NO \
             build
 
