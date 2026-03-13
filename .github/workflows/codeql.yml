@@ -64,8 +64,24 @@ jobs:
         with:
           languages: swift
 
-      - name: Autobuild
-        uses: github/codeql-action/autobuild@v3
+      # Explicit xcodebuild replaces autobuild because autobuild invokes
+      # xcodebuild with `-target` (no -destination), which causes Xcode to
+      # attempt a multi-arch build including x86_64.  The Rust dylib is
+      # arm64-only (built above for the runner's native arch), so the x86_64
+      # linker step fails with "symbol(s) not found for architecture x86_64".
+      #
+      # Using -scheme + -destination 'platform=macOS' + ONLY_ACTIVE_ARCH=YES
+      # limits the build to the runner's native architecture, matching the dylib.
+      - name: Build OxcerLauncher (for CodeQL)
+        run: |
+          xcodebuild \
+            -project apps/OxcerLauncher/OxcerLauncher.xcodeproj \
+            -scheme OxcerLauncher \
+            -destination 'platform=macOS' \
+            -configuration Release \
+            ONLY_ACTIVE_ARCH=YES \
+            CODE_SIGNING_ALLOWED=NO \
+            build
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3

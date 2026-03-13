@@ -57,7 +57,10 @@ fi
 # -- 2. Run uniffi-bindgen against the release dylib --------------------------
 echo ""
 echo "[step] uniffi-bindgen generate -> $TMP_DIR"
+# --no-format disables swiftformat post-processing so output is identical
+# in every environment, regardless of whether swiftformat is installed.
 cargo run --locked --bin uniffi-bindgen -- generate \
+    --no-format \
     --library "$DYLIB_PATH" \
     --language swift \
     --out-dir "$TMP_DIR"

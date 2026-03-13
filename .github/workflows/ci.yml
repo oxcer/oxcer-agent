@@ -195,7 +195,11 @@ jobs:
       - name: Generate fresh Swift bindings
         run: |
           mkdir -p /tmp/uniffi_fresh
+          # --no-format disables swiftformat post-processing so output is identical
+          # in every environment, regardless of whether swiftformat is installed.
+          # (GitHub macOS runners have swiftformat; local dev machines typically don't.)
           cargo run --locked --bin uniffi-bindgen -- generate \
+            --no-format \
             --library target/release/liboxcer_ffi.dylib \
             --language swift \
             --out-dir /tmp/uniffi_fresh
