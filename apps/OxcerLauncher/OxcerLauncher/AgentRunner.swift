@@ -157,7 +157,10 @@ struct AgentRunner {
                     }
                 }
 
-                setPhase(.executingTool(name: intent.kind))
+                setPhase(.executingTool(
+                    name: intent.kind,
+                    taskLabel: inferTaskLabel(for: intent.kind, taskDescription: env.taskDescription)
+                ))
                 lastResult = await executor.execute(intent: intent, sessionId: sid2)
                 if let lr = lastResult {
                     agentLogger.debug("lastResult ok=\(lr.ok, privacy: .public) payload=\(lr.payloadJson?.count ?? 0, privacy: .public)ch sid=\(sid2, privacy: .public)")
@@ -197,12 +200,40 @@ struct AgentRunner {
         throw AgentRunnerError.stepLimitExceeded(maxSteps)
     }
 
-    // MARK: - Phase helper
+    // MARK: - Phase helpers
 
     /// Forwards a phase change to `onPhaseChanged` if wired.
     /// No-op when the closure is nil (tests, previews, or callers that don't care about phase).
     private func setPhase(_ phase: AgentPhase) {
         onPhaseChanged?(phase)
+    }
+
+    /// Returns an optional secondary task label for the `llm_generate` tool based on keywords
+    /// in the original task description. Returns nil for all other tools (their labels are
+    /// always accurate and are defined statically in `AgentPhase.subtextLabel`).
+    /// Returns nil for plain chat messages that contain no recognisable document-action keyword.
+    private func inferTaskLabel(for toolName: String, taskDescription: String) -> String? {
+        guard toolName == "llm_generate" else { return nil }
+        let lower = taskDescription.lowercased()
+        if lower.contains("summarize") || lower.contains("summarise") || lower.contains("summary") {
+            return "Summarizing your document"
+        }
+        if lower.contains("translat") {
+            return "Translating your text"
+        }
+        if lower.contains("rewrite") || lower.contains("rephrase") {
+            return "Rewriting your text"
+        }
+        if lower.contains("explain") {
+            return "Explaining your document"
+        }
+        if lower.contains("extract") {
+            return "Extracting information"
+        }
+        if lower.contains("convert") {
+            return "Converting your document"
+        }
+        return nil
     }
 
     // MARK: - Approval helpers
