@@ -34,24 +34,9 @@ Replace `Test1_doc.md` with any `.md` or `.txt` file (or other UTF-8 plain-text 
 
 ---
 
-## What's Next for Oxcer
-
-- **Streaming output.** Token-by-token display and a stop button are the first v1.0 deliverable.
-- **Multi-file summarization.** Summarize a set of documents in a single request, with content accumulated across multiple reads into one coherent overview.
-- **Workflow Memory.** The `memory.rs` fact store and `db.rs` episodic store are fully implemented and will be wired into `ffi_agent_step` in v1.0, enabling the agent to recall observations across sessions.
-- **PDF support.** Native PDF text extraction for v1.0.
-- **Folder-level operations.** Move, rename, and organize files by describing the operation in plain English — coming after v1.0 once multi-file summarization is validated.
-- **Cross-platform inference.** The Rust core is platform-agnostic. ONNX Runtime migration (CUDA, ROCm, DirectML, QNN/Hexagon NPU, OpenVINO) is the long-term path to running on any consumer device without cloud dependency.
-
-See [ROADMAP.md](ROADMAP.md) for the full plan and milestone details.
-
----
-
 ## Roadmap
 
-v0.1 ships one stable workflow (single-file summarization). Key upcoming milestones: streaming output + multi-file summarization + Workflow Memory (v1.0); folder operations + cross-session document graph + ONNX Runtime migration (beyond v1.0).
-
-See **[ROADMAP.md](ROADMAP.md)** for per-milestone details and how to contribute.
+See **[ROADMAP.md](ROADMAP.md)** for upcoming milestones and how to contribute.
 
 ---
 
