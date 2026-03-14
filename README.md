@@ -43,13 +43,9 @@ Replace `Test1_doc.md` with any `.md` or `.txt` file (or other UTF-8 plain-text 
 - **Folder-level operations.** Move, rename, and organize files by describing the operation in plain English — coming after v1.0 once multi-file summarization is validated.
 - **Cross-platform inference.** The Rust core is platform-agnostic. ONNX Runtime migration (CUDA, ROCm, DirectML, QNN/Hexagon NPU, OpenVINO) is the long-term path to running on any consumer device without cloud dependency.
 
-See [ROADMAP.md](ROADMAP.md) for the full plan and milestone details.
-
 ---
 
 ## Roadmap
-
-v0.1 ships one stable workflow (single-file summarization). Key upcoming milestones: streaming output + multi-file summarization + Workflow Memory (v1.0); folder operations + cross-session document graph + ONNX Runtime migration (beyond v1.0).
 
 See **[ROADMAP.md](ROADMAP.md)** for per-milestone details and how to contribute.
 
