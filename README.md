@@ -4,9 +4,11 @@
   <img src="readme-main.png" alt="Oxcer app screenshot" width="800">
 </p>
 
-**Oxcer is a local-first AI assistant that helps non-developers with document work. Nothing leaves your machine.**
+**Local-First Document Intelligence for non-developers.**
 
-> **v0.1 — Early Access.** One workflow is officially supported in this release: named-file summarization. Read [What Oxcer does in v0.1](#what-oxcer-does-in-v01) before installing.
+Oxcer lets you summarize and work with documents on your Mac by describing what you want in plain English. No terminal. No cloud account. No document text ever leaves the machine.
+
+> **v0.1 — Early Access.** One workflow is officially supported: single-file summarization. Read [What Oxcer does in v0.1](#what-oxcer-does-in-v01) before installing. See [ROADMAP.md](ROADMAP.md) for what is coming next, and [docs/whitepaper.pdf](docs/whitepaper.pdf) for the full architecture and design rationale.
 
 ---
 
@@ -16,27 +18,40 @@ Oxcer reads a file you name — by mentioning the filename and its location — 
 
 ### Try it
 
-After completing setup, type exactly:
+After completing setup, type:
 
 ```
 Summarize Test1_doc.md in Downloads
 ```
 
-Replace `Test1_doc.md` with any `.md`, `.txt`, `.pdf`, or `.csv` file that exists in your `~/Downloads` folder.
+Replace `Test1_doc.md` with any `.md` or `.txt` file (or other UTF-8 plain-text format) in your `~/Downloads` folder.
+
+**Supported file types (v0.1):** `.md`, `.txt`, `.csv`, `.json`, `.yaml`, `.yml`, `.log`, `.rst` — any UTF-8 encoded plain-text file. PDF support is planned for v1.0.
 
 **Hardware:** Apple Silicon Mac (M1 or later). 8 GB RAM minimum; 16 GB recommended when running Oxcer alongside other apps.
 
-**Privacy:** All inference runs on-device via llama.cpp + Metal. Oxcer makes no network requests during summarization.
+**Privacy:** All inference runs on-device via llama.cpp + Metal. Oxcer makes no network requests during summarization. All prompt text is scrubbed for credentials, API keys, JWTs, and PEM keys before reaching the model.
 
 ---
 
-## What Oxcer is not (v0.1)
+## What's Next for Oxcer
 
-- **Not a general-purpose AI assistant.** It does not answer arbitrary questions, search the web, or reason about topics outside the file you provide.
-- **Not a file manager.** Moving, renaming, and organizing files are not supported in v0.1.
-- **Not robust to phrasing variation.** Intent detection is heuristic. Phrases like "give me a summary of the thing I downloaded" will not trigger the same workflow as naming a file explicitly.
-- **Not Claude-quality output.** The default model is a 4-bit quantized 8B parameter model running locally. Summaries are useful but not polished prose.
-- **Not tested on Intel Macs.** v0.1 is developed and validated on Apple Silicon. Intel macOS builds are expected to work but are not part of the regular test cycle.
+- **Streaming output.** Token-by-token display and a stop button are the first v1.0 deliverable.
+- **Multi-file summarization.** Summarize a set of documents in a single request, with content accumulated across multiple reads into one coherent overview.
+- **Workflow Memory.** The `memory.rs` fact store and `db.rs` episodic store are fully implemented and will be wired into `ffi_agent_step` in v1.0, enabling the agent to recall observations across sessions.
+- **PDF support.** Native PDF text extraction for v1.0.
+- **Folder-level operations.** Move, rename, and organize files by describing the operation in plain English — coming after v1.0 once multi-file summarization is validated.
+- **Cross-platform inference.** The Rust core is platform-agnostic. ONNX Runtime migration (CUDA, ROCm, DirectML, QNN/Hexagon NPU, OpenVINO) is the long-term path to running on any consumer device without cloud dependency.
+
+See [ROADMAP.md](ROADMAP.md) for the full plan and milestone details.
+
+---
+
+## Roadmap
+
+v0.1 ships one stable workflow (single-file summarization). Key upcoming milestones: streaming output + multi-file summarization + Workflow Memory (v1.0); folder operations + cross-session document graph + ONNX Runtime migration (beyond v1.0).
+
+See **[ROADMAP.md](ROADMAP.md)** for per-milestone details and how to contribute.
 
 ---
 
@@ -44,12 +59,15 @@ Replace `Test1_doc.md` with any `.md`, `.txt`, `.pdf`, or `.csv` file that exist
 
 | Feature | Detail |
 |---|---|
-| **On-device LLM** | Meta Llama 3 8B Instruct (Q4 GGUF) via llama.cpp + Metal |
-| **Multi-session chat** | Sidebar with unlimited sessions; pin, rename, delete |
+| **On-device LLM** | Meta Llama 3 8B Instruct (Q4_K_M GGUF) via llama.cpp + Metal, full GPU offload |
+| **Plan-first orchestration** | Deterministic heuristic planner builds a `Vec<ToolCallIntent>` before any tool runs — no ReAct-style on-the-fly decisions |
 | **Agent tool loop** | `fs_list_dir`, `fs_read_file`, `fs_write_file`, `fs_delete`, `fs_rename`, `fs_move`, `fs_create_dir`, `shell_run` |
-| **Human-in-the-loop** | Destructive and write operations (delete, move, write, shell) require explicit approval. Read-only access to files the user names does not. |
-| **Data sensitivity** | Pre-prompt DLP scanner redacts credentials, API keys, JWTs, and PEM keys before any LLM call |
-| **Structured logging** | JSON tracing (Rust) + `os.Logger` (Swift), filterable with `jq` or Console.app |
+| **Human-in-the-loop** | Write operations (delete, move, write, shell, create dir) require explicit approval. Read-only ops (`fs_list_dir`, `fs_read_file`) do not. |
+| **DLP scrubbing** | Pre-prompt scanner redacts credentials, API keys, JWTs, and PEM keys before any LLM call |
+| **Narration sanitizer** | Detects and rejects LLM output that describes tool calls instead of summarizing content |
+| **Cloud provider opt-in** | OpenAI, Anthropic, Gemini, Grok — configured in Settings, off by default |
+| **Multi-session chat** | Sidebar with unlimited sessions; pin, rename, delete |
+| **Structured logging** | JSON tracing (Rust) + `os.Logger` (Swift), filterable with `jq` or Console.app; set `OXCER_LOG=debug` for verbose output |
 | **Light / Dark / System theme** | Follows macOS appearance or can be forced |
 
 ---
@@ -59,13 +77,9 @@ Replace `Test1_doc.md` with any `.md`, `.txt`, `.pdf`, or `.csv` file that exist
 | Platform | Support level |
 |---|---|
 | macOS (Apple Silicon, M1 and later) | Primary target. Developed and regularly tested. |
-| macOS (Intel) | Best-effort. Builds and runs, but not regularly tested. |
-| Windows | Planned. Not available in this release. |
-| Linux | On the roadmap. No timeline committed. |
-
-Oxcer 0.1.0 has been developed and validated exclusively on Apple Silicon Macs. Intel macOS builds are expected to work but are not part of the regular test cycle. Windows and Linux are not supported in this early access release.
-
-The Windows launcher stub (`apps/windows-launcher/`) exists in the repository but is not functional. Contributions toward Windows and Linux support are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
+| macOS (Intel) | Best-effort. Builds and runs; not regularly tested. |
+| Windows | Planned. Tauri shell exists as a backend-only stub; native WinUI 3 launcher is the target. |
+| Linux | On the roadmap. Rust core is platform-agnostic. No timeline committed. |
 
 ---
 
@@ -84,13 +98,13 @@ Install CMake via Homebrew if you do not already have it:
 brew install cmake
 ```
 
-You also need a GGUF model file. The default model is **Meta Llama 3 8B Instruct** (~4.7 GB, Q4\_K\_M quantization).
+You also need a GGUF model file. The default model is **Meta Llama 3 8B Instruct** (~4.9 GB, Q4\_K\_M quantization).
 
-**Official source (recommended):** Download from the [meta-llama/Meta-Llama-3-8B-Instruct](https://huggingface.co/meta-llama/Meta-Llama-3-8B-Instruct) repository on Hugging Face. You must accept the Meta Llama 3 Community License on the Hugging Face model page before downloading. Place the `.gguf` file anywhere on disk; you will point the app to it on first launch.
+**Official source (recommended):** Download from the [meta-llama/Meta-Llama-3-8B-Instruct](https://huggingface.co/meta-llama/Meta-Llama-3-8B-Instruct) repository on Hugging Face. You must accept the Meta Llama 3 Community License on the model page before downloading.
 
-**Alternative — community GGUF quantizations** (third-party, not affiliated with Meta): pre-quantized builds such as [`bartowski/Meta-Llama-3-8B-Instruct-GGUF`](https://huggingface.co/bartowski/Meta-Llama-3-8B-Instruct-GGUF) are an option if you do not want to quantize the model yourself. These are still subject to the same Meta Llama 3 Community License.
+**Alternative — community GGUF quantizations** (third-party, not affiliated with Meta): pre-quantized builds such as [`bartowski/Meta-Llama-3-8B-Instruct-GGUF`](https://huggingface.co/bartowski/Meta-Llama-3-8B-Instruct-GGUF) are an option if you do not want to quantize the model yourself. Still subject to the Meta Llama 3 Community License.
 
-> **Model license:** Meta Llama 3 is distributed under the [Meta Llama 3 Community License](https://llama.meta.com/llama3/license/), which is separate from Oxcer's MIT license. By downloading and using the model you agree to its terms. See [LICENSES.md](LICENSES.md) for details.
+> **Model license:** Meta Llama 3 is distributed under the [Meta Llama 3 Community License](https://llama.meta.com/llama3/license/), which is separate from Oxcer's MIT license. See [LICENSES.md](LICENSES.md) for details.
 
 ---
 
@@ -123,10 +137,11 @@ Xcode automatically runs `cargo build --release -p oxcer_ffi` before linking, so
 
 ### 4. Configure
 
-On first launch, open **Settings** and point Oxcer at:
+On first launch, Oxcer walks you through:
 
-- Your GGUF model file.
-- One or more workspace folders (directories the agent is allowed to read and write).
+1. Accepting the Meta Llama 3 Community License.
+2. Downloading the GGUF model file (~4.9 GB, one-time).
+3. Optionally configuring workspace folders (directories the agent is allowed to read and write).
 
 Configuration is stored in `~/Library/Application Support/Oxcer/config.json`.
 
@@ -136,15 +151,16 @@ Configuration is stored in `~/Library/Application Support/Oxcer/config.json`.
 
 ```
 oxcer-core/          # Pure Rust library: agent orchestrator, LLM engine, security, tools
-oxcer_ffi/           # Rust → Swift FFI layer (UniFFI, attribute-based)
+oxcer_ffi/           # Rust → Swift FFI layer (UniFFI 0.28, attribute-based)
 apps/
   OxcerLauncher/     # macOS SwiftUI app (primary UI target)
-  desktop-tauri/     # Cross-platform Tauri shell (backend-only, no UI)
+  desktop-tauri/     # Cross-platform Tauri shell (backend-only stub, no production UI)
   windows-launcher/  # Planned WinUI 3 launcher (stub)
 plugins/             # YAML plugin definitions
 config/              # Policies and defaults
-docs/                # Architecture, development, and security docs
-scripts/             # regen-ffi.sh and other dev helpers
+docs/                # Architecture, development, security docs, and whitepaper.pdf
+scripts/             # regen-ffi.sh, check-ffi-freshness.sh, and other dev helpers
+demo/                # Test files for Workflow 1 (Test1_doc.md) and Workflow 2 (Test2_doc*.md)
 ```
 
 ---
@@ -153,13 +169,12 @@ scripts/             # regen-ffi.sh and other dev helpers
 
 | Document | Description |
 |---|---|
+| [docs/whitepaper.pdf](docs/whitepaper.pdf) | Architecture, design rationale, and roadmap in full |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Component overview, agent loop, FFI bridge |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Build system, testing, FFI workflow |
 | [docs/security.md](docs/security.md) | Security model, policy engine, HITL approval |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute, code style, PR workflow |
 | [ROADMAP.md](ROADMAP.md) | Upcoming milestones and how to get involved |
-
-Design notes, refactor analysis, and investigation reports live in [`docs/internal/`](docs/internal/).
 
 ---
 
@@ -169,29 +184,27 @@ Design notes, refactor analysis, and investigation reports live in [`docs/intern
 # Rust core unit and integration tests
 cargo test -p oxcer-core
 
-# FFI contract tests
+# FFI contract tests (catches stale bindings and wrong return types)
 cargo test -p oxcer_ffi
 
-# Full workspace check
+# Full workspace type-check
 cargo check --workspace
 ```
+
+For Swift: run the **OxcerLauncherTests** target in Xcode (⌘U).
 
 ---
 
 ## Current Limitations
 
-- **macOS only.** The Windows and Linux launchers are stubs; only OxcerLauncher is functional.
-- **Single local model.** Cloud model backends exist in the codebase but are not wired to the agent loop in this release.
-- **Model file not bundled.** You must download the GGUF separately and configure the path in Settings.
-- **No app store distribution.** The app is unsigned for local development; distributable builds require a Developer ID certificate.
-
----
-
-## Roadmap
-
-v0.1 ships one stable workflow (named-file summarization). Upcoming milestones: multi-file summary (v0.2), file organization (v0.3), model-based intent routing (v0.4), streaming output (v0.5), and cross-platform launchers.
-
-See **[ROADMAP.md](ROADMAP.md)** for the full plan, per-milestone details, and how to get involved.
+- **macOS only.** Windows and Linux launchers are stubs; only OxcerLauncher is functional.
+- **Single local model.** Model switching requires replacing the GGUF file and restarting.
+- **No streaming output.** Responses are buffered until generation completes. Streaming is v1.0.
+- **No multi-file batch.** Workflow 2 (multi-file summarize) and Workflow 3 (folder operations) are implemented but intentionally disabled pending end-to-end validation.
+- **PDF not supported.** v1.0 target.
+- **Context window ceiling.** Files larger than ~4 000 characters are truncated before LLM injection (~1 000 tokens, leaving headroom for the prompt frame and generation within the 8 192-token context).
+- **Model file not bundled.** You must download the GGUF separately; the app will guide you through this on first launch.
+- **No app store distribution.** The app is unsigned for local development; distributable builds require a Developer ID certificate and notarization.
 
 ---
 
@@ -205,10 +218,9 @@ Oxcer uses Meta Llama 3 as its default local inference model.
 ## Acknowledgements
 
 - [Claude](https://claude.ai) and [Claude Code](https://github.com/anthropics/claude-code) — assisted with design, prompting, and agent scaffolding throughout the development of Oxcer.
-- [OpenClaw](https://github.com/openclaw) — original concept and early architecture ideas.
-- [NVIDIA NeMo Guardrails](https://github.com/NVIDIA/NeMo-Guardrails) and [vLLM](https://github.com/vllm-project/vllm) — influenced the guardrails design and semantic router approach.
 - [llama.cpp](https://github.com/ggerganov/llama.cpp) and the [llama-cpp-2](https://github.com/utilityai/llama-cpp-rs) Rust bindings — local inference backend.
 - [Meta Llama 3](https://llama.meta.com/) — default on-device inference model.
+- [NVIDIA NeMo Guardrails](https://github.com/NVIDIA/NeMo-Guardrails) and [vLLM](https://github.com/vllm-project/vllm) — influenced the guardrails design and semantic router approach.
 
 ---
 
@@ -219,9 +231,8 @@ Oxcer uses Meta Llama 3 as its default local inference model.
 | Oxcer source code | [MIT](LICENSE) |
 | Meta Llama 3 model weights | [Meta Llama 3 Community License](https://llama.meta.com/llama3/license/) |
 
-Oxcer source code is MIT-licensed. The model weights are **not** included in this repository. When Oxcer is distributed as a DMG or package it may include or auto-download the GGUF model file, in which case Oxcer is acting as a redistributor of Llama Materials and complies with all obligations under the Meta Llama 3 Community License (first-run consent screen, license file bundled in the app, "Built with Meta Llama 3" attribution in the UI).
+Oxcer source code is MIT-licensed. The model weights are **not** included in this repository. When Oxcer downloads or bundles the GGUF model it complies with all obligations under the Meta Llama 3 Community License (first-run consent screen, license file bundled in the app, "Built with Meta Llama 3" attribution in the UI).
 
 Users who download and run Meta Llama 3 must comply with the [Meta Llama 3 Community License](https://llama.meta.com/llama3/license/) and the [Llama 3 Acceptable Use Policy](https://llama.meta.com/llama3/use-policy/).
 
 See [LICENSES.md](LICENSES.md) for the full attribution notice and third-party component details.
-
