@@ -45,9 +45,9 @@ echo "---"
 
 # -- 1. Build the release dylib -----------------------------------------------
 echo ""
-echo "[step] cargo build --release -p oxcer_ffi"
+echo "[step] cargo build --locked --release -p oxcer_ffi"
 cd "$REPO_ROOT"
-cargo build --release -p oxcer_ffi
+cargo build --locked --release -p oxcer_ffi
 
 if [[ ! -f "$DYLIB_PATH" ]]; then
     echo "[ERROR] Dylib not found at $DYLIB_PATH -- build may have failed."
@@ -57,7 +57,10 @@ fi
 # -- 2. Run uniffi-bindgen against the release dylib --------------------------
 echo ""
 echo "[step] uniffi-bindgen generate -> $TMP_DIR"
-cargo run --bin uniffi-bindgen -- generate \
+# --no-format disables swiftformat post-processing so output is identical
+# in every environment, regardless of whether swiftformat is installed.
+cargo run --locked --bin uniffi-bindgen -- generate \
+    --no-format \
     --library "$DYLIB_PATH" \
     --language swift \
     --out-dir "$TMP_DIR"

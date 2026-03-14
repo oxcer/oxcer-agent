@@ -47,15 +47,35 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      # prefix-key includes 'universal' so this cache is distinct from the
+      # single-arch caches used by the lint/test/macos jobs.
       - uses: Swatinem/rust-cache@v2
         with:
-          prefix-key: v1-codeql
+          prefix-key: v1-codeql-universal
 
       - name: Install cmake (required by llama-cpp-sys)
         run: brew install cmake
 
-      - name: Build oxcer_ffi dylib (required by OxcerLauncher)
-        run: cargo build --locked --release -p oxcer_ffi
+      # CodeQL's Swift tracing overrides xcodebuild settings and forces a
+      # universal (arm64 + x86_64) build to capture all compilation paths for
+      # analysis.  A single-arch dylib causes the x86_64 linker step to fail
+      # with "symbol(s) not found for architecture x86_64" regardless of
+      # ONLY_ACTIVE_ARCH or -destination settings.
+      #
+      # Fix: build both slices and merge them with lipo so the linker succeeds
+      # for whichever architecture CodeQL requests.
+      - name: Add x86_64 Rust target (for universal dylib)
+        run: rustup target add x86_64-apple-darwin
+
+      - name: Build oxcer_ffi dylib (universal binary for CodeQL)
+        run: |
+          cargo build --locked --release --target aarch64-apple-darwin -p oxcer_ffi
+          cargo build --locked --release --target x86_64-apple-darwin -p oxcer_ffi
+          mkdir -p target/release
+          lipo -create \
+            target/aarch64-apple-darwin/release/liboxcer_ffi.dylib \
+            target/x86_64-apple-darwin/release/liboxcer_ffi.dylib \
+            -output target/release/liboxcer_ffi.dylib
 
       # ── CodeQL analysis ───────────────────────────────────────────────────
 
@@ -64,8 +84,18 @@ jobs:
         with:
           languages: swift
 
-      - name: Autobuild
-        uses: github/codeql-action/autobuild@v3
+      # Use -scheme with -destination 'platform=macOS' so Xcode uses the
+      # correct SDK.  Debug configuration matches the regular macOS CI job
+      # and is sufficient for CodeQL source analysis.
+      - name: Build OxcerLauncher (for CodeQL)
+        run: |
+          xcodebuild \
+            -project apps/OxcerLauncher/OxcerLauncher.xcodeproj \
+            -scheme OxcerLauncher \
+            -destination 'platform=macOS' \
+            -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO \
+            build
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
