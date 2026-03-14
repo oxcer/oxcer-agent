@@ -20,7 +20,9 @@ pub struct DownloadProgress {
 /// Check that path exists, is a file, and has size > 0.
 fn file_present_and_non_empty(path: &Path) -> bool {
     path.is_file()
-        && std::fs::metadata(path).map(|m| m.len() > 0).unwrap_or(false)
+        && std::fs::metadata(path)
+            .map(|m| m.len() > 0)
+            .unwrap_or(false)
 }
 
 /// Returns the local model directory path if all required files are present (and non-empty).
@@ -36,10 +38,9 @@ pub fn ensure_model_present(
     on_progress: Option<&(dyn Fn(DownloadProgress) + Send)>,
 ) -> Result<PathBuf, LlmError> {
     let models_config = load_models_config(config_dir)?;
-    let def = models_config
-        .models
-        .get(model_id)
-        .ok_or_else(|| LlmError::Config(format!("Model '{}' not found in models.yaml", model_id)))?;
+    let def = models_config.models.get(model_id).ok_or_else(|| {
+        LlmError::Config(format!("Model '{}' not found in models.yaml", model_id))
+    })?;
 
     let model_root = models_dir.join(model_id);
     std::fs::create_dir_all(&model_root).map_err(|e| {
@@ -94,7 +95,10 @@ pub fn ensure_model_present(
 
 /// Hugging Face resolve URL: https://huggingface.co/{repo}/resolve/{revision}/{filename}
 fn hf_resolve_url(repo: &str, revision: &str, filename: &str) -> String {
-    format!("https://huggingface.co/{}/resolve/{}/{}", repo, revision, filename)
+    format!(
+        "https://huggingface.co/{}/resolve/{}/{}",
+        repo, revision, filename
+    )
 }
 
 /// Download required files from Hugging Face.
@@ -138,7 +142,10 @@ fn download_from_huggingface(
 
         let total_bytes = resp.content_length();
         let bytes = resp.bytes().map_err(|e| {
-            LlmError::NotAvailable(format!("Failed to read response body for {}: {}", file_name, e))
+            LlmError::NotAvailable(format!(
+                "Failed to read response body for {}: {}",
+                file_name, e
+            ))
         })?;
 
         if bytes.is_empty() {
@@ -148,9 +155,8 @@ fn download_from_huggingface(
             )));
         }
 
-        std::fs::write(&dest, &bytes).map_err(|e| {
-            LlmError::Config(format!("Failed to write {:?}: {}", dest, e))
-        })?;
+        std::fs::write(&dest, &bytes)
+            .map_err(|e| LlmError::Config(format!("Failed to write {:?}: {}", dest, e)))?;
 
         let len = bytes.len() as u64;
         if let Some(ref cb) = on_progress {

@@ -112,6 +112,7 @@ fn session_log_path(app_config_dir: &Path, session_id: &str) -> PathBuf {
 ///
 /// Callers must ensure `details` has already been scrubbed (Sprint 7); raw secrets
 /// must never be passed here.
+#[allow(clippy::too_many_arguments)]
 pub fn log_event(
     app_config_dir: &Path,
     session_id: &str,
@@ -147,7 +148,8 @@ pub fn log_event(
         .open(&session_path)
         .map_err(|e| format!("open session log {:?}: {}", session_path, e))?;
     writeln!(f, "{}", line).map_err(|e| format!("write session log: {}", e))?;
-    f.sync_all().map_err(|e| format!("sync session log: {}", e))?;
+    f.sync_all()
+        .map_err(|e| format!("sync session log: {}", e))?;
 
     // Rolling telemetry
     let telemetry_path = telemetry_path(app_config_dir);
@@ -157,7 +159,8 @@ pub fn log_event(
         .open(&telemetry_path)
         .map_err(|e| format!("open telemetry log: {}", e))?;
     writeln!(f, "{}", line).map_err(|e| format!("write telemetry log: {}", e))?;
-    f.sync_all().map_err(|e| format!("sync telemetry log: {}", e))?;
+    f.sync_all()
+        .map_err(|e| format!("sync telemetry log: {}", e))?;
 
     rotate_telemetry_if_needed(app_config_dir)?;
     Ok(())
@@ -172,10 +175,7 @@ fn rotate_telemetry_if_needed(app_config_dir: &Path) -> Result<(), String> {
 
 /// Keep lines with timestamp >= cutoff, then keep newest up to MAX_BYTES.
 /// Exposed for tests.
-pub fn rotate_retention(
-    path: &Path,
-    cutoff: chrono::DateTime<chrono::Utc>,
-) -> Result<(), String> {
+pub fn rotate_retention(path: &Path, cutoff: chrono::DateTime<chrono::Utc>) -> Result<(), String> {
     let file = match std::fs::File::open(path) {
         Ok(f) => f,
         Err(_) => return Ok(()),
@@ -183,7 +183,7 @@ pub fn rotate_retention(
     let reader = BufReader::new(file);
     let lines: Vec<String> = reader
         .lines()
-        .filter_map(|r| r.ok())
+        .map_while(|r| r.ok())
         .filter(|s| !s.is_empty())
         .collect();
     if lines.is_empty() {
@@ -244,7 +244,7 @@ pub fn list_sessions_from_dir(app_config_dir: &Path) -> Result<Vec<SessionSummar
     for entry in dir_entries {
         let entry = entry.map_err(|e| e.to_string())?;
         let path = entry.path();
-        if path.extension().map_or(true, |e| e != "jsonl") {
+        if path.extension().is_none_or(|e| e != "jsonl") {
             continue;
         }
         let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
@@ -284,8 +284,14 @@ pub fn list_sessions_from_dir(app_config_dir: &Path) -> Result<Vec<SessionSummar
             continue;
         }
 
-        let start_timestamp = events.first().map(|e| e.timestamp.clone()).unwrap_or_default();
-        let end_timestamp = events.last().map(|e| e.timestamp.clone()).unwrap_or_default();
+        let start_timestamp = events
+            .first()
+            .map(|e| e.timestamp.clone())
+            .unwrap_or_default();
+        let end_timestamp = events
+            .last()
+            .map(|e| e.timestamp.clone())
+            .unwrap_or_default();
         let total_cost_usd: f64 = events.iter().filter_map(|e| e.metrics.cost_usd).sum();
         let success = events
             .iter()
@@ -366,7 +372,8 @@ fn read_session_events_head_tail(path: &Path, file_size: u64) -> Result<Vec<LogE
     let head_str = String::from_utf8_lossy(&head_buf);
 
     let tail_start = file_size.saturating_sub(SUMMARY_TAIL_READ_BYTES);
-    f.seek(SeekFrom::Start(tail_start)).map_err(|e| e.to_string())?;
+    f.seek(SeekFrom::Start(tail_start))
+        .map_err(|e| e.to_string())?;
     let mut tail_buf = vec![0u8; (file_size - tail_start) as usize];
     f.read_exact(&mut tail_buf).map_err(|e| e.to_string())?;
     let tail_str = String::from_utf8_lossy(&tail_buf);
@@ -513,10 +520,22 @@ mod tests {
         let content = std::fs::read_to_string(&session_path).unwrap();
         let line = content.lines().next().unwrap();
         // None metrics should be omitted from JSON
-        assert!(!line.contains("\"tokens_in\""), "tokens_in should be omitted when None");
-        assert!(!line.contains("\"tokens_out\""), "tokens_out should be omitted when None");
-        assert!(!line.contains("\"latency_ms\""), "latency_ms should be omitted when None");
-        assert!(!line.contains("\"cost_usd\""), "cost_usd should be omitted when None");
+        assert!(
+            !line.contains("\"tokens_in\""),
+            "tokens_in should be omitted when None"
+        );
+        assert!(
+            !line.contains("\"tokens_out\""),
+            "tokens_out should be omitted when None"
+        );
+        assert!(
+            !line.contains("\"latency_ms\""),
+            "latency_ms should be omitted when None"
+        );
+        assert!(
+            !line.contains("\"cost_usd\""),
+            "cost_usd should be omitted when None"
+        );
         let parsed: LogEvent = serde_json::from_str(line).unwrap();
         assert_eq!(parsed.component, "test");
         assert_eq!(parsed.action, "ping");
@@ -555,7 +574,10 @@ mod tests {
         assert_eq!(lines.len(), 3, "expected one line per log_event call");
         for (i, line) in lines.iter().enumerate() {
             let ev: LogEvent = serde_json::from_str(line).unwrap();
-            assert_eq!(ev.details.get("index").and_then(|v| v.as_u64()), Some(i as u64));
+            assert_eq!(
+                ev.details.get("index").and_then(|v| v.as_u64()),
+                Some(i as u64)
+            );
         }
     }
 
@@ -590,9 +612,17 @@ mod tests {
             MAX_EVENTS_PER_SESSION_LOG
         );
         // Should be the latest 2000 (indices 500..2500)
-        let first_idx = events.first().and_then(|e| e.details.get("index").and_then(|v| v.as_u64()));
-        let last_idx = events.last().and_then(|e| e.details.get("index").and_then(|v| v.as_u64()));
-        assert_eq!(first_idx, Some(500), "first event should be index 500 (tail)");
+        let first_idx = events
+            .first()
+            .and_then(|e| e.details.get("index").and_then(|v| v.as_u64()));
+        let last_idx = events
+            .last()
+            .and_then(|e| e.details.get("index").and_then(|v| v.as_u64()));
+        assert_eq!(
+            first_idx,
+            Some(500),
+            "first event should be index 500 (tail)"
+        );
         assert_eq!(last_idx, Some(2499), "last event should be index 2499");
     }
 
@@ -611,7 +641,11 @@ mod tests {
         std::fs::write(&path, valid).unwrap();
 
         let events = load_session_log_from_dir(app_config, "malformed-test").unwrap();
-        assert_eq!(events.len(), 2, "should have 2 valid events, skip malformed line");
+        assert_eq!(
+            events.len(),
+            2,
+            "should have 2 valid events, skip malformed line"
+        );
     }
 
     /// list_sessions reads head+tail for files larger than SUMMARY_HEAD+TAIL threshold.
@@ -640,7 +674,10 @@ mod tests {
         std::fs::write(&path, lines.join("\n")).unwrap();
 
         let summaries = list_sessions_from_dir(app_config).unwrap();
-        let s = summaries.iter().find(|s| s.session_id == "large-session").unwrap();
+        let s = summaries
+            .iter()
+            .find(|s| s.session_id == "large-session")
+            .unwrap();
         assert!(!s.start_timestamp.is_empty());
         assert!(!s.end_timestamp.is_empty());
     }
@@ -666,7 +703,10 @@ mod tests {
         .unwrap();
 
         let summaries = list_sessions_from_dir(app_config).unwrap();
-        let s = summaries.iter().find(|s| s.session_id == "list-bounded").unwrap();
+        let s = summaries
+            .iter()
+            .find(|s| s.session_id == "list-bounded")
+            .unwrap();
         assert!(s.success);
     }
 
@@ -703,7 +743,13 @@ mod tests {
         assert_eq!(ev.component, "security");
         assert_eq!(ev.action, "policy_evaluate");
         assert_eq!(ev.decision.as_deref(), Some("allow"));
-        assert_eq!(ev.details.get("rule_id").and_then(|v| v.as_str()), Some("EXPLICIT_ALLOW"));
-        assert_eq!(ev.details.get("rule_reason").and_then(|v| v.as_str()), Some("EXPLICIT_ALLOW"));
+        assert_eq!(
+            ev.details.get("rule_id").and_then(|v| v.as_str()),
+            Some("EXPLICIT_ALLOW")
+        );
+        assert_eq!(
+            ev.details.get("rule_reason").and_then(|v| v.as_str()),
+            Some("EXPLICIT_ALLOW")
+        );
     }
 }

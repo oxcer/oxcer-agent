@@ -71,9 +71,18 @@ fn sensitive_path_patterns() -> &'static [&'static str] {
 /// File name patterns (suffix or contains). Match against the last component of the path.
 fn sensitive_filename_patterns() -> &'static [&'static str] {
     &[
-        ".pem", ".key", ".pfx", ".p12", ".keystore", ".jks",
-        ".token", ".credentials", ".secret",
-        "id_rsa", "id_ed25519", "id_ecdsa",
+        ".pem",
+        ".key",
+        ".pfx",
+        ".p12",
+        ".keystore",
+        ".jks",
+        ".token",
+        ".credentials",
+        ".secret",
+        "id_rsa",
+        "id_ed25519",
+        "id_ecdsa",
     ]
 }
 
@@ -89,7 +98,7 @@ pub fn is_sensitive_path(path: &str) -> bool {
         }
     }
 
-    let filename = path_lower.split('/').last().unwrap_or(path_lower);
+    let filename = path_lower.split('/').next_back().unwrap_or(path_lower);
     for pat in sensitive_filename_patterns() {
         if filename.ends_with(&pat.to_lowercase()) || filename.contains(pat) {
             return true;
@@ -380,7 +389,10 @@ pub fn build_raw_payload(parts: &LlmPayloadParts) -> String {
     }
     for chunk in &parts.file_snippets {
         if is_sensitive_path(&chunk.path) {
-            sections.push(format!("--- {} ---\n{}", chunk.path, SENSITIVE_FILE_PLACEHOLDER));
+            sections.push(format!(
+                "--- {} ---\n{}",
+                chunk.path, SENSITIVE_FILE_PLACEHOLDER
+            ));
         } else {
             sections.push(format!("--- {} ---\n{}", chunk.path, chunk.content));
         }
@@ -494,12 +506,10 @@ mod tests {
     fn sanitize_for_llm_sensitive_file_placeholder() {
         let input = SanitizeForLlmInput {
             task: "Explain this file".to_string(),
-            file_contents: vec![
-                FileContentChunk {
-                    path: "~/.ssh/id_rsa".to_string(),
-                    content: "secret key data".to_string(),
-                },
-            ],
+            file_contents: vec![FileContentChunk {
+                path: "~/.ssh/id_rsa".to_string(),
+                content: "secret key data".to_string(),
+            }],
         };
         let out = sanitize_for_llm(&input);
         assert!(out.contains(SENSITIVE_FILE_PLACEHOLDER));
@@ -510,12 +520,10 @@ mod tests {
     fn sanitize_for_llm_safe_file_included() {
         let input = SanitizeForLlmInput {
             task: "What does this do?".to_string(),
-            file_contents: vec![
-                FileContentChunk {
-                    path: "src/main.rs".to_string(),
-                    content: "fn main() {}".to_string(),
-                },
-            ],
+            file_contents: vec![FileContentChunk {
+                path: "src/main.rs".to_string(),
+                content: "fn main() {}".to_string(),
+            }],
         };
         let out = sanitize_for_llm(&input);
         assert!(out.contains("fn main()"));
@@ -529,8 +537,15 @@ mod tests {
     fn sanitize_text_redacts_api_key_prefix() {
         let s = "Use API key sk-1234567890abcdef for the client.";
         let out = sanitize_text(s);
-        assert!(out.contains("[REDACTED"), "policy: redacted output must contain a REDACTED marker; got: {}", out);
-        assert!(!out.contains("sk-1234567890abcdef"), "policy: raw API key prefix must not appear in sanitized text");
+        assert!(
+            out.contains("[REDACTED"),
+            "policy: redacted output must contain a REDACTED marker; got: {}",
+            out
+        );
+        assert!(
+            !out.contains("sk-1234567890abcdef"),
+            "policy: raw API key prefix must not appear in sanitized text"
+        );
     }
 
     #[test]
@@ -556,7 +571,9 @@ mod tests {
         let s = "Connect with key AKIAIOSFODNN7EXAMPLE and then run the script.";
         let opts = data_sensitivity::ClassifierOptions::default();
         let r = scrub_for_llm_call(s, &opts);
-        assert!(matches!(r, Err(ScrubbingError::NeverSendToLlm { finding_kind: k, .. }) if k == "aws_access_key_id"));
+        assert!(
+            matches!(r, Err(ScrubbingError::NeverSendToLlm { finding_kind: k, .. }) if k == "aws_access_key_id")
+        );
     }
 
     /// Scrub-and-allow: IP address is redacted but LLM call proceeds.
@@ -579,7 +596,9 @@ mod tests {
         s.push_str("\nUse key AKIAIOSFODNN7EXAMPLE for AWS.");
         let opts = data_sensitivity::ClassifierOptions::default();
         let r = scrub_for_llm_call(&s, &opts);
-        assert!(matches!(r, Err(ScrubbingError::NeverSendToLlm { finding_kind: k, .. }) if k == "aws_access_key_id"));
+        assert!(
+            matches!(r, Err(ScrubbingError::NeverSendToLlm { finding_kind: k, .. }) if k == "aws_access_key_id")
+        );
     }
 
     /// Scrub-and-allow when only medium-sensitivity patterns; redacted fraction small.
@@ -604,7 +623,9 @@ mod tests {
         let s = format!("Task: explain this token. {}", long_jwt);
         let opts = data_sensitivity::ClassifierOptions::default();
         let r = scrub_for_llm_call(&s, &opts);
-        assert!(matches!(r, Err(ScrubbingError::NeverSendToLlm { finding_kind: k, .. }) if k == "jwt_or_oauth_token"));
+        assert!(
+            matches!(r, Err(ScrubbingError::NeverSendToLlm { finding_kind: k, .. }) if k == "jwt_or_oauth_token")
+        );
     }
 
     /// Payload with only medium-sensitivity patterns but ≥50% redacted -> TooMuchSensitiveData.
@@ -614,7 +635,10 @@ mod tests {
         let s = format!("Short prefix. {}", long_blob);
         let opts = data_sensitivity::ClassifierOptions::default();
         let r = scrub_for_llm_call(&s, &opts);
-        assert!(matches!(r, Err(ScrubbingError::TooMuchSensitiveData { .. })));
+        assert!(matches!(
+            r,
+            Err(ScrubbingError::TooMuchSensitiveData { .. })
+        ));
         if let Err(ScrubbingError::TooMuchSensitiveData { message }) = r {
             assert!(message.contains("too much sensitive data"));
         }
@@ -629,7 +653,10 @@ mod tests {
             + "."
             + &"b".repeat(100);
         let (result, entry) = scrub_for_llm_call_audit(&payload, &opts, "sess");
-        assert!(result.is_err(), "payload mostly JWT should be blocked (threshold or never-send)");
+        assert!(
+            result.is_err(),
+            "payload mostly JWT should be blocked (threshold or never-send)"
+        );
         assert!(
             entry.decision == ScrubbingDecision::ScrubbedAndBlocked
                 || entry.decision == ScrubbingDecision::BlockedByHardRule
@@ -665,7 +692,10 @@ mod tests {
         };
         let opts = data_sensitivity::ClassifierOptions::default();
         let out = build_and_scrub_for_llm(&parts, &opts).unwrap();
-        assert!(out.contains("Explain") && (out.contains("[REDACTED: ip_address]") || out.contains("192")));
+        assert!(
+            out.contains("Explain")
+                && (out.contains("[REDACTED: ip_address]") || out.contains("192"))
+        );
     }
 
     #[test]
@@ -685,21 +715,35 @@ mod tests {
         let payload = "Here is my key:\n-----BEGIN RSA PRIVATE KEY-----\nFAKEPRIVATEKEYDATAFORTESTS\n-----END RSA PRIVATE KEY-----";
         let opts = data_sensitivity::ClassifierOptions::default();
         let r = scrub_for_llm_call(payload, &opts);
-        assert!(matches!(r, Err(ScrubbingError::NeverSendToLlm { finding_kind: k, .. }) if k == "ssh_private_key"));
+        assert!(
+            matches!(r, Err(ScrubbingError::NeverSendToLlm { finding_kind: k, .. }) if k == "ssh_private_key")
+        );
     }
 
     /// Test names must not shadow public utility functions; use a distinct name
     /// (e.g. `to_workspace_relative_path_basic_cases`) so the real function is called.
     #[test]
     fn to_workspace_relative_path_basic_cases() {
-        assert_eq!(to_workspace_relative_path("/Users/j/proj/src/foo.rs", "/Users/j/proj"), "./src/foo.rs");
-        assert_eq!(to_workspace_relative_path("/Users/j/proj", "/Users/j/proj"), ".");
-        assert_eq!(to_workspace_relative_path("/other/file", "/Users/j/proj"), "/other/file");
+        assert_eq!(
+            to_workspace_relative_path("/Users/j/proj/src/foo.rs", "/Users/j/proj"),
+            "./src/foo.rs"
+        );
+        assert_eq!(
+            to_workspace_relative_path("/Users/j/proj", "/Users/j/proj"),
+            "."
+        );
+        assert_eq!(
+            to_workspace_relative_path("/other/file", "/Users/j/proj"),
+            "/other/file"
+        );
     }
 
     #[test]
     fn to_workspace_relative_path_edge_cases() {
-        assert_eq!(to_workspace_relative_path("/Users/j/proj/", "/Users/j/proj"), ".");
+        assert_eq!(
+            to_workspace_relative_path("/Users/j/proj/", "/Users/j/proj"),
+            "."
+        );
         assert_eq!(to_workspace_relative_path("/a/b/c", "/a/b"), "./c");
     }
 
@@ -720,6 +764,9 @@ mod tests {
         );
         assert!(result2.is_err());
         assert_eq!(entry2.decision, ScrubbingDecision::BlockedByHardRule);
-        assert!(entry2.matched_kinds.iter().any(|k| k == "aws_access_key_id"));
+        assert!(entry2
+            .matched_kinds
+            .iter()
+            .any(|k| k == "aws_access_key_id"));
     }
 }

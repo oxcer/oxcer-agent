@@ -56,21 +56,17 @@ fn default_revision() -> String {
 /// Load [LlmProfilesConfig] from a config directory (e.g. oxcer-core/config).
 pub fn load_llm_profiles(config_dir: &Path) -> Result<LlmProfilesConfig, LlmError> {
     let path = config_dir.join("llm_profiles.yaml");
-    let contents = std::fs::read_to_string(&path).map_err(|e| {
-        LlmError::Config(format!("Failed to read {:?}: {}", path, e))
-    })?;
-    serde_yaml::from_str(&contents).map_err(|e| {
-        LlmError::Config(format!("Invalid llm_profiles.yaml: {}", e))
-    })
+    let contents = std::fs::read_to_string(&path)
+        .map_err(|e| LlmError::Config(format!("Failed to read {:?}: {}", path, e)))?;
+    serde_yaml::from_str(&contents)
+        .map_err(|e| LlmError::Config(format!("Invalid llm_profiles.yaml: {}", e)))
 }
 
 /// Load [ModelsConfig] from a config directory.
 pub fn load_models_config(config_dir: &Path) -> Result<ModelsConfig, LlmError> {
     let path = config_dir.join("models.yaml");
-    let contents = std::fs::read_to_string(&path).map_err(|e| {
-        LlmError::Config(format!("Failed to read {:?}: {}", path, e))
-    })?;
-    serde_yaml::from_str(&contents).map_err(|e| {
-        LlmError::Config(format!("Invalid models.yaml: {}", e))
-    })
+    let contents = std::fs::read_to_string(&path)
+        .map_err(|e| LlmError::Config(format!("Failed to read {:?}: {}", path, e)))?;
+    serde_yaml::from_str(&contents)
+        .map_err(|e| LlmError::Config(format!("Invalid models.yaml: {}", e)))
 }

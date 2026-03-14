@@ -4,7 +4,7 @@
   <img src="readme-main.png" alt="Oxcer app screenshot" width="800">
 </p>
 
-**Oxcer reads a file you name and summarizes it using an on-device language model. No data leaves your Mac.**
+**Oxcer is a local-first AI assistant that helps non-developers with document work. Nothing leaves your machine.**
 
 > **v0.1 — Early Access.** One workflow is officially supported in this release: named-file summarization. Read [What Oxcer does in v0.1](#what-oxcer-does-in-v01) before installing.
 

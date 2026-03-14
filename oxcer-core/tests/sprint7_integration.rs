@@ -11,8 +11,7 @@ use oxcer_core::prompt_sanitizer::{
 };
 use oxcer_core::security::policy_config::{evaluate_with_config, load_from_yaml_result};
 use oxcer_core::security::policy_engine::{
-    PolicyCaller, PolicyDecisionKind, PolicyRequest, PolicyTarget, ReasonCode, ToolType,
-    Operation,
+    Operation, PolicyCaller, PolicyDecisionKind, PolicyRequest, PolicyTarget, ReasonCode, ToolType,
 };
 
 // -----------------------------------------------------------------------------
@@ -103,7 +102,8 @@ fn integration_too_much_sensitive_data_returns_error() {
     assert!(
         matches!(
             result,
-            Err(ScrubbingError::TooMuchSensitiveData { .. }) | Err(ScrubbingError::NeverSendToLlm { .. })
+            Err(ScrubbingError::TooMuchSensitiveData { .. })
+                | Err(ScrubbingError::NeverSendToLlm { .. })
         ),
         "payload that is mostly secrets should be blocked (threshold or never-send)"
     );
@@ -120,7 +120,8 @@ fn integration_too_much_redacted_ratio_blocks() {
     assert!(result.is_err());
     if let Err(e) = &result {
         assert!(
-            matches!(e, ScrubbingError::TooMuchSensitiveData { .. }) | matches!(e, ScrubbingError::NeverSendToLlm { .. })
+            matches!(e, ScrubbingError::TooMuchSensitiveData { .. })
+                | matches!(e, ScrubbingError::NeverSendToLlm { .. })
         );
     }
 }
@@ -160,7 +161,6 @@ rules:
             canonical_path: "/tmp/workspace/file.txt".to_string(),
         },
         content_sensitivity: Some(high_content),
-        ..Default::default()
     };
     let dec = evaluate_with_config(&req, &cfg);
     assert_eq!(dec.decision, PolicyDecisionKind::Deny);
@@ -198,9 +198,11 @@ rules:
             canonical_path: "/tmp/workspace/file.txt".to_string(),
         },
         content_sensitivity: Some(high_content),
-        ..Default::default()
     };
     let dec = evaluate_with_config(&req, &cfg);
     assert_eq!(dec.decision, PolicyDecisionKind::RequireApproval);
-    assert!(matches!(dec.reason_code, ReasonCode::DataSensitivityRequireApproval));
+    assert!(matches!(
+        dec.reason_code,
+        ReasonCode::DataSensitivityRequireApproval
+    ));
 }

@@ -204,9 +204,9 @@ fn now_iso8601() -> String {
     }
 }
 
-fn log_fs_event<'a>(
+fn log_fs_event(
     caller: FsCaller,
-    operation: &'a str,
+    operation: &str,
     normalized: &NormalizedPath,
     decision: &SecurityDecision,
     size_bytes: Option<u64>,
@@ -278,9 +278,7 @@ pub fn normalize_and_resolve(
 
     let candidate = base_dir.join(&rel);
 
-    let canonical = candidate
-        .canonicalize()
-        .map_err(FsError::io)?;
+    let canonical = candidate.canonicalize().map_err(FsError::io)?;
 
     // Ensure that the resolved path is still inside the chosen base directory,
     // even in the presence of symlinks.
@@ -384,7 +382,11 @@ pub fn fs_list_dir(
             Err(_) => continue,
         };
 
-        let size = if meta.is_file() { Some(meta.len()) } else { None };
+        let size = if meta.is_file() {
+            Some(meta.len())
+        } else {
+            None
+        };
         let modified = meta.modified().ok();
 
         entries.push(DirEntryMetadata {
@@ -396,14 +398,7 @@ pub fn fs_list_dir(
         });
     }
 
-    log_fs_event(
-        caller,
-        "list",
-        &normalized,
-        &decision,
-        None,
-        None,
-    );
+    log_fs_event(caller, "list", &normalized, &decision, None, None);
 
     Ok(entries)
 }
@@ -460,24 +455,19 @@ pub fn fs_read_file(
             mime_guess: guess,
         }
     } else {
-        let contents = String::from_utf8(buf).map_err(|e| FsError::io(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            e.utf8_error(),
-        )))?;
+        let contents = String::from_utf8(buf).map_err(|e| {
+            FsError::io(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                e.utf8_error(),
+            ))
+        })?;
         FsReadResult::Text {
             contents,
             size_bytes: size,
         }
     };
 
-    log_fs_event(
-        caller,
-        "read",
-        &normalized,
-        &decision,
-        Some(size),
-        None,
-    );
+    log_fs_event(caller, "read", &normalized, &decision, Some(size), None);
 
     Ok(result)
 }
@@ -560,7 +550,8 @@ pub fn fs_remove_file(
 
     let meta = fs::metadata(&normalized.abs_path).map_err(FsError::io)?;
     if !meta.is_file() {
-        let err = FsError::invalid_path("Path is not a regular file (use remove_dir for directories)");
+        let err =
+            FsError::invalid_path("Path is not a regular file (use remove_dir for directories)");
         log_fs_event(caller, "delete", &normalized, &decision, None, Some(&err));
         return Err(err);
     }
@@ -598,7 +589,14 @@ pub fn fs_rename(
 
     if matches!(dest_decision.decision, SecurityDecisionKind::Deny) {
         let err = FsError::forbidden("Rename destination is forbidden by policy");
-        log_fs_event(caller, "rename", &normalized, &dest_decision, None, Some(&err));
+        log_fs_event(
+            caller,
+            "rename",
+            &normalized,
+            &dest_decision,
+            None,
+            Some(&err),
+        );
         return Err(err);
     }
 
@@ -622,21 +620,42 @@ pub fn fs_move(
     let src_decision = evaluate_path_policy(&src_normalized);
     if matches!(src_decision.decision, SecurityDecisionKind::Deny) {
         let err = FsError::forbidden("Move source is forbidden by policy");
-        log_fs_event(caller, "move", &src_normalized, &src_decision, None, Some(&err));
+        log_fs_event(
+            caller,
+            "move",
+            &src_normalized,
+            &src_decision,
+            None,
+            Some(&err),
+        );
         return Err(err);
     }
 
     let dest_decision = evaluate_path_policy(&dest_normalized);
     if matches!(dest_decision.decision, SecurityDecisionKind::Deny) {
         let err = FsError::forbidden("Move destination is forbidden by policy");
-        log_fs_event(caller, "move", &src_normalized, &dest_decision, None, Some(&err));
+        log_fs_event(
+            caller,
+            "move",
+            &src_normalized,
+            &dest_decision,
+            None,
+            Some(&err),
+        );
         return Err(err);
     }
 
     let src_meta = fs::metadata(&src_normalized.abs_path).map_err(FsError::io)?;
     if !src_meta.is_file() {
         let err = FsError::invalid_path("Move source must be a regular file");
-        log_fs_event(caller, "move", &src_normalized, &src_decision, None, Some(&err));
+        log_fs_event(
+            caller,
+            "move",
+            &src_normalized,
+            &src_decision,
+            None,
+            Some(&err),
+        );
         return Err(err);
     }
 
@@ -681,7 +700,9 @@ mod tests {
         let res = fs_read_file(
             FsCaller::Ui,
             &ctx,
-            BaseDirKind::Workspace { id: "ws".to_string() },
+            BaseDirKind::Workspace {
+                id: "ws".to_string(),
+            },
             "file.txt",
         )
         .unwrap();
@@ -698,10 +719,12 @@ mod tests {
         let root = dir.path();
         let ctx = make_workspace_ctx(root);
 
-        let base = BaseDirKind::Workspace { id: "ws".to_string() };
+        let base = BaseDirKind::Workspace {
+            id: "ws".to_string(),
+        };
         let err = normalize_and_resolve(&ctx, &base, "../outside.txt").unwrap_err();
 
-        assert_eq!(matches!(err.kind, FsErrorKind::InvalidPath), true);
+        assert!(matches!(err.kind, FsErrorKind::InvalidPath));
     }
 
     #[test]
@@ -721,12 +744,14 @@ mod tests {
         let err = fs_read_file(
             FsCaller::Ui,
             &ctx,
-            BaseDirKind::Workspace { id: "ws".to_string() },
+            BaseDirKind::Workspace {
+                id: "ws".to_string(),
+            },
             "link.txt",
         )
         .unwrap_err();
 
-        assert_eq!(matches!(err.kind, FsErrorKind::Forbidden), true);
+        assert!(matches!(err.kind, FsErrorKind::Forbidden));
     }
 
     #[test]
@@ -757,11 +782,19 @@ mod tests {
         let res = fs_read_file(
             FsCaller::Ui,
             &ctx,
-            BaseDirKind::Workspace { id: "ws".to_string() },
+            BaseDirKind::Workspace {
+                id: "ws".to_string(),
+            },
             "big.bin",
         );
         assert!(
-            matches!(res, Err(FsError { kind: FsErrorKind::TooLarge, .. })),
+            matches!(
+                res,
+                Err(FsError {
+                    kind: FsErrorKind::TooLarge,
+                    ..
+                })
+            ),
             "expected TooLarge, got {:?}",
             res
         );

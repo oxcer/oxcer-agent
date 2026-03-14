@@ -69,10 +69,7 @@ fn rotate_if_needed(app_config_dir: &Path) -> Result<(), String> {
 
 /// Core retention: keep entries with timestamp >= cutoff, then keep newest entries up to MAX_BYTES (drop oldest first).
 /// Used by rotate_if_needed and by unit/integration tests with a fixed cutoff for determinism.
-pub fn rotate_retention(
-    path: &Path,
-    cutoff: chrono::DateTime<chrono::Utc>,
-) -> Result<(), String> {
+pub fn rotate_retention(path: &Path, cutoff: chrono::DateTime<chrono::Utc>) -> Result<(), String> {
     let file = match std::fs::File::open(path) {
         Ok(f) => f,
         Err(_) => return Ok(()),
@@ -80,7 +77,7 @@ pub fn rotate_retention(
     let reader = BufReader::new(file);
     let lines: Vec<String> = reader
         .lines()
-        .filter_map(|r| r.ok())
+        .map_while(|r| r.ok())
         .filter(|s| !s.is_empty())
         .collect();
     if lines.is_empty() {
@@ -122,7 +119,11 @@ pub fn rotate_retention(
 mod tests {
     use super::*;
 
-    fn make_entry(ts: chrono::DateTime<chrono::Utc>, event_type: &str, details: Option<serde_json::Value>) -> String {
+    fn make_entry(
+        ts: chrono::DateTime<chrono::Utc>,
+        event_type: &str,
+        details: Option<serde_json::Value>,
+    ) -> String {
         let entry = EventEntry {
             timestamp: ts.to_rfc3339(),
             event_type: event_type.to_string(),
@@ -154,7 +155,7 @@ mod tests {
         let ts_10d = now - chrono::Duration::days(10);
         let cutoff = now - chrono::Duration::days(MAX_AGE_DAYS);
 
-        let lines = vec![
+        let lines = [
             make_entry(ts_40d, "old_40", Some(serde_json::json!({"marker": "40d"}))),
             make_entry(ts_31d, "old_31", Some(serde_json::json!({"marker": "31d"}))),
             make_entry(ts_10d, "recent", Some(serde_json::json!({"marker": "10d"}))),
@@ -166,7 +167,10 @@ mod tests {
         let content = std::fs::read_to_string(&path).unwrap();
         let kept: Vec<&str> = content.lines().filter(|s| !s.is_empty()).collect();
         assert_eq!(kept.len(), 1, "only entry newer than 30 days should remain");
-        assert!(kept[0].contains("\"marker\":\"10d\""), "the 10d entry should be kept");
+        assert!(
+            kept[0].contains("\"marker\":\"10d\""),
+            "the 10d entry should be kept"
+        );
         assert!(!content.contains("\"marker\":\"40d\""));
         assert!(!content.contains("\"marker\":\"31d\""));
     }
@@ -192,7 +196,9 @@ mod tests {
                 timestamp: ts.to_rfc3339(),
                 event_type: "dummy".to_string(),
                 workspace_id: None,
-                details: Some(serde_json::json!({ "index": i, "padding": "x".repeat(line_size - 80) })),
+                details: Some(
+                    serde_json::json!({ "index": i, "padding": "x".repeat(line_size - 80) }),
+                ),
             };
             lines.push(serde_json::to_string(&entry).unwrap());
         }
@@ -203,7 +209,11 @@ mod tests {
         rotate_retention(&path, cutoff).unwrap();
 
         let meta = std::fs::metadata(&path).unwrap();
-        assert!(meta.len() <= MAX_BYTES, "file must be ≤10MB after rotation, got {} bytes", meta.len());
+        assert!(
+            meta.len() <= MAX_BYTES,
+            "file must be ≤10MB after rotation, got {} bytes",
+            meta.len()
+        );
 
         let after = std::fs::read_to_string(&path).unwrap();
         let parsed: Vec<EventEntry> = after
@@ -212,13 +222,21 @@ mod tests {
             .collect();
         let indices: Vec<i64> = parsed
             .iter()
-            .filter_map(|e| e.details.as_ref().and_then(|d| d.get("index")).and_then(|v| v.as_i64()))
+            .filter_map(|e| {
+                e.details
+                    .as_ref()
+                    .and_then(|d| d.get("index"))
+                    .and_then(|v| v.as_i64())
+            })
             .collect();
         assert!(!indices.is_empty());
         let min_kept = *indices.iter().min().unwrap();
         let max_kept = *indices.iter().max().unwrap();
         assert_eq!(min_kept, 0, "newest entry (index 0) should be kept");
-        assert!(max_kept < (n_lines as i64) - 1, "oldest entries should have been dropped");
+        assert!(
+            max_kept < (n_lines as i64) - 1,
+            "oldest entries should have been dropped"
+        );
     }
 
     /// Age trimming even when file is under 10MB: entries older than 30 days are still removed.
@@ -236,7 +254,7 @@ mod tests {
         let ts_10d = now - chrono::Duration::days(10);
         let cutoff = now - chrono::Duration::days(MAX_AGE_DAYS);
 
-        let lines = vec![
+        let lines = [
             make_entry(ts_40d, "old_40", Some(serde_json::json!({"marker": "40d"}))),
             make_entry(ts_35d, "old_35", Some(serde_json::json!({"marker": "35d"}))),
             make_entry(ts_10d, "recent", Some(serde_json::json!({"marker": "10d"}))),

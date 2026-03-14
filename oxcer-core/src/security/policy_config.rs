@@ -91,7 +91,6 @@ impl SensitivityLevelConfig {
     }
 }
 
-
 /// A single policy rule.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PolicyRule {
@@ -170,8 +169,8 @@ pub fn load_from_json(bytes: &[u8]) -> PolicyConfig {
 
 /// Loads policy from JSON bytes. Returns error on failure.
 pub fn load_from_json_result(bytes: &[u8]) -> LoadResult {
-    let raw: serde_json::Value = serde_json::from_slice(bytes)
-        .map_err(|e| PolicyLoadError::Parse(e.to_string()))?;
+    let raw: serde_json::Value =
+        serde_json::from_slice(bytes).map_err(|e| PolicyLoadError::Parse(e.to_string()))?;
 
     let rules: Vec<PolicyRule> = raw
         .get("rules")
@@ -201,14 +200,13 @@ pub fn load_from_json_result(bytes: &[u8]) -> LoadResult {
 
 /// Loads policy from YAML bytes. Returns error on failure.
 pub fn load_from_yaml_result(bytes: &[u8]) -> LoadResult {
-    let raw: serde_yaml::Value = serde_yaml::from_slice(bytes)
-        .map_err(|e| PolicyLoadError::Parse(e.to_string()))?;
+    let raw: serde_yaml::Value =
+        serde_yaml::from_slice(bytes).map_err(|e| PolicyLoadError::Parse(e.to_string()))?;
 
     let rules: Vec<PolicyRule> = if let Some(arr) = raw.get("rules").and_then(|v| v.as_sequence()) {
         arr.iter()
             .map(|v| {
-                serde_yaml::from_value(v.clone())
-                    .map_err(|e| PolicyLoadError::Parse(e.to_string()))
+                serde_yaml::from_value(v.clone()).map_err(|e| PolicyLoadError::Parse(e.to_string()))
             })
             .collect::<LoadResultOf<Vec<PolicyRule>>>()?
     } else {
@@ -239,7 +237,9 @@ pub fn load_from_yaml_result(bytes: &[u8]) -> LoadResult {
 /// Invalid policy -> caller must use default_policy() (fail-safe).
 fn validate(cfg: &PolicyConfig) -> LoadResultOf<()> {
     if cfg.rules.is_empty() {
-        return Err(PolicyLoadError::Validation("rules must not be empty".into()));
+        return Err(PolicyLoadError::Validation(
+            "rules must not be empty".into(),
+        ));
     }
     for (i, rule) in cfg.rules.iter().enumerate() {
         if !rule_has_match_criteria(&rule.match_) {
@@ -258,8 +258,16 @@ fn rule_has_match_criteria(m: &PolicyMatch) -> bool {
     let has_caller = m.caller.as_ref().map(|v| !v.is_empty()).unwrap_or(false);
     let has_tool = m.tool_type.as_ref().map(|v| !v.is_empty()).unwrap_or(false);
     let has_op = m.operation.as_ref().map(|v| !v.is_empty()).unwrap_or(false);
-    let has_path = m.path_patterns.as_ref().map(|v| !v.is_empty()).unwrap_or(false);
-    let has_cmd = m.command_patterns.as_ref().map(|v| !v.is_empty()).unwrap_or(false);
+    let has_path = m
+        .path_patterns
+        .as_ref()
+        .map(|v| !v.is_empty())
+        .unwrap_or(false);
+    let has_cmd = m
+        .command_patterns
+        .as_ref()
+        .map(|v| !v.is_empty())
+        .unwrap_or(false);
     has_caller || has_tool || has_op || has_path || has_cmd
 }
 
@@ -342,7 +350,12 @@ fn builtin_default_rules() -> Vec<PolicyRule> {
         PolicyRule {
             match_: PolicyMatch {
                 tool_type: Some(vec!["fs".into()]),
-                operation: Some(vec!["delete".into(), "rename".into(), "move".into(), "chmod".into()]),
+                operation: Some(vec![
+                    "delete".into(),
+                    "rename".into(),
+                    "move".into(),
+                    "chmod".into(),
+                ]),
                 caller: None,
                 path_patterns: None,
                 command_patterns: None,
@@ -357,7 +370,13 @@ fn builtin_default_rules() -> Vec<PolicyRule> {
             match_: PolicyMatch {
                 tool_type: Some(vec!["shell".into()]),
                 operation: Some(vec!["exec".into()]),
-                command_patterns: Some(vec!["deploy".into(), "push".into(), "migrate".into(), "release".into(), "publish".into()]),
+                command_patterns: Some(vec![
+                    "deploy".into(),
+                    "push".into(),
+                    "migrate".into(),
+                    "release".into(),
+                    "publish".into(),
+                ]),
                 caller: None,
                 path_patterns: None,
             },
@@ -503,16 +522,20 @@ pub fn rule_matches(
     let m = &rule.match_;
 
     if let Some(ref callers) = m.caller {
-        if !callers.iter().any(|c| {
-            c == "*" || str_to_caller(c).map(|pc| pc == caller).unwrap_or(false)
-        }) {
+        if !callers
+            .iter()
+            .any(|c| c == "*" || str_to_caller(c).map(|pc| pc == caller).unwrap_or(false))
+        {
             return false;
         }
     }
 
     if let Some(ref tt) = m.tool_type {
         if !tt.iter().any(|t| {
-            t == "*" || str_to_tool_type(t).map(|pt| pt == tool_type).unwrap_or(false)
+            t == "*"
+                || str_to_tool_type(t)
+                    .map(|pt| pt == tool_type)
+                    .unwrap_or(false)
         }) {
             return false;
         }
@@ -520,7 +543,9 @@ pub fn rule_matches(
 
     if let Some(ref ops) = m.operation {
         if !ops.iter().any(|o| {
-            str_to_operation(o).map(|po| po == operation).unwrap_or(false)
+            str_to_operation(o)
+                .map(|po| po == operation)
+                .unwrap_or(false)
         }) {
             return false;
         }
@@ -552,8 +577,11 @@ pub fn rule_matches(
         let lower_id = cmd_id.to_lowercase();
         let matches = patterns.iter().any(|p| {
             let pl = p.to_lowercase();
-            lower_id == pl || lower_id.contains(&pl)
-                || normalized.map(|n| n.to_lowercase().contains(&pl)).unwrap_or(false)
+            lower_id == pl
+                || lower_id.contains(&pl)
+                || normalized
+                    .map(|n| n.to_lowercase().contains(&pl))
+                    .unwrap_or(false)
         });
         if !matches {
             return false;
@@ -565,9 +593,9 @@ pub fn rule_matches(
 
 fn expand_home_pattern(pattern: &str, home_dir: Option<&std::path::Path>) -> std::path::PathBuf {
     let s = pattern.trim();
-    if s.starts_with("~/") {
+    if let Some(stripped) = s.strip_prefix("~/") {
         if let Some(home) = home_dir {
-            return home.join(&s[2..]);
+            return home.join(stripped);
         }
     }
     if s == "~" {
@@ -589,9 +617,7 @@ pub fn evaluate_with_config(
     request: &crate::security::policy_engine::PolicyRequest,
     config: &PolicyConfig,
 ) -> crate::security::policy_engine::PolicyDecision {
-    use crate::security::policy_engine::{
-        PolicyDecision, PolicyDecisionKind, ReasonCode,
-    };
+    use crate::security::policy_engine::{PolicyDecision, PolicyDecisionKind, ReasonCode};
 
     let home_dir = dirs_next::home_dir();
     let home_path = home_dir.as_deref();
@@ -618,7 +644,8 @@ pub fn evaluate_with_config(
                         })),
                     };
                 }
-                if ds.require_approval_if
+                if ds
+                    .require_approval_if
                     .map(|c| sr.level >= c.to_level())
                     .unwrap_or(false)
                 {
@@ -637,9 +664,8 @@ pub fn evaluate_with_config(
                 PolicyAction::Deny => PolicyDecisionKind::Deny,
                 PolicyAction::RequireApproval => PolicyDecisionKind::RequireApproval,
             };
-            let reason_code = reason_code_from_str(
-                rule.reason_code.as_deref().unwrap_or("CONFIG_RULE"),
-            );
+            let reason_code =
+                reason_code_from_str(rule.reason_code.as_deref().unwrap_or("CONFIG_RULE"));
             return PolicyDecision {
                 decision,
                 reason_code,
@@ -669,11 +695,31 @@ pub fn evaluate_with_config(
     }
 }
 
+fn reason_code_from_str(s: &str) -> crate::security::policy_engine::ReasonCode {
+    use crate::security::policy_engine::ReasonCode;
+    match s.to_uppercase().as_str() {
+        "FS_PATH_IN_BLOCKLIST" => ReasonCode::FsPathInBlocklist,
+        "SHELL_COMMAND_BLACKLISTED" => ReasonCode::ShellCommandBlacklisted,
+        "DESTRUCTIVE_FS_REQUIRES_APPROVAL" => ReasonCode::DestructiveFsRequiresApproval,
+        "HIGH_RISK_TOOL_REQUIRES_APPROVAL" => ReasonCode::HighRiskToolRequiresApproval,
+        "AGENT_WRITE_REQUIRES_APPROVAL" => ReasonCode::AgentWriteRequiresApproval,
+        "AGENT_EXEC_REQUIRES_APPROVAL" => ReasonCode::AgentExecRequiresApproval,
+        "AGENT_DESTRUCTIVE_REQUIRES_APPROVAL" => ReasonCode::AgentDestructiveRequiresApproval,
+        "EXPLICIT_ALLOW" => ReasonCode::ExplicitAllow,
+        "INTERNAL_SYSTEM" => ReasonCode::InternalSystem,
+        "DATA_SENSITIVITY_DENY" => ReasonCode::DataSensitivityDeny,
+        "DATA_SENSITIVITY_REQUIRE_APPROVAL" => ReasonCode::DataSensitivityRequireApproval,
+        _ => ReasonCode::DefaultDeny,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::data_sensitivity::{SensitivityLevel, SensitivityResult};
-    use crate::security::policy_engine::{PolicyCaller, PolicyDecisionKind, PolicyRequest, PolicyTarget, ToolType, Operation};
+    use crate::security::policy_engine::{
+        Operation, PolicyCaller, PolicyDecisionKind, PolicyRequest, PolicyTarget, ToolType,
+    };
 
     fn safe_request() -> PolicyRequest {
         PolicyRequest {
@@ -860,7 +906,10 @@ rules:
         };
         let dec = evaluate_with_config(&req, &cfg);
         assert_eq!(dec.decision, PolicyDecisionKind::Deny);
-        assert!(matches!(dec.reason_code, crate::security::policy_engine::ReasonCode::DataSensitivityDeny));
+        assert!(matches!(
+            dec.reason_code,
+            crate::security::policy_engine::ReasonCode::DataSensitivityDeny
+        ));
     }
 
     #[test]
@@ -897,7 +946,10 @@ rules:
         };
         let dec = evaluate_with_config(&req, &cfg);
         assert_eq!(dec.decision, PolicyDecisionKind::RequireApproval);
-        assert!(matches!(dec.reason_code, crate::security::policy_engine::ReasonCode::DataSensitivityRequireApproval));
+        assert!(matches!(
+            dec.reason_code,
+            crate::security::policy_engine::ReasonCode::DataSensitivityRequireApproval
+        ));
     }
 
     /// Regression: load_from_yaml never returns policy that allows agent write by default.
@@ -920,23 +972,5 @@ rules:
             let cfg = load_from_yaml(yaml);
             assert_not_more_permissive(&cfg);
         }
-    }
-}
-
-fn reason_code_from_str(s: &str) -> crate::security::policy_engine::ReasonCode {
-    use crate::security::policy_engine::ReasonCode;
-    match s.to_uppercase().as_str() {
-        "FS_PATH_IN_BLOCKLIST" => ReasonCode::FsPathInBlocklist,
-        "SHELL_COMMAND_BLACKLISTED" => ReasonCode::ShellCommandBlacklisted,
-        "DESTRUCTIVE_FS_REQUIRES_APPROVAL" => ReasonCode::DestructiveFsRequiresApproval,
-        "HIGH_RISK_TOOL_REQUIRES_APPROVAL" => ReasonCode::HighRiskToolRequiresApproval,
-        "AGENT_WRITE_REQUIRES_APPROVAL" => ReasonCode::AgentWriteRequiresApproval,
-        "AGENT_EXEC_REQUIRES_APPROVAL" => ReasonCode::AgentExecRequiresApproval,
-        "AGENT_DESTRUCTIVE_REQUIRES_APPROVAL" => ReasonCode::AgentDestructiveRequiresApproval,
-        "EXPLICIT_ALLOW" => ReasonCode::ExplicitAllow,
-        "INTERNAL_SYSTEM" => ReasonCode::InternalSystem,
-        "DATA_SENSITIVITY_DENY" => ReasonCode::DataSensitivityDeny,
-        "DATA_SENSITIVITY_REQUIRE_APPROVAL" => ReasonCode::DataSensitivityRequireApproval,
-        _ => ReasonCode::DefaultDeny,
     }
 }

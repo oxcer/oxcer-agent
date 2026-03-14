@@ -125,43 +125,112 @@ pub struct RouterInput {
 
 /// Explicit tool verbs -> ToolsHeavy + requires_high_risk_approval.
 const TOOL_VERBS: &[&str] = &[
-    "list files", "list dir", "open file", "read file", "write file", "delete", "remove",
-    "rename", "move", "copy", "rm ", "mv ", "cp ", "shell command", "run script", "run command",
-    "chmod", "execute",
+    "list files",
+    "list dir",
+    "open file",
+    "read file",
+    "write file",
+    "delete",
+    "remove",
+    "rename",
+    "move",
+    "copy",
+    "rm ",
+    "mv ",
+    "cp ",
+    "shell command",
+    "run script",
+    "run command",
+    "chmod",
+    "execute",
 ];
 
 /// Implicit FS verbs: natural-language phrases that imply a filesystem operation
 /// even when the user doesn't use explicit "list files" / "read file" vocabulary.
 const IMPLICIT_FS_VERBS: &[&str] = &[
-    "what's in", "what is in", "whats in", "what does", "show me", "describe",
-    "summarize", "summarise", "explain", "contents of", "what files", "list my",
-    "browse", "overview of",
+    "what's in",
+    "what is in",
+    "whats in",
+    "what does",
+    "show me",
+    "describe",
+    "summarize",
+    "summarise",
+    "explain",
+    "contents of",
+    "what files",
+    "list my",
+    "browse",
+    "overview of",
 ];
 
 /// Directory / path hints: task must contain at least one of these alongside an
 /// implicit FS verb for `has_implicit_fs_intent` to return `true`.
 const FS_DIR_HINTS: &[&str] = &[
-    "folder", "directory", "desktop", "documents", "downloads", "home",
+    "folder",
+    "directory",
+    "desktop",
+    "documents",
+    "downloads",
+    "home",
 ];
 
 /// File-content nouns: words that indicate the user is asking about a specific
 /// file's contents (not a directory listing).  Used by `has_implicit_file_read_intent`.
 const FILE_CONTENT_NOUNS: &[&str] = &[
-    "paper", "document", "essay", "report", "article", "readme", "changelog",
-    "the file", "this file", "a file", "that file",
-    ".pdf", ".md", ".txt", ".docx", ".doc", ".csv", ".log",
+    "paper",
+    "document",
+    "essay",
+    "report",
+    "article",
+    "readme",
+    "changelog",
+    "the file",
+    "this file",
+    "a file",
+    "that file",
+    ".pdf",
+    ".md",
+    ".txt",
+    ".docx",
+    ".doc",
+    ".csv",
+    ".log",
 ];
 
 /// Code markers -> Code; length then picks Cheap vs Expensive.
 const CODE_MARKERS: &[&str] = &[
-    "fn ", "fn(", "class ", "import ", "export ", "use ", "def ", ".rs", ".ts", ".py",
-    ".js", ".tsx", ".swift", ".go", ".rs\"", ".ts\"", "function ", "impl ",
+    "fn ",
+    "fn(",
+    "class ",
+    "import ",
+    "export ",
+    "use ",
+    "def ",
+    ".rs",
+    ".ts",
+    ".py",
+    ".js",
+    ".tsx",
+    ".swift",
+    ".go",
+    ".rs\"",
+    ".ts\"",
+    "function ",
+    "impl ",
 ];
 
 /// Planning keywords -> Planning.
 const PLANNING_KEYWORDS: &[&str] = &[
-    "plan", "steps", "strategy", "design", "architecture", "break down",
-    "what order", "how should we", "first then finally",
+    "plan",
+    "steps",
+    "strategy",
+    "design",
+    "architecture",
+    "break down",
+    "what order",
+    "how should we",
+    "first then finally",
 ];
 
 fn contains_any_lower(s: &str, keywords: &[&str]) -> bool {
@@ -238,7 +307,9 @@ fn looks_like_simple_qa(task: &str, context: &TaskContext) -> bool {
     }
     let lower = t.to_lowercase();
     // Borderline: language names often imply code context -> route to Planning.
-    if lower.starts_with("what is ") && (lower.contains("rust") || lower.contains("python") || lower.contains("code")) {
+    if lower.starts_with("what is ")
+        && (lower.contains("rust") || lower.contains("python") || lower.contains("code"))
+    {
         return false;
     }
     lower.ends_with('?')
@@ -463,7 +534,11 @@ mod tests {
     #[test]
     fn route_task_simple_qa() {
         let out = route_task("What is Rust?", &ctx_empty(), &RouterConfig::default());
-        assert_eq!(out.category, TaskCategory::Planning, "Conservative v1: route this borderline input to Planning, not SimpleQa");
+        assert_eq!(
+            out.category,
+            TaskCategory::Planning,
+            "Conservative v1: route this borderline input to Planning, not SimpleQa"
+        );
         assert_eq!(out.strategy, Strategy::ExpensiveModel);
     }
 
@@ -485,7 +560,11 @@ mod tests {
         let mut ctx = TaskContext::default();
         ctx.selected_paths.push("src/main.rs".to_string());
         let out = route_task("Fix the bug in main.rs", &ctx, &RouterConfig::default());
-        assert_eq!(out.category, TaskCategory::Planning, "Conservative v1: route this borderline input to Planning, not Code");
+        assert_eq!(
+            out.category,
+            TaskCategory::Planning,
+            "Conservative v1: route this borderline input to Planning, not Code"
+        );
         assert_eq!(out.strategy, Strategy::ExpensiveModel);
     }
 
@@ -493,8 +572,10 @@ mod tests {
     #[test]
     fn route_task_planning_by_length_when_over_threshold() {
         let long_task = "We need to refactor the entire module. The function is too long and the class has too many responsibilities. We should split the implementation and add tests. Also consider the imports and exports.";
-        let mut config = RouterConfig::default();
-        config.planning_length_threshold = 100;
+        let config = RouterConfig {
+            planning_length_threshold: 100,
+            ..RouterConfig::default()
+        };
         let out = route_task(long_task, &ctx_empty(), &config);
         assert_eq!(out.category, TaskCategory::Planning);
         assert_eq!(out.strategy, Strategy::ExpensiveModel);
@@ -527,8 +608,10 @@ mod tests {
 
     #[test]
     fn route_task_with_classifier_borderline() {
-        let mut config = RouterConfig::default();
-        config.use_llm_for_borderline = true;
+        let config = RouterConfig {
+            use_llm_for_borderline: true,
+            ..RouterConfig::default()
+        };
         let out = route_task_with_classifier(
             "Do something useful with the project",
             &ctx_empty(),
@@ -555,7 +638,11 @@ mod tests {
             capabilities: None,
         };
         let out = route(&input);
-        assert_eq!(out.category, TaskCategory::Planning, "Conservative v1: route this borderline input to Planning, not SimpleQa");
+        assert_eq!(
+            out.category,
+            TaskCategory::Planning,
+            "Conservative v1: route this borderline input to Planning, not SimpleQa"
+        );
         assert_eq!(out.strategy, Strategy::ExpensiveModel);
     }
 
@@ -667,15 +754,23 @@ mod tests {
     #[test]
     fn has_implicit_file_read_intent_positive_and_negative() {
         // Positive: verb + file-content noun, no directory hint
-        assert!(has_implicit_file_read_intent("Summarize the paper on climate change"));
+        assert!(has_implicit_file_read_intent(
+            "Summarize the paper on climate change"
+        ));
         assert!(has_implicit_file_read_intent("Describe this document"));
         assert!(has_implicit_file_read_intent("What does the report say?"));
-        assert!(has_implicit_file_read_intent("Give me an overview of that article"));
+        assert!(has_implicit_file_read_intent(
+            "Give me an overview of that article"
+        ));
         assert!(has_implicit_file_read_intent("Explain the README"));
         assert!(has_implicit_file_read_intent("Summarize paper.pdf"));
         // Negative: has a directory hint → handled by has_implicit_fs_intent
-        assert!(!has_implicit_file_read_intent("Summarize my desktop folder"));
-        assert!(!has_implicit_file_read_intent("Show me what's in my Documents directory"));
+        assert!(!has_implicit_file_read_intent(
+            "Summarize my desktop folder"
+        ));
+        assert!(!has_implicit_file_read_intent(
+            "Show me what's in my Documents directory"
+        ));
         // Negative: no file-content noun
         assert!(!has_implicit_file_read_intent("What is Rust?"));
         assert!(!has_implicit_file_read_intent("Summarize the meeting"));

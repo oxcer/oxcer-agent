@@ -1,0 +1,157 @@
+name: Feature request
+description: >
+  Suggest a new capability or an improvement to an existing one.
+  Oxcer stays simple by design — the best requests solve one specific
+  real task, ideally in plain English.
+title: "[Feature] "
+labels: [enhancement, needs-triage]
+
+body:
+
+  # ── Intro ───────────────────────────────────────────────────────────────────
+
+  - type: markdown
+    attributes:
+      value: |
+        **Thanks for sharing your idea.**
+
+        A few things that make a request easy to act on:
+
+        - **Lead with the task, not the feature.** "I want to summarize 20 monthly reports
+          at once" is more actionable than "add batch mode."
+        - **Smaller is better.** Changes that do one thing well fit Oxcer's design philosophy.
+        - **Check the [roadmap](../../blob/main/ROADMAP.md)** — your idea may already be
+          planned for an upcoming milestone.
+
+  # ── Pre-checks ──────────────────────────────────────────────────────────────
+
+  - type: checkboxes
+    id: pre-checks
+    attributes:
+      label: Before filing
+      options:
+        - label: >
+            I checked the [roadmap](../../blob/main/ROADMAP.md) — this isn't already planned.
+          required: true
+        - label: >
+            I searched [open issues](../../issues) and [Discussions](../../discussions) —
+            this hasn't already been requested.
+          required: true
+
+  # ── Problem / use case ──────────────────────────────────────────────────────
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: >
+        What task are you trying to accomplish, and where does Oxcer currently fall short?
+        Focus on the situation you're in — not the solution yet. Plain language is perfect.
+      placeholder: |
+        e.g. "I have 20 monthly expense reports in Downloads. Right now I have to ask Oxcer
+        to summarize each file individually, which takes a long time. I'd like a single
+        overview across all of them so I can spot patterns without reading each one."
+    validations:
+      required: true
+
+  # ── Proposed solution ───────────────────────────────────────────────────────
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: >
+        How do you imagine Oxcer could help? A description of the user-facing behaviour
+        is enough — you don't need to describe the implementation.
+      placeholder: |
+        e.g. "Let me type something like 'summarize all expense reports in Downloads'
+        and have Oxcer produce one combined summary with a section per file."
+    validations:
+      required: true
+
+  # ── Alternatives considered ──────────────────────────────────────────────────
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you've considered
+      description: >
+        Other approaches you thought about, and why they don't fully solve the problem.
+        Optional — but it helps us understand the trade-offs.
+      placeholder: |
+        e.g. "I could run Oxcer 20 times and copy-paste the outputs, but that loses
+        cross-document context and takes too long."
+    validations:
+      required: false
+
+  # ── UX constraints ──────────────────────────────────────────────────────────
+
+  - type: textarea
+    id: ux
+    attributes:
+      label: UX constraints
+      description: >
+        Anything the implementation should keep in mind to stay approachable for
+        non-developer users. Oxcer is designed to feel like talking to a knowledgeable
+        assistant — not configuring a tool.
+      placeholder: |
+        e.g. "Should work without any new settings or menus. The user just describes
+        what they want in plain English, same as today."
+    validations:
+      required: false
+
+  # ── Privacy / data handling impact ──────────────────────────────────────────
+
+  - type: checkboxes
+    id: privacy-flag
+    attributes:
+      label: Privacy / data handling impact
+      description: >
+        Oxcer's core promise is that **nothing leaves your machine**. Check any boxes
+        that apply to your feature request — this helps us evaluate it correctly.
+      options:
+        - label: >
+            This feature would change what files or data Oxcer reads or writes.
+          required: false
+        - label: >
+            This feature requires network access or an external service.
+          required: false
+        - label: >
+            This feature changes what content is sent to the on-device model,
+            or how the model is invoked.
+          required: false
+        - label: >
+            This feature changes how user-approval prompts work (e.g. fewer
+            confirmation dialogs before file operations).
+          required: false
+
+  - type: textarea
+    id: privacy-details
+    attributes:
+      label: Privacy / data handling notes
+      description: |
+        If you checked any boxes above, describe the data-handling implications.
+
+        Features that require network access need strong justification — Oxcer is
+        deliberately offline-first. See the
+        [network access policy](../../blob/main/CONTRIBUTING.md#network-access-policy).
+      placeholder: |
+        e.g. "Multi-file summarization stays fully local — it reads more files from the
+        configured workspace but makes no new network calls."
+    validations:
+      required: false
+
+  # ── Additional context / examples ───────────────────────────────────────────
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context or examples
+      description: >
+        Mockups, example prompts, links, screenshots, or anything else that helps
+        illustrate the request. All optional.
+      placeholder: |
+        e.g. A sketch of how the output might look, or an example conversation that
+        shows the feature in action.
+    validations:
+      required: false

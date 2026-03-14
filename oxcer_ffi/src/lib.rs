@@ -120,9 +120,11 @@ fn cloud_engine_slot() -> &'static RwLock<Option<SharedEngine>> {
 fn get_active_engine() -> Result<SharedEngine, OxcerError> {
     // Check cloud slot first (read lock — cheap).
     {
-        let slot = cloud_engine_slot().read().map_err(|e| OxcerError::Generic {
-            message: format!("Cloud engine slot read lock poisoned: {}", e),
-        })?;
+        let slot = cloud_engine_slot()
+            .read()
+            .map_err(|e| OxcerError::Generic {
+                message: format!("Cloud engine slot read lock poisoned: {}", e),
+            })?;
         if let Some(engine) = slot.as_ref() {
             return Ok(engine.clone());
         }
@@ -135,7 +137,8 @@ fn get_active_engine() -> Result<SharedEngine, OxcerError> {
 fn blocking_runtime() -> &'static tokio::runtime::Runtime {
     static RUNTIME: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
     RUNTIME.get_or_init(|| {
-        tokio::runtime::Runtime::new().expect("Failed to create tokio runtime for FFI blocking tasks")
+        tokio::runtime::Runtime::new()
+            .expect("Failed to create tokio runtime for FFI blocking tasks")
     })
 }
 
@@ -183,7 +186,10 @@ use oxcer_core::orchestrator::{
     ToolCallIntent, ToolOutcome,
 };
 use oxcer_core::semantic_router::TaskContext as CoreTaskContext;
-use oxcer_core::telemetry::{load_session_log_from_dir, list_sessions_from_dir, LogEvent as CoreLogEvent, LogMetrics as CoreLogMetrics, SessionSummary as CoreSessionSummary};
+use oxcer_core::telemetry::{
+    list_sessions_from_dir, load_session_log_from_dir, LogEvent as CoreLogEvent,
+    LogMetrics as CoreLogMetrics, SessionSummary as CoreSessionSummary,
+};
 
 // -----------------------------------------------------------------------------
 // UniFFI Records (mirror Swift / JSON contracts)
@@ -263,10 +269,9 @@ fn default_app_config_dir() -> Option<std::path::PathBuf> {
 
 fn app_config_dir_or_default(app_config_dir: &str) -> Result<std::path::PathBuf, OxcerError> {
     if app_config_dir.is_empty() {
-        default_app_config_dir()
-            .ok_or_else(|| OxcerError::Generic {
-                message: "app_config_dir required (or set default data dir)".to_string(),
-            })
+        default_app_config_dir().ok_or_else(|| OxcerError::Generic {
+            message: "app_config_dir required (or set default data dir)".to_string(),
+        })
     } else {
         Ok(std::path::PathBuf::from(app_config_dir))
     }
@@ -325,15 +330,15 @@ async fn ensure_local_model_impl(
         }
         #[cfg(unix)]
         {
-            let _ = std::os::unix::fs::symlink(
-                model_gguf.file_name().unwrap(),
-                &model_gguf_for_loader,
-            );
+            let _ =
+                std::os::unix::fs::symlink(model_gguf.file_name().unwrap(), &model_gguf_for_loader);
         }
         // Fallback: copy if symlink creation failed (e.g. on non-Unix targets).
         if !model_gguf_for_loader.exists() {
-            std::fs::copy(&model_gguf, &model_gguf_for_loader).map_err(|e| OxcerError::Generic {
-                message: format!("Failed to link model.gguf: {}", e),
+            std::fs::copy(&model_gguf, &model_gguf_for_loader).map_err(|e| {
+                OxcerError::Generic {
+                    message: format!("Failed to link model.gguf: {}", e),
+                }
             })?;
         }
     }
@@ -412,7 +417,11 @@ impl AgentToolExecutor for FfiStubExecutor {
         )
     }
 
-    fn resolve_approval(&self, _request_id: &str, _approved: bool) -> Result<serde_json::Value, String> {
+    fn resolve_approval(
+        &self,
+        _request_id: &str,
+        _approved: bool,
+    ) -> Result<serde_json::Value, String> {
         Err("Approval flow not available in FFI; use step API from app.".to_string())
     }
 }
@@ -492,12 +501,11 @@ pub fn list_workspaces(app_config_dir: String) -> Result<Vec<WorkspaceInfo>, Oxc
     list_workspaces_impl(&dir)
 }
 
-
 #[uniffi::export]
 pub fn list_sessions(app_config_dir: String) -> Result<Vec<SessionSummary>, OxcerError> {
     let dir = app_config_dir_or_default(&app_config_dir)?;
-    let summaries: Vec<CoreSessionSummary> = list_sessions_from_dir(&dir)
-        .map_err(|e| OxcerError::Generic { message: e })?;
+    let summaries: Vec<CoreSessionSummary> =
+        list_sessions_from_dir(&dir).map_err(|e| OxcerError::Generic { message: e })?;
     Ok(summaries
         .into_iter()
         .map(|s| SessionSummary {
@@ -514,7 +522,10 @@ pub fn list_sessions(app_config_dir: String) -> Result<Vec<SessionSummary>, Oxce
 }
 
 #[uniffi::export]
-pub fn load_session_log(session_id: String, app_config_dir: String) -> Result<Vec<LogEvent>, OxcerError> {
+pub fn load_session_log(
+    session_id: String,
+    app_config_dir: String,
+) -> Result<Vec<LogEvent>, OxcerError> {
     let dir = app_config_dir_or_default(&app_config_dir)?;
     let events = load_session_log_from_dir(&dir, &session_id)
         .map_err(|e| OxcerError::Generic { message: e })?;
@@ -534,7 +545,11 @@ pub async fn ensure_local_model(
 pub async fn generate_text(prompt: String) -> Result<String, OxcerError> {
     ensure_logging_init();
     let t0_gt = std::time::Instant::now();
-    tracing::info!(event = "generate_text_enter", prompt_len = prompt.len(), "generate_text start");
+    tracing::info!(
+        event = "generate_text_enter",
+        prompt_len = prompt.len(),
+        "generate_text start"
+    );
 
     // 1. Route to the active engine: cloud slot (if activated) or local Llama.
     // INVARIANT: Only generate_text routes through get_active_engine().
@@ -558,7 +573,9 @@ pub async fn generate_text(prompt: String) -> Result<String, OxcerError> {
                         err = %e,
                         "generate_text failed"
                     );
-                    OxcerError::Generic { message: e.to_string() }
+                    OxcerError::Generic {
+                        message: e.to_string(),
+                    }
                 })
         })
         .await
@@ -648,7 +665,12 @@ pub fn ffi_agent_step(
         ),
         Some(r) => format!(
             "err({})",
-            r.error.as_deref().unwrap_or("unknown").chars().take(80).collect::<String>()
+            r.error
+                .as_deref()
+                .unwrap_or("unknown")
+                .chars()
+                .take(80)
+                .collect::<String>()
         ),
     };
     // ─────────────────────────────────────────────────────────────────────────
@@ -713,15 +735,15 @@ pub fn ffi_agent_step(
 
     let outcome = oxcer_core::orchestrator::agent_step(input, &mut session, &config, step_result)
         .map_err(|e| {
-            tracing::error!(
-                session_id = %session.session_id,
-                event = "ffi_agent_step_error",
-                elapsed_ms = t0.elapsed().as_millis() as f64,
-                err = %e,
-                "ffi_agent_step failed"
-            );
-            OxcerError::Generic { message: e }
-        })?;
+        tracing::error!(
+            session_id = %session.session_id,
+            event = "ffi_agent_step_error",
+            elapsed_ms = t0.elapsed().as_millis() as f64,
+            err = %e,
+            "ffi_agent_step failed"
+        );
+        OxcerError::Generic { message: e }
+    })?;
 
     // ── Tracing: outcome ──────────────────────────────────────────────────────
     let outcome_kind = match &outcome {
@@ -732,7 +754,10 @@ pub fn ffi_agent_step(
             format!("awaiting_approval({})", request_id)
         }
         AgentStepOutcome::Complete(r) => {
-            format!("complete(answer_len={})", r.final_answer.as_deref().unwrap_or("").len())
+            format!(
+                "complete(answer_len={})",
+                r.final_answer.as_deref().unwrap_or("").len()
+            )
         }
     };
     agent_event!(INFO, session.session_id, "ffi_agent_step_done",
@@ -747,7 +772,9 @@ pub fn ffi_agent_step(
     let session_json_out = serde_json::to_string(&session).map_err(|e| OxcerError::Generic {
         message: format!("ffi_agent_step: session serialization failed: {}", e),
     })?;
-    let ffi_session = FfiSessionState { session_json: session_json_out };
+    let ffi_session = FfiSessionState {
+        session_json: session_json_out,
+    };
 
     let ffi_outcome = match outcome {
         AgentStepOutcome::NeedTool { intent, .. } => {
@@ -792,13 +819,15 @@ pub fn ffi_terminal_execute(
     working_dir: Option<String>,
 ) -> Result<String, OxcerError> {
     ensure_logging_init();
-    tracing::debug!(event = "ffi_terminal_execute", "ffi_terminal_execute called");
+    tracing::debug!(
+        event = "ffi_terminal_execute",
+        "ffi_terminal_execute called"
+    );
 
-    oxcer_core::terminal::TerminalExecutor::execute_llm_action(
-        &llm_output,
-        working_dir.as_deref(),
-    )
-    .map_err(|e| OxcerError::Generic { message: e.to_string() })
+    oxcer_core::terminal::TerminalExecutor::execute_llm_action(&llm_output, working_dir.as_deref())
+        .map_err(|e| OxcerError::Generic {
+            message: e.to_string(),
+        })
 }
 
 // -----------------------------------------------------------------------------
@@ -828,7 +857,12 @@ pub async fn ffi_orchestrate(
     let mem_path = memory_path.unwrap_or_else(|| {
         // Default: ~/.config/oxcer/memory.md
         dirs_next::config_dir()
-            .map(|p| p.join("oxcer").join("memory.md").to_string_lossy().to_string())
+            .map(|p| {
+                p.join("oxcer")
+                    .join("memory.md")
+                    .to_string_lossy()
+                    .to_string()
+            })
             .unwrap_or_else(|| "/dev/null".to_string())
     });
 
@@ -903,8 +937,8 @@ pub async fn orchestrate_query(
 
     let result = blocking_runtime()
         .spawn_blocking(move || -> Result<String, OxcerError> {
-            use oxcer_core::executor::UniversalExecutor;
             use oxcer_core::db::StateDb;
+            use oxcer_core::executor::UniversalExecutor;
             use oxcer_core::fsm::{AgentFsm, LlmCallback};
 
             let executor = UniversalExecutor::new(&root).map_err(|e| OxcerError::Generic {
@@ -913,9 +947,8 @@ pub async fn orchestrate_query(
 
             // Open persistent DB in app_config_dir, or fall back to in-memory.
             let db_path = std::path::Path::new(&db_dir).join("oxcer_episodic.db");
-            let db = StateDb::open(&db_path).unwrap_or_else(|_| {
-                StateDb::open_in_memory().expect("in-memory DB never fails")
-            });
+            let db = StateDb::open(&db_path)
+                .unwrap_or_else(|_| StateDb::open_in_memory().expect("in-memory DB never fails"));
 
             let fsm = AgentFsm::new(executor, db, 8);
 
@@ -1003,7 +1036,7 @@ pub async fn run_agent_task(payload: AgentRequestPayload) -> Result<AgentRespons
 // Cloud Provider Settings — test connection
 // =============================================================================
 
-use oxcer_core::cloud_provider::{ProviderKind as CoreProviderKind, test_provider_connection};
+use oxcer_core::cloud_provider::{test_provider_connection, ProviderKind as CoreProviderKind};
 
 /// Mirrors `oxcer_core::cloud_provider::ProviderKind` for the Swift boundary.
 /// Swift receives this as a generated enum (camelCase variants via UniFFI).
@@ -1120,9 +1153,11 @@ pub fn activate_cloud_provider(
     let engine = CloudLlmEngine::new(core_provider, api_key);
     let shared: SharedEngine = Arc::new(Box::new(engine));
 
-    let mut slot = cloud_engine_slot().write().map_err(|e| OxcerError::Generic {
-        message: format!("Cloud engine slot write lock poisoned: {}", e),
-    })?;
+    let mut slot = cloud_engine_slot()
+        .write()
+        .map_err(|e| OxcerError::Generic {
+            message: format!("Cloud engine slot write lock poisoned: {}", e),
+        })?;
     *slot = Some(shared);
     Ok(())
 }
@@ -1243,8 +1278,8 @@ mod tests {
     #[test]
     fn load_session_log_requires_session_id() {
         let r = load_session_log("some-session".to_string(), String::new());
-        if r.is_ok() {
-            assert!(r.unwrap().iter().all(|e| !e.session_id.is_empty()));
+        if let Ok(events) = r {
+            assert!(events.iter().all(|e| !e.session_id.is_empty()));
         }
     }
 

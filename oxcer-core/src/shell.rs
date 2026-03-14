@@ -25,7 +25,7 @@ use serde::Serialize;
 
 use crate::env_filter;
 use crate::fs::{
-    AppFsContext, BaseDirKind, DenyReason, FsError, normalize_and_resolve, SecurityDecision,
+    normalize_and_resolve, AppFsContext, BaseDirKind, DenyReason, FsError, SecurityDecision,
     SecurityDecisionKind, WorkspaceRoot,
 };
 
@@ -60,10 +60,7 @@ pub enum CommandParamType {
     Enum(Vec<String>),
     PathRelativeToWorkspace,
     Bool,
-    Integer {
-        min: Option<i64>,
-        max: Option<i64>,
-    },
+    Integer { min: Option<i64>, max: Option<i64> },
 }
 
 /// Schema for one parameter of a command.
@@ -163,9 +160,9 @@ fn now_iso8601() -> String {
 
 /// Logs a shell event as JSON to stdout (same as FS logs). Sprint 3: single log
 /// after completion. args_redacted is raw args for now; masking can be added later.
-fn log_shell_event<'a>(
+fn log_shell_event(
     caller: ShellCaller,
-    command_id: &'a str,
+    command_id: &str,
     bound: Option<&BoundCommand>,
     decision: &SecurityDecision,
     result: Option<&ShellResult>,
@@ -177,11 +174,7 @@ fn log_shell_event<'a>(
             b.args.clone(),
             b.cwd.display().to_string(),
         ),
-        None => (
-            String::new(),
-            Vec::new(),
-            String::new(),
-        ),
+        None => (String::new(), Vec::new(), String::new()),
     };
     let (exit_code, duration_ms) = result
         .map(|r| (Some(r.exit_code), Some(r.duration_ms)))
@@ -275,9 +268,10 @@ pub fn default_catalog() -> CommandCatalog {
 fn shell_error_from_fs(e: FsError) -> ShellError {
     use crate::fs::FsErrorKind as FsKind;
     let (kind, message) = match e.kind {
-        FsKind::InvalidPath | FsKind::NotDirectory | FsKind::TooLarge | FsKind::WorkspaceNotFound => {
-            (ShellErrorKind::InvalidParams, e.message)
-        }
+        FsKind::InvalidPath
+        | FsKind::NotDirectory
+        | FsKind::TooLarge
+        | FsKind::WorkspaceNotFound => (ShellErrorKind::InvalidParams, e.message),
         FsKind::Forbidden => (ShellErrorKind::Forbidden, e.message),
         FsKind::Io => (ShellErrorKind::Io, e.message),
     };
@@ -350,10 +344,13 @@ pub fn validate_and_bind_params(
         };
 
         let s = match &param_spec.param_type {
-            CommandParamType::String => value.as_str().ok_or_else(|| ShellError {
-                kind: ShellErrorKind::InvalidParams,
-                message: format!("param {} must be a string", param_spec.name),
-            })?.to_string(),
+            CommandParamType::String => value
+                .as_str()
+                .ok_or_else(|| ShellError {
+                    kind: ShellErrorKind::InvalidParams,
+                    message: format!("param {} must be a string", param_spec.name),
+                })?
+                .to_string(),
             CommandParamType::Enum(allowed) => {
                 let s = value.as_str().ok_or_else(|| ShellError {
                     kind: ShellErrorKind::InvalidParams,
@@ -362,10 +359,7 @@ pub fn validate_and_bind_params(
                 if !allowed.contains(&s.to_string()) {
                     return Err(ShellError {
                         kind: ShellErrorKind::InvalidParams,
-                        message: format!(
-                            "param {} must be one of: {:?}",
-                            param_spec.name, allowed
-                        ),
+                        message: format!("param {} must be one of: {:?}", param_spec.name, allowed),
                     });
                 }
                 s.to_string()
@@ -379,8 +373,11 @@ pub fn validate_and_bind_params(
                     .get("workspace_id")
                     .and_then(|v| v.as_str())
                     .unwrap_or(&ctx.default_workspace_id);
-                let base = BaseDirKind::Workspace { id: workspace_id.to_string() };
-                let normalized = normalize_and_resolve(&fs_ctx, &base, rel).map_err(shell_error_from_fs)?;
+                let base = BaseDirKind::Workspace {
+                    id: workspace_id.to_string(),
+                };
+                let normalized =
+                    normalize_and_resolve(&fs_ctx, &base, rel).map_err(shell_error_from_fs)?;
                 normalized.abs_path.display().to_string()
             }
             CommandParamType::Bool => {
@@ -424,10 +421,14 @@ pub fn validate_and_bind_params(
             kind: ShellErrorKind::InvalidParams,
             message: "workspace_id required for this command".to_string(),
         })?;
-        let root = ctx.workspace_roots.iter().find(|r| &r.id == wid).ok_or_else(|| ShellError {
-            kind: ShellErrorKind::InvalidParams,
-            message: format!("workspace not found: {}", wid),
-        })?;
+        let root = ctx
+            .workspace_roots
+            .iter()
+            .find(|r| &r.id == wid)
+            .ok_or_else(|| ShellError {
+                kind: ShellErrorKind::InvalidParams,
+                message: format!("workspace not found: {}", wid),
+            })?;
         replacements.insert("workspace".to_string(), root.path.display().to_string());
     }
 
@@ -460,9 +461,8 @@ const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Hard-deny tokens: binary names or argument tokens that must not appear.
 const DENY_TOKENS: &[&str] = &[
-    "rm", "sudo", "su",
-    "apt", "apt-get", "brew", "yum", "dnf", "pip", "pip3", "npm", "pnpm", "yarn",
-    "nmap", "masscan", "nc", "netcat",
+    "rm", "sudo", "su", "apt", "apt-get", "brew", "yum", "dnf", "pip", "pip3", "npm", "pnpm",
+    "yarn", "nmap", "masscan", "nc", "netcat",
 ];
 
 fn is_denied_token(token: &str) -> bool {
@@ -472,10 +472,7 @@ fn is_denied_token(token: &str) -> bool {
 
 /// Evaluates command-level policy: scans `bound.binary` (file stem) and every
 /// `bound.args` token against the hard-deny list.
-pub fn evaluate_command_policy(
-    _spec: &CommandSpec,
-    bound: &BoundCommand,
-) -> SecurityDecision {
+pub fn evaluate_command_policy(_spec: &CommandSpec, bound: &BoundCommand) -> SecurityDecision {
     let binary_stem = bound
         .binary
         .file_stem()
@@ -547,7 +544,14 @@ pub fn shell_run(
                 kind: ShellErrorKind::UnknownCommand,
                 message: format!("unknown command: {}", command_id),
             };
-            log_shell_event(caller, command_id, None, &allow_decision(), None, Some(&err));
+            log_shell_event(
+                caller,
+                command_id,
+                None,
+                &allow_decision(),
+                None,
+                Some(&err),
+            );
             return Err(err);
         }
     };
@@ -555,7 +559,14 @@ pub fn shell_run(
     let bound = match validate_and_bind_params(spec, &params, ctx) {
         Ok(b) => b,
         Err(err) => {
-            log_shell_event(caller, command_id, None, &allow_decision(), None, Some(&err));
+            log_shell_event(
+                caller,
+                command_id,
+                None,
+                &allow_decision(),
+                None,
+                Some(&err),
+            );
             return Err(err);
         }
     };
@@ -571,16 +582,19 @@ pub fn shell_run(
             kind: ShellErrorKind::Forbidden,
             message,
         };
-        log_shell_event(caller, command_id, Some(&bound), &decision, None, Some(&err));
+        log_shell_event(
+            caller,
+            command_id,
+            Some(&bound),
+            &decision,
+            None,
+            Some(&err),
+        );
         return Err(err);
     }
 
     let run_start = Instant::now();
-    let safe_env = env_filter::safe_env_for_child(
-        &restricted_path(),
-        "en_US.UTF-8",
-        "dumb",
-    );
+    let safe_env = env_filter::safe_env_for_child(&restricted_path(), "en_US.UTF-8", "dumb");
     if env_filter::env_has_high_risk_keys() {
         if let Ok(json) = serde_json::to_string(&serde_json::json!({
             "event": "shell_scrubbed_env",
@@ -606,7 +620,14 @@ pub fn shell_run(
                 kind: ShellErrorKind::Io,
                 message: format!("failed to spawn {}: {}", bound.binary.display(), e),
             };
-            log_shell_event(caller, command_id, Some(&bound), &decision, None, Some(&err));
+            log_shell_event(
+                caller,
+                command_id,
+                Some(&bound),
+                &decision,
+                None,
+                Some(&err),
+            );
             return Err(err);
         }
     };
@@ -621,7 +642,14 @@ pub fn shell_run(
                     kind: ShellErrorKind::Io,
                     message: format!("wait failed: {}", e),
                 };
-                log_shell_event(caller, command_id, Some(&bound), &decision, None, Some(&err));
+                log_shell_event(
+                    caller,
+                    command_id,
+                    Some(&bound),
+                    &decision,
+                    None,
+                    Some(&err),
+                );
                 return Err(err);
             }
         }
@@ -632,7 +660,14 @@ pub fn shell_run(
                 kind: ShellErrorKind::Timeout,
                 message: format!("command timed out after {:?}", DEFAULT_TIMEOUT),
             };
-            log_shell_event(caller, command_id, Some(&bound), &decision, None, Some(&err));
+            log_shell_event(
+                caller,
+                command_id,
+                Some(&bound),
+                &decision,
+                None,
+                Some(&err),
+            );
             return Err(err);
         }
         std::thread::sleep(Duration::from_millis(50));
@@ -645,7 +680,14 @@ pub fn shell_run(
                 kind: ShellErrorKind::Io,
                 message: "stdout not captured".to_string(),
             };
-            log_shell_event(caller, command_id, Some(&bound), &decision, None, Some(&err));
+            log_shell_event(
+                caller,
+                command_id,
+                Some(&bound),
+                &decision,
+                None,
+                Some(&err),
+            );
             return Err(err);
         }
     };
@@ -656,7 +698,14 @@ pub fn shell_run(
                 kind: ShellErrorKind::Io,
                 message: "stderr not captured".to_string(),
             };
-            log_shell_event(caller, command_id, Some(&bound), &decision, None, Some(&err));
+            log_shell_event(
+                caller,
+                command_id,
+                Some(&bound),
+                &decision,
+                None,
+                Some(&err),
+            );
             return Err(err);
         }
     };
@@ -702,7 +751,14 @@ pub fn shell_run(
         exit_code,
         duration_ms,
     };
-    log_shell_event(caller, command_id, Some(&bound), &decision, Some(&result), None);
+    log_shell_event(
+        caller,
+        command_id,
+        Some(&bound),
+        &decision,
+        Some(&result),
+        None,
+    );
     Ok(result)
 }
 
@@ -757,7 +813,14 @@ mod tests {
         let ctx = minimal_shell_context(dir.path());
         let catalog = default_catalog();
         let params = serde_json::json!({ "workspace_id": "default" });
-        let err = shell_run(ShellCaller::Ui, &ctx, &catalog, "nonexistent_command", params).unwrap_err();
+        let err = shell_run(
+            ShellCaller::Ui,
+            &ctx,
+            &catalog,
+            "nonexistent_command",
+            params,
+        )
+        .unwrap_err();
         assert!(matches!(err.kind, ShellErrorKind::UnknownCommand));
     }
 
@@ -766,11 +829,32 @@ mod tests {
         let dir = tempdir().unwrap();
         let ctx = minimal_shell_context(dir.path());
         let catalog = default_catalog();
-        let err = shell_run(ShellCaller::Ui, &ctx, &catalog, "list_git_status", serde_json::json!({})).unwrap_err();
+        let err = shell_run(
+            ShellCaller::Ui,
+            &ctx,
+            &catalog,
+            "list_git_status",
+            serde_json::json!({}),
+        )
+        .unwrap_err();
         assert!(matches!(err.kind, ShellErrorKind::InvalidParams));
-        let err = shell_run(ShellCaller::Ui, &ctx, &catalog, "list_git_status", serde_json::json!({ "workspace_id": 123 })).unwrap_err();
+        let err = shell_run(
+            ShellCaller::Ui,
+            &ctx,
+            &catalog,
+            "list_git_status",
+            serde_json::json!({ "workspace_id": 123 }),
+        )
+        .unwrap_err();
         assert!(matches!(err.kind, ShellErrorKind::InvalidParams));
-        let err = shell_run(ShellCaller::Ui, &ctx, &catalog, "list_git_status", serde_json::json!("not an object")).unwrap_err();
+        let err = shell_run(
+            ShellCaller::Ui,
+            &ctx,
+            &catalog,
+            "list_git_status",
+            serde_json::json!("not an object"),
+        )
+        .unwrap_err();
         assert!(matches!(err.kind, ShellErrorKind::InvalidParams));
     }
 
@@ -783,8 +867,16 @@ mod tests {
             binary: PathBuf::from("true"),
             args_template: vec!["{{path}}".to_string()],
             params: vec![
-                CommandParamSpec { name: "workspace_id".to_string(), required: true, param_type: CommandParamType::String },
-                CommandParamSpec { name: "path".to_string(), required: true, param_type: CommandParamType::PathRelativeToWorkspace },
+                CommandParamSpec {
+                    name: "workspace_id".to_string(),
+                    required: true,
+                    param_type: CommandParamType::String,
+                },
+                CommandParamSpec {
+                    name: "path".to_string(),
+                    required: true,
+                    param_type: CommandParamType::PathRelativeToWorkspace,
+                },
             ],
             description: "Test path resolution.".to_string(),
         };
@@ -792,7 +884,8 @@ mod tests {
         commands.insert("path_cmd".to_string(), spec_with_path);
         let catalog_path = CommandCatalog { commands };
         let params = serde_json::json!({ "workspace_id": "default", "path": "../escape" });
-        let err = validate_and_bind_params(catalog_path.get("path_cmd").unwrap(), &params, &ctx).unwrap_err();
+        let err = validate_and_bind_params(catalog_path.get("path_cmd").unwrap(), &params, &ctx)
+            .unwrap_err();
         assert!(matches!(err.kind, ShellErrorKind::InvalidParams));
         #[cfg(unix)]
         {
@@ -801,9 +894,18 @@ mod tests {
             fs::write(&secret, b"data").unwrap();
             let link_in_ws = dir.path().join("link_to_outside");
             unix_fs::symlink(&secret, &link_in_ws).unwrap();
-            let params_symlink = serde_json::json!({ "workspace_id": "default", "path": "link_to_outside" });
-            let err = validate_and_bind_params(catalog_path.get("path_cmd").unwrap(), &params_symlink, &ctx).unwrap_err();
-            assert!(matches!(err.kind, ShellErrorKind::Forbidden) || matches!(err.kind, ShellErrorKind::InvalidParams));
+            let params_symlink =
+                serde_json::json!({ "workspace_id": "default", "path": "link_to_outside" });
+            let err = validate_and_bind_params(
+                catalog_path.get("path_cmd").unwrap(),
+                &params_symlink,
+                &ctx,
+            )
+            .unwrap_err();
+            assert!(
+                matches!(err.kind, ShellErrorKind::Forbidden)
+                    || matches!(err.kind, ShellErrorKind::InvalidParams)
+            );
         }
     }
 
@@ -816,14 +918,28 @@ mod tests {
             params: vec![],
             description: "".to_string(),
         };
-        let bound_rm = BoundCommand { binary: PathBuf::from("rm"), args: vec!["-rf".to_string(), "/".to_string()], cwd: PathBuf::from("/tmp") };
+        let bound_rm = BoundCommand {
+            binary: PathBuf::from("rm"),
+            args: vec!["-rf".to_string(), "/".to_string()],
+            cwd: PathBuf::from("/tmp"),
+        };
         let decision = evaluate_command_policy(&spec, &bound_rm);
         assert!(matches!(decision.decision, SecurityDecisionKind::Deny));
-        assert!(matches!(decision.reason, Some(DenyReason::BlocklistedCommand)));
-        let bound_sudo = BoundCommand { binary: PathBuf::from("sudo"), args: vec!["ls".to_string()], cwd: PathBuf::from("/tmp") };
+        assert!(matches!(
+            decision.reason,
+            Some(DenyReason::BlocklistedCommand)
+        ));
+        let bound_sudo = BoundCommand {
+            binary: PathBuf::from("sudo"),
+            args: vec!["ls".to_string()],
+            cwd: PathBuf::from("/tmp"),
+        };
         let decision = evaluate_command_policy(&spec, &bound_sudo);
         assert!(matches!(decision.decision, SecurityDecisionKind::Deny));
-        assert!(matches!(decision.reason, Some(DenyReason::BlocklistedCommand)));
+        assert!(matches!(
+            decision.reason,
+            Some(DenyReason::BlocklistedCommand)
+        ));
     }
 
     #[test]
@@ -831,7 +947,14 @@ mod tests {
         let dir = tempdir().unwrap();
         let ctx = minimal_shell_context(dir.path());
         let catalog = catalog_with_echo();
-        let result = shell_run(ShellCaller::Ui, &ctx, &catalog, "echo_test", serde_json::json!({})).unwrap();
+        let result = shell_run(
+            ShellCaller::Ui,
+            &ctx,
+            &catalog,
+            "echo_test",
+            serde_json::json!({}),
+        )
+        .unwrap();
         assert!(result.stdout.trim() == "hello" || result.stdout.contains("hello"));
         assert_eq!(result.exit_code, 0);
         assert!(!result.stderr.contains("error") || result.stderr.is_empty());

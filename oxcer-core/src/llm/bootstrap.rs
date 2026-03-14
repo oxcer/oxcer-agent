@@ -12,7 +12,7 @@ use std::sync::Arc;
 use crate::llm::config::load_llm_profiles;
 use crate::llm::model_downloader::ensure_model_present;
 use crate::llm::{
-    HttpLlmConfig, HttpLlmEngine, HybridEngine, LlmEngine, LocalPhi3Engine, LlmError,
+    HttpLlmConfig, HttpLlmEngine, HybridEngine, LlmEngine, LlmError, LocalPhi3Engine,
 };
 
 /// Build the [LlmEngine] for the given profile. Uses `config_dir` for llm_profiles.yaml
@@ -40,12 +40,12 @@ pub fn create_engine_for_profile(
             Ok(Arc::new(engine))
         }
         "hybrid" => {
-            let fallback_config = http_fallback_config
-                .ok_or_else(|| LlmError::Config("Hybrid profile requires http_fallback_config".to_string()))?;
-            let hybrid_cfg = profile
-                .hybrid
-                .as_ref()
-                .ok_or_else(|| LlmError::Config("Hybrid profile missing 'hybrid' config".to_string()))?;
+            let fallback_config = http_fallback_config.ok_or_else(|| {
+                LlmError::Config("Hybrid profile requires http_fallback_config".to_string())
+            })?;
+            let hybrid_cfg = profile.hybrid.as_ref().ok_or_else(|| {
+                LlmError::Config("Hybrid profile missing 'hybrid' config".to_string())
+            })?;
             let primary = build_engine_by_name(&hybrid_cfg.primary, config_dir, models_dir, None)?;
             let fallback = Arc::new(HttpLlmEngine::new(fallback_config));
             Ok(Arc::new(HybridEngine::new(primary, fallback)))
@@ -121,7 +121,11 @@ mod tests {
         assert!(r.is_err());
         let err = r.err().unwrap();
         let msg = err.to_string();
-        assert!(msg.contains("Unknown") || msg.contains("profile"), "{}", msg);
+        assert!(
+            msg.contains("Unknown") || msg.contains("profile"),
+            "{}",
+            msg
+        );
     }
 
     /// POLICY: Core tests are OFFLINE-SAFE. This test verifies that when hybrid mode is configured
@@ -131,7 +135,10 @@ mod tests {
     fn hybrid_without_fallback_config_returns_config_error() {
         let (_tmp, config_dir, models_dir) = temp_config_with_profiles();
         let r = create_engine_for_profile("hybrid", &config_dir, &models_dir, None);
-        assert!(r.is_err(), "hybrid without fallback must return Config error");
+        assert!(
+            r.is_err(),
+            "hybrid without fallback must return Config error"
+        );
         let err = r.err().unwrap();
         let msg = err.to_string();
         assert!(

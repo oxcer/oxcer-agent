@@ -6,18 +6,35 @@ on:
   pull_request:
     branches: [main]
 
+# Minimal read-only permissions. Jobs that need more (e.g. upload artifacts)
+# should declare them explicitly at the job level.
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  # Opt all JavaScript actions into Node.js 24 ahead of the June 2026 forced
+  # migration. Suppresses "Node.js 20 actions are deprecated" warnings from
+  # actions/checkout and Swatinem/rust-cache without needing per-step overrides.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
-# Cancel in-progress runs for the same branch when a new push arrives.
+# Cancel in-progress runs for the same ref when a new push arrives.
+# This keeps PR queues fast and avoids burning macOS runner minutes on
+# superseded commits.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
 
-  # ── Job 1: Lint (fast, Linux) ───────────────────────────────────────────────
+  # ── 1. Lint (fmt + clippy) — Linux, ~2–3 min ─────────────────────────────
+  #
+  # Required status check name: "Lint (fmt + clippy)"
+  #
+  # Fast gate. Catches formatting and correctness issues before the heavier
+  # jobs run. --all-targets includes lib, bins, tests, and bench targets so
+  # clippy also checks #[cfg(test)] blocks.
   lint:
     name: Lint (fmt + clippy)
     runs-on: ubuntu-latest
@@ -25,28 +42,56 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Rust (stable + rustfmt + clippy)
-        uses: dtolnay/rust-toolchain@stable
+      # System libraries required by -sys build scripts in the workspace.
+      # Each crate calls pkg-config at compile time; the .pc file must exist
+      # before any cargo command runs.
+      #
+      #   libglib2.0-dev         → glib-2.0.pc AND gobject-2.0.pc
+      #                            (GObject is part of GLib on Ubuntu; there is
+      #                            no separate libgobject-2.0-dev package)
+      #   libgtk-3-dev           → gtk+-3.0.pc (gtk-sys; pulls cairo, pango, atk)
+      #   libwebkit2gtk-4.1-dev  → webkit2gtk-4.1.pc (webkit2gtk via Tauri v2 → wry)
+      #   libsoup-3.0-dev        → libsoup-3.0.pc (soup3-sys)
+      - name: Install GTK/GLib/WebKit deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config \
+            libglib2.0-dev \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            libsoup-3.0-dev
+
+      - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
 
-      - name: Cache Cargo
-        uses: actions/cache@v4
+      # Swatinem/rust-cache handles ~/.cargo/registry, ~/.cargo/git, and the
+      # target/ directory with fine-grained invalidation. prefix-key keeps
+      # lint and test caches separate so a test rebuild doesn't bust the lint
+      # incremental cache and vice-versa.
+      - uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-lint-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-lint-
+          prefix-key: v1-lint
 
       - name: cargo fmt --check
         run: cargo fmt --check
 
-      - name: cargo clippy -- -D warnings
-        run: cargo clippy -- -D warnings
+      - name: cargo clippy --all-targets --all-features
+        run: cargo clippy --all-targets --all-features -- -D warnings
 
-  # ── Job 2: Rust tests (fast, Linux) ────────────────────────────────────────
+  # ── 2. Rust tests — Linux, ~3–5 min ──────────────────────────────────────
+  #
+  # Required status check name: "Rust tests"
+  #
+  # Runs the two test packages. oxcer-core covers unit + integration tests for
+  # the pure-Rust library. oxcer_ffi covers FFI contract tests and catches stale
+  # #[cfg(test)] code referencing wrong return types (root cause of the 88 GB VM
+  # incident).
+  #
+  # desktop-tauri/src-tauri is checked by `cargo check --workspace` but its tests
+  # are not run here — it has no meaningful tests and depends on Tauri internals
+  # that are awkward to test in a headless CI environment.
   test:
     name: Rust tests
     runs-on: ubuntu-latest
@@ -54,58 +99,75 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Rust (stable)
-        uses: dtolnay/rust-toolchain@stable
+      # Identical package set to the lint job. Both jobs compile the full workspace,
+      # so both need the same pkg-config .pc files available.
+      - name: Install GTK/GLib/WebKit deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config \
+            libglib2.0-dev \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            libsoup-3.0-dev
 
-      - name: Cache Cargo
-        uses: actions/cache@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-test-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-test-
+          prefix-key: v1-test
 
-      - name: cargo check (workspace)
-        run: cargo check --workspace
+      # Workspace-wide type + borrow check. Catches compile errors in all
+      # crates including desktop-tauri before running the slower test step.
+      - name: cargo check --workspace
+        run: cargo check --workspace --locked
 
       - name: cargo test (oxcer-core)
-        # Core unit + integration tests. No Tauri dependency; pure Rust.
-        run: cargo test -p oxcer-core
+        run: cargo test --locked -p oxcer-core
 
       - name: cargo test (oxcer_ffi)
-        # FFI contract tests. Catches stale #[cfg(test)] referencing wrong return types.
-        run: cargo test -p oxcer_ffi
+        run: cargo test --locked -p oxcer_ffi
 
-  # ── Job 3: macOS build (dylib + Xcode) ────────────────────────────────────
-  macos-build:
-    name: macOS app build
+  # ── 3. macOS build + FFI bindings — macOS, ~10–15 min cold ───────────────
+  #
+  # Required status check name: "macOS build & FFI bindings"
+  #
+  # Runs after both Linux jobs pass. macOS-only because:
+  #   • llama-cpp-sys requires cmake and pulls the llama.cpp + Metal headers
+  #   • Xcode and the Swift toolchain are macOS-only
+  #   • UniFFI binding freshness check requires the release dylib
+  #
+  # The dylib is built once and reused by both the Xcode build step and the
+  # FFI freshness check, avoiding a second cmake + cargo build.
+  #
+  # This is the most expensive job. It is intentionally gated behind the Linux
+  # jobs so macOS runner minutes are not consumed when fmt/clippy/tests fail.
+  macos:
+    name: macOS build & FFI bindings
     runs-on: macos-latest
     needs: [lint, test]
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Rust (stable)
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache Cargo
-        uses: actions/cache@v4
+      - uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-macos-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-macos-
+          prefix-key: v1-macos
 
+      # brew install is idempotent. cmake is often pre-installed on the
+      # GitHub macOS runner but the version may be too old for llama-cpp-sys
+      # (requires ≥ 3.14). This ensures the right version is available.
       - name: Install cmake (required by llama-cpp-sys)
         run: brew install cmake
 
+      # Build the release dylib once. Steps 3a and 3b both depend on it.
+      # --locked ensures Cargo.lock is respected (no silent dep upgrades in CI).
       - name: Build oxcer_ffi dylib (release)
-        run: cargo build --release -p oxcer_ffi
+        run: cargo build --locked --release -p oxcer_ffi
 
+      # ── 3a. Xcode build ──────────────────────────────────────────────────
       - name: Build OxcerLauncher (Xcode)
         run: |
           xcodebuild \
@@ -116,57 +178,39 @@ jobs:
             build \
             CODE_SIGNING_ALLOWED=NO
 
-  # ── Job 4: UniFFI binding freshness (macOS) ────────────────────────────────
-  #
-  # Ensures the committed oxcer_ffi.swift exactly matches what uniffi-bindgen
-  # would produce from the current Rust source. A divergence means a Rust FFI
-  # signature was changed without regenerating the Swift bindings — the root
-  # cause of the 88 GB virtual-memory incident.
-  #
-  # To fix a failure here: run ./scripts/regen-ffi.sh
-  uniffi-binding-freshness:
-    name: UniFFI binding freshness
-    runs-on: macos-latest
-    needs: [test]
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Rust (stable)
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-ffi-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-ffi-
-
-      - name: Install cmake (required by llama-cpp-sys)
-        run: brew install cmake
-
-      - name: Build oxcer_ffi dylib (release)
-        run: cargo build --release -p oxcer_ffi
-
+      # ── 3b. UniFFI binding freshness ─────────────────────────────────────
+      #
+      # Regenerates Swift bindings from the release dylib we just built, then
+      # diffs against the two committed generated files:
+      #
+      #   oxcer_ffi.swift   — Swift API wrappers
+      #   oxcer_ffiFFI.h    — C declarations imported by the bridging header
+      #
+      # Both must stay in sync with the Rust source. Divergence here means a
+      # Rust FFI signature was changed without running ./scripts/regen-ffi.sh.
+      # The header divergence was the root cause of "Cannot find
+      # uniffi_oxcer_ffi_fn_func_* in scope" build errors.
+      #
+      # Fix for a failure: run ./scripts/regen-ffi.sh and commit both files.
       - name: Generate fresh Swift bindings
         run: |
           mkdir -p /tmp/uniffi_fresh
-          cargo run --bin uniffi-bindgen -- generate \
+          # --no-format disables swiftformat post-processing so output is identical
+          # in every environment, regardless of whether swiftformat is installed.
+          # (GitHub macOS runners have swiftformat; local dev machines typically don't.)
+          cargo run --locked --bin uniffi-bindgen -- generate \
+            --no-format \
             --library target/release/liboxcer_ffi.dylib \
             --language swift \
             --out-dir /tmp/uniffi_fresh
 
-      - name: Compare fresh bindings against committed file
+      - name: Verify oxcer_ffi.swift is up-to-date
         run: |
           COMMITTED=apps/OxcerLauncher/OxcerLauncher/oxcer_ffi.swift
           FRESH=/tmp/uniffi_fresh/oxcer_ffi.swift
-
           if ! diff -q "$FRESH" "$COMMITTED" > /dev/null 2>&1; then
             echo ""
-            echo "ERROR: FFI bindings are STALE."
+            echo "ERROR: oxcer_ffi.swift is STALE."
             echo "  The committed Swift bindings do not match what uniffi-bindgen"
             echo "  would produce from the current Rust source."
             echo ""
@@ -175,14 +219,21 @@ jobs:
             diff "$FRESH" "$COMMITTED" || true
             exit 1
           fi
-          echo "OK: UniFFI Swift bindings match the Rust source."
+          echo "OK: oxcer_ffi.swift matches the Rust source."
 
-      - name: Verify checksum is non-zero (sanity check)
+      - name: Verify oxcer_ffiFFI.h is up-to-date
         run: |
-          COMMITTED=apps/OxcerLauncher/OxcerLauncher/oxcer_ffi.swift
-          CHECKSUM=$(grep 'checksum_func_list_workspaces' "$COMMITTED" | grep -oE '[0-9]+' | head -1)
-          if [ -z "$CHECKSUM" ] || [ "$CHECKSUM" -eq 0 ]; then
-            echo "ERROR: Could not extract a non-zero checksum from $COMMITTED"
+          COMMITTED=apps/OxcerLauncher/OxcerLauncher/oxcer_ffiFFI.h
+          FRESH=/tmp/uniffi_fresh/oxcer_ffiFFI.h
+          if ! diff -q "$FRESH" "$COMMITTED" > /dev/null 2>&1; then
+            echo ""
+            echo "ERROR: oxcer_ffiFFI.h is STALE."
+            echo "  The committed C bridging header does not match what uniffi-bindgen"
+            echo "  would produce from the current Rust source."
+            echo ""
+            echo "  Fix: run ./scripts/regen-ffi.sh and commit both generated files."
+            echo ""
+            diff "$FRESH" "$COMMITTED" || true
             exit 1
           fi
-          echo "OK: list_workspaces checksum in committed bindings: $CHECKSUM"
+          echo "OK: oxcer_ffiFFI.h matches the Rust source."

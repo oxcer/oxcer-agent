@@ -5,11 +5,11 @@
 //! - Cheap vs expensive routing: simple QA → cheap; long plan → expensive.
 
 use oxcer_core::orchestrator::{start_session, ToolCallIntent};
-use oxcer_core::semantic_router::{
-    route_task, RouterConfig, RouterInput, Strategy, TaskCategory, TaskContext,
-};
 use oxcer_core::security::policy_engine::{
     evaluate, Operation, PolicyCaller, PolicyDecisionKind, PolicyRequest, PolicyTarget, ToolType,
+};
+use oxcer_core::semantic_router::{
+    route_task, RouterConfig, RouterInput, Strategy, TaskCategory, TaskContext,
 };
 
 /// Agent tools-only delete: user prompt "delete file X" → router → tools_only + high-risk flag.

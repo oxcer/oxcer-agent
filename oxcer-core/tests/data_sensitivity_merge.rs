@@ -20,7 +20,7 @@ fn merge_adjacent_high_findings() {
     let s = "AKIAIOSFODNN7EXAMPLE and eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.x";
     let r = classify_and_mask_default(s);
     assert!(r.level == SensitivityLevel::High);
-    assert!(r.findings.len() >= 1);
+    assert!(!r.findings.is_empty());
     assert!(!r.masked_content.contains("AKIA"));
     assert!(!r.masked_content.contains("eyJ"));
 }

@@ -34,7 +34,9 @@ impl std::error::Error for PluginLoadError {}
 
 const VALID_PLUGIN_TYPES: &[&str] = &["shell", "fs_indexer", "agent_tool"];
 const VALID_TOOL_TYPES: &[&str] = &["shell", "fs", "agent", "network", "web", "other"];
-const VALID_OPERATIONS: &[&str] = &["read", "write", "delete", "rename", "move", "chmod", "exec", "execute"];
+const VALID_OPERATIONS: &[&str] = &[
+    "read", "write", "delete", "rename", "move", "chmod", "exec", "execute",
+];
 
 /// Loads plugins with telemetry emission (plugin_start at start, plugin_end at finish).
 pub fn load_plugins_from_dir_with_telemetry(
@@ -61,10 +63,7 @@ pub fn load_plugins_from_dir_with_telemetry(
             "ok",
             serde_json::json!({ "loaded_count": descriptors.len() }),
         ),
-        Err(e) => (
-            "error",
-            serde_json::json!({ "error": e.to_string() }),
-        ),
+        Err(e) => ("error", serde_json::json!({ "error": e.to_string() })),
     };
 
     let _ = log_event(
@@ -98,7 +97,7 @@ pub fn load_plugins_from_dir(plugins_dir: &Path) -> LoadResult {
         .filter_map(|e| e.ok())
         .filter_map(|e| {
             let p = e.path();
-            if p.is_file() && p.extension().map_or(false, |e| e == "yaml" || e == "yml") {
+            if p.is_file() && p.extension().is_some_and(|e| e == "yaml" || e == "yml") {
                 Some(p)
             } else {
                 None
@@ -177,7 +176,7 @@ fn validate_and_convert(
     for op in &raw.security.operations {
         let o = op.to_lowercase();
         let normalized = if o == "execute" { "exec" } else { o.as_str() };
-        if !VALID_OPERATIONS.iter().any(|v| *v == normalized) {
+        if !VALID_OPERATIONS.contains(&normalized) {
             return Err(PluginLoadError::Validation(format!(
                 "security.operations must be from {:?}, got: {}",
                 VALID_OPERATIONS, op
@@ -199,7 +198,13 @@ fn validate_and_convert(
 
     // Shell plugins require binary_path and template
     if plugin_type == PluginType::Shell {
-        if raw.binary_path.is_none() || raw.binary_path.as_ref().map(|s| s.is_empty()).unwrap_or(true) {
+        if raw.binary_path.is_none()
+            || raw
+                .binary_path
+                .as_ref()
+                .map(|s| s.is_empty())
+                .unwrap_or(true)
+        {
             return Err(PluginLoadError::Validation(
                 "shell plugin requires non-empty binary_path".into(),
             ));
@@ -237,9 +242,9 @@ pub fn plugin_rules_from_descriptors(
             d.security.tool_types.clone()
         };
         // Shell invocations always use Operation::Exec; map plugin "read" (semantic) to "exec" for match.
-        let ops: Vec<String> = if tool_types.iter().any(|t| t.eq_ignore_ascii_case("shell")) {
-            vec!["exec".to_string()]
-        } else if d.security.operations.is_empty() {
+        let ops: Vec<String> = if tool_types.iter().any(|t| t.eq_ignore_ascii_case("shell"))
+            || d.security.operations.is_empty()
+        {
             vec!["exec".to_string()]
         } else {
             d.security
@@ -247,13 +252,16 @@ pub fn plugin_rules_from_descriptors(
                 .iter()
                 .map(|s| {
                     let o = s.to_lowercase();
-                    if o == "execute" || o == "read" { "exec".to_string() } else { o }
+                    if o == "execute" || o == "read" {
+                        "exec".to_string()
+                    } else {
+                        o
+                    }
                 })
                 .collect()
         };
 
-        let requires_approval = d.security.require_approval
-            .unwrap_or(d.security.dangerous);
+        let requires_approval = d.security.require_approval.unwrap_or(d.security.dangerous);
 
         let action = if requires_approval {
             PolicyAction::RequireApproval
@@ -360,7 +368,9 @@ pub fn build_capability_registry(descriptors: &[PluginDescriptor]) -> Capability
     for d in descriptors {
         let has_hint = d.schema.category_hint.is_some();
         let is_agent_tool = d.plugin_type == PluginType::AgentTool;
-        let is_shell_with_hint = (d.plugin_type == PluginType::Shell || d.plugin_type == PluginType::FsIndexer) && has_hint;
+        let is_shell_with_hint = (d.plugin_type == PluginType::Shell
+            || d.plugin_type == PluginType::FsIndexer)
+            && has_hint;
 
         if is_agent_tool || is_shell_with_hint {
             reg.register(ToolCapability {

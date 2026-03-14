@@ -59,9 +59,15 @@ fn orchestrator_step_error_propagates_to_complete() {
 
     match outcome {
         oxcer_core::orchestrator::AgentStepOutcome::Complete(result) => {
-            assert!(result.final_answer.as_ref().map_or(false, |s| s.contains("503")));
+            assert!(result
+                .final_answer
+                .as_ref()
+                .is_some_and(|s| s.contains("503")));
             assert_eq!(result.tool_traces.len(), 1);
-            assert_eq!(result.tool_traces[0].result_summary.as_deref(), Some("LLM API error: 503"));
+            assert_eq!(
+                result.tool_traces[0].result_summary.as_deref(),
+                Some("LLM API error: 503")
+            );
         }
         _ => panic!("expected Complete with error message"),
     }
@@ -71,18 +77,26 @@ fn orchestrator_step_error_propagates_to_complete() {
 struct StubErrExecutor;
 
 impl AgentToolExecutor for StubErrExecutor {
-    fn execute_tool(&self, intent: ToolCallIntent) -> Result<oxcer_core::orchestrator::ToolOutcome, String> {
+    fn execute_tool(
+        &self,
+        intent: ToolCallIntent,
+    ) -> Result<oxcer_core::orchestrator::ToolOutcome, String> {
         let _ = intent;
         Err("stub: tool execution not available".to_string())
     }
-    fn resolve_approval(&self, _request_id: &str, _approved: bool) -> Result<serde_json::Value, String> {
+    fn resolve_approval(
+        &self,
+        _request_id: &str,
+        _approved: bool,
+    ) -> Result<serde_json::Value, String> {
         Err("stub: approval not available".to_string())
     }
 }
 
 #[test]
 fn agent_request_fails_when_executor_returns_error() {
-    let mut session = AgentSessionState::new("test-session-001".to_string(), "delete foo.txt".to_string());
+    let mut session =
+        AgentSessionState::new("test-session-001".to_string(), "delete foo.txt".to_string());
     let config = AgentConfig {
         default_workspace_id: Some("ws1".to_string()),
         default_workspace_root: Some("/tmp/ws".to_string()),

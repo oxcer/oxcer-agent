@@ -196,6 +196,7 @@ fn loaded_policy() -> &'static crate::security::policy_config::PolicyConfig {
 /// Initializes the policy with a config (e.g. default + plugin rules).
 /// Must be called before any `evaluate()`. Typically called at app startup.
 /// Returns `Err(())` if policy was already initialized.
+#[allow(clippy::result_unit_err)]
 pub fn init_policy_with_config(
     config: crate::security::policy_config::PolicyConfig,
 ) -> Result<(), ()> {
@@ -259,12 +260,9 @@ mod tests {
             };
             let dec = evaluate(req);
             assert_eq!(
-                dec.decision,
-                tc.expected_decision,
+                dec.decision, tc.expected_decision,
                 "case {}: expected {:?}, got {:?}",
-                i,
-                tc.expected_decision,
-                dec.decision
+                i, tc.expected_decision, dec.decision
             );
             assert!(
                 (tc.expected_reason)(&dec.reason_code),
@@ -441,25 +439,33 @@ mod tests {
     #[test]
     fn path_blocklist_ssh_denied() {
         let home = dirs_next::home_dir().unwrap();
-        assert!(is_path_blocklisted(&home.join(".ssh/id_rsa").display().to_string()));
+        assert!(is_path_blocklisted(
+            &home.join(".ssh/id_rsa").display().to_string()
+        ));
     }
 
     #[test]
     fn path_blocklist_aws_denied() {
         let home = dirs_next::home_dir().unwrap();
-        assert!(is_path_blocklisted(&home.join(".aws/credentials").display().to_string()));
+        assert!(is_path_blocklisted(
+            &home.join(".aws/credentials").display().to_string()
+        ));
     }
 
     #[test]
     fn path_blocklist_gnupg_denied() {
         let home = dirs_next::home_dir().unwrap();
-        assert!(is_path_blocklisted(&home.join(".gnupg/pubring.kbx").display().to_string()));
+        assert!(is_path_blocklisted(
+            &home.join(".gnupg/pubring.kbx").display().to_string()
+        ));
     }
 
     #[test]
     fn path_blocklist_env_denied() {
         let home = dirs_next::home_dir().unwrap();
-        assert!(is_path_blocklisted(&home.join(".env.local").display().to_string()));
+        assert!(is_path_blocklisted(
+            &home.join(".env.local").display().to_string()
+        ));
     }
 
     #[test]
@@ -481,7 +487,10 @@ mod tests {
         };
         let dec = evaluate(req);
         assert_eq!(dec.decision, PolicyDecisionKind::Deny);
-        assert!(matches!(dec.reason_code, ReasonCode::ShellCommandBlacklisted));
+        assert!(matches!(
+            dec.reason_code,
+            ReasonCode::ShellCommandBlacklisted
+        ));
     }
 
     #[test]
@@ -498,7 +507,10 @@ mod tests {
         };
         let dec = evaluate(req);
         assert_eq!(dec.decision, PolicyDecisionKind::Deny);
-        assert!(matches!(dec.reason_code, ReasonCode::ShellCommandBlacklisted));
+        assert!(matches!(
+            dec.reason_code,
+            ReasonCode::ShellCommandBlacklisted
+        ));
     }
 
     // --- Risk-based rules ---
@@ -562,7 +574,10 @@ mod tests {
         assert_eq!(dec.decision, PolicyDecisionKind::RequireApproval);
         assert!(
             matches!(dec.reason_code, ReasonCode::DestructiveFsRequiresApproval)
-                || matches!(dec.reason_code, ReasonCode::AgentDestructiveRequiresApproval),
+                || matches!(
+                    dec.reason_code,
+                    ReasonCode::AgentDestructiveRequiresApproval
+                ),
             "agent destructive op must require approval, got {:?}",
             dec.reason_code
         );
@@ -583,7 +598,10 @@ mod tests {
         };
         let dec = evaluate(req);
         assert_eq!(dec.decision, PolicyDecisionKind::RequireApproval);
-        assert!(matches!(dec.reason_code, ReasonCode::AgentExecRequiresApproval));
+        assert!(matches!(
+            dec.reason_code,
+            ReasonCode::AgentExecRequiresApproval
+        ));
     }
 
     #[test]
@@ -599,7 +617,10 @@ mod tests {
         };
         let dec = evaluate(req);
         assert_eq!(dec.decision, PolicyDecisionKind::RequireApproval);
-        assert!(matches!(dec.reason_code, ReasonCode::AgentWriteRequiresApproval));
+        assert!(matches!(
+            dec.reason_code,
+            ReasonCode::AgentWriteRequiresApproval
+        ));
     }
 
     #[test]
@@ -673,7 +694,8 @@ mod tests {
 
     #[test]
     fn default_deny_is_true() {
-        assert!(DEFAULT_DENY);
+        // Compile-time constant; this test documents the invariant rather than asserting it.
+        const _: () = assert!(DEFAULT_DENY);
     }
 }
 
@@ -730,7 +752,8 @@ mod proptest_tests {
     /// Path strings: safe paths, blocklisted-like (home/.ssh, home/.aws), noise.
     fn path_strat() -> impl Strategy<Value = String> {
         prop_oneof![
-            "[a-zA-Z0-9_/-]{1,30}\\.(rs|ts|txt|json|yaml)".prop_map(|s| format!("/tmp/workspace/{}", s)),
+            "[a-zA-Z0-9_/-]{1,30}\\.(rs|ts|txt|json|yaml)"
+                .prop_map(|s| format!("/tmp/workspace/{}", s)),
             "[a-zA-Z0-9_/-]{1,20}".prop_map(|s| format!("/var/tmp/{}", s)),
             "[a-zA-Z0-9_/-]{1,20}".prop_map(|s| format!("/safe/{}", s)),
             "[a-zA-Z0-9_\\./-]{1,60}".prop_map(|s| {

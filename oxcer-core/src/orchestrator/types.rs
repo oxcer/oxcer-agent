@@ -418,25 +418,56 @@ pub(crate) fn intent_tool_name(intent: &ToolCallIntent) -> String {
 /// multi-KB expanded FILE_CONTENTS from flooding the log.
 pub(crate) fn format_tool_call(intent: &ToolCallIntent) -> String {
     match intent {
-        ToolCallIntent::FsListDir { workspace_root, rel_path, .. } => {
+        ToolCallIntent::FsListDir {
+            workspace_root,
+            rel_path,
+            ..
+        } => {
             format!("FsListDir(path={workspace_root}/{rel_path})")
         }
-        ToolCallIntent::FsReadFile { workspace_root, rel_path, .. } => {
+        ToolCallIntent::FsReadFile {
+            workspace_root,
+            rel_path,
+            ..
+        } => {
             format!("FsReadFile(path={workspace_root}/{rel_path})")
         }
-        ToolCallIntent::FsWriteFile { workspace_root, rel_path, .. } => {
+        ToolCallIntent::FsWriteFile {
+            workspace_root,
+            rel_path,
+            ..
+        } => {
             format!("FsWriteFile(path={workspace_root}/{rel_path})")
         }
-        ToolCallIntent::FsDelete { workspace_root, rel_path, .. } => {
+        ToolCallIntent::FsDelete {
+            workspace_root,
+            rel_path,
+            ..
+        } => {
             format!("FsDelete(path={workspace_root}/{rel_path})")
         }
-        ToolCallIntent::FsRename { workspace_root, rel_path, new_rel_path, .. } => {
+        ToolCallIntent::FsRename {
+            workspace_root,
+            rel_path,
+            new_rel_path,
+            ..
+        } => {
             format!("FsRename(path={workspace_root}/{rel_path} -> {new_rel_path})")
         }
-        ToolCallIntent::FsMove { workspace_root, rel_path, dest_workspace_root, dest_rel_path, .. } => {
+        ToolCallIntent::FsMove {
+            workspace_root,
+            rel_path,
+            dest_workspace_root,
+            dest_rel_path,
+            ..
+        } => {
             format!("FsMove(src={workspace_root}/{rel_path} -> dest={dest_workspace_root}/{dest_rel_path})")
         }
-        ToolCallIntent::FsCreateDir { workspace_root, rel_path, .. } => {
+        ToolCallIntent::FsCreateDir {
+            workspace_root,
+            rel_path,
+            ..
+        } => {
             format!("FsCreateDir(path={workspace_root}/{rel_path})")
         }
         ToolCallIntent::ShellRun { command_id, .. } => {
@@ -445,7 +476,11 @@ pub(crate) fn format_tool_call(intent: &ToolCallIntent) -> String {
         ToolCallIntent::LlmGenerate { task, .. } => {
             const MAX: usize = 120;
             let short: String = task.chars().take(MAX).collect();
-            let ellipsis = if task.chars().count() > MAX { "…" } else { "" };
+            let ellipsis = if task.chars().count() > MAX {
+                "…"
+            } else {
+                ""
+            };
             format!("LlmGenerate(task={short}{ellipsis})")
         }
     }
@@ -453,24 +488,51 @@ pub(crate) fn format_tool_call(intent: &ToolCallIntent) -> String {
 
 pub(crate) fn intent_input_json(intent: &ToolCallIntent) -> serde_json::Value {
     match intent {
-        ToolCallIntent::FsListDir { workspace_root, rel_path, .. } => {
+        ToolCallIntent::FsListDir {
+            workspace_root,
+            rel_path,
+            ..
+        } => {
             serde_json::json!({ "workspace_root": workspace_root, "rel_path": rel_path })
         }
-        ToolCallIntent::FsReadFile { workspace_root, rel_path, .. } => {
+        ToolCallIntent::FsReadFile {
+            workspace_root,
+            rel_path,
+            ..
+        } => {
             serde_json::json!({ "workspace_root": workspace_root, "rel_path": rel_path })
         }
-        ToolCallIntent::FsWriteFile { workspace_root, rel_path, .. } => {
+        ToolCallIntent::FsWriteFile {
+            workspace_root,
+            rel_path,
+            ..
+        } => {
             serde_json::json!({ "workspace_root": workspace_root, "rel_path": rel_path })
         }
-        ToolCallIntent::FsDelete { workspace_root, rel_path, .. } => {
+        ToolCallIntent::FsDelete {
+            workspace_root,
+            rel_path,
+            ..
+        } => {
             serde_json::json!({ "workspace_root": workspace_root, "rel_path": rel_path })
         }
-        ToolCallIntent::FsRename { workspace_root, rel_path, new_rel_path, .. } => serde_json::json!({
+        ToolCallIntent::FsRename {
+            workspace_root,
+            rel_path,
+            new_rel_path,
+            ..
+        } => serde_json::json!({
             "workspace_root": workspace_root,
             "rel_path": rel_path,
             "new_rel_path": new_rel_path
         }),
-        ToolCallIntent::FsMove { workspace_root, rel_path, dest_workspace_root, dest_rel_path, .. } => {
+        ToolCallIntent::FsMove {
+            workspace_root,
+            rel_path,
+            dest_workspace_root,
+            dest_rel_path,
+            ..
+        } => {
             serde_json::json!({
                 "workspace_root": workspace_root,
                 "rel_path": rel_path,
@@ -478,10 +540,18 @@ pub(crate) fn intent_input_json(intent: &ToolCallIntent) -> serde_json::Value {
                 "dest_rel_path": dest_rel_path
             })
         }
-        ToolCallIntent::FsCreateDir { workspace_root, rel_path, .. } => {
+        ToolCallIntent::FsCreateDir {
+            workspace_root,
+            rel_path,
+            ..
+        } => {
             serde_json::json!({ "workspace_root": workspace_root, "rel_path": rel_path })
         }
-        ToolCallIntent::ShellRun { workspace_root, command_id, params } => {
+        ToolCallIntent::ShellRun {
+            workspace_root,
+            command_id,
+            params,
+        } => {
             serde_json::json!({ "workspace_root": workspace_root, "command_id": command_id, "params": params })
         }
         ToolCallIntent::LlmGenerate { task, strategy, .. } => {
@@ -490,22 +560,31 @@ pub(crate) fn intent_input_json(intent: &ToolCallIntent) -> serde_json::Value {
     }
 }
 
-pub(crate) fn build_tool_trace(
-    intent: &ToolCallIntent,
-    result: &StepResult,
-) -> ToolTrace {
+pub(crate) fn build_tool_trace(intent: &ToolCallIntent, result: &StepResult) -> ToolTrace {
     let tool_name = intent_tool_name(intent);
     let input = intent_input_json(intent);
     let (policy_decision, approved, result_summary) = match result {
         StepResult::Ok { payload } => (
             Some(PolicyDecisionKind::Allow),
             Some(true),
-            payload.get("text").and_then(|v| v.as_str()).map(String::from).or_else(|| {
-                serde_json::to_string(payload).ok().map(|s| if s.len() > 200 { format!("{}...", &s[..200]) } else { s })
-            }),
+            payload
+                .get("text")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+                .or_else(|| {
+                    serde_json::to_string(payload).ok().map(|s| {
+                        if s.len() > 200 {
+                            format!("{}...", &s[..200])
+                        } else {
+                            s
+                        }
+                    })
+                }),
         ),
         StepResult::Err { message } => (None, Some(false), Some(message.clone())),
-        StepResult::ApprovalPending { .. } => (Some(PolicyDecisionKind::RequireApproval), None, None),
+        StepResult::ApprovalPending { .. } => {
+            (Some(PolicyDecisionKind::RequireApproval), None, None)
+        }
     };
     ToolTrace {
         tool_name,

@@ -6,7 +6,10 @@
 
 use oxcer_core::data_sensitivity::{classify_and_mask_default, SensitivityLevel};
 
-fn has_pattern(findings: &[oxcer_core::data_sensitivity::SensitivityFinding], pattern_id: &str) -> bool {
+fn has_pattern(
+    findings: &[oxcer_core::data_sensitivity::SensitivityFinding],
+    pattern_id: &str,
+) -> bool {
     findings.iter().any(|f| f.pattern_id == pattern_id)
 }
 
@@ -31,9 +34,9 @@ fn aws_access_key_should_match() {
 #[test]
 fn aws_access_key_should_not_match() {
     let cases = [
-        "AKIA123",                               // too short
-        "ASIA1234567890ABCDEF",                  // ASIA prefix (temp cred), not AKIA
-        // AKIA + 17 chars: implementation may match as security-first; if so, treat as acceptable and do not assert no-match.
+        "AKIA123", // too short
+        "ASIA1234567890ABCDEF", // ASIA prefix (temp cred), not AKIA
+                   // AKIA + 17 chars: implementation may match as security-first; if so, treat as acceptable and do not assert no-match.
     ];
     for s in cases {
         let r = classify_and_mask_default(s);
@@ -67,7 +70,7 @@ fn jwt_should_match() {
 #[test]
 fn jwt_should_not_match() {
     let cases = [
-        "eyJ123",                                // too short (not enough chars after eyJ)
+        "eyJ123", // too short (not enough chars after eyJ)
     ];
     for s in cases {
         let r = classify_and_mask_default(s);
@@ -106,7 +109,8 @@ fn aws_secret_key_like_should_match() {
     for s in cases {
         let r = classify_and_mask_default(s);
         assert!(
-            has_pattern(&r.findings, "aws_secret_key_like") || has_pattern(&r.findings, "aws_access_key"),
+            has_pattern(&r.findings, "aws_secret_key_like")
+                || has_pattern(&r.findings, "aws_access_key"),
             "aws_secret_key_like or aws_access_key should match: {:?}",
             s
         );
@@ -117,8 +121,8 @@ fn aws_secret_key_like_should_match() {
 #[test]
 fn api_key_secret_val_should_not_match() {
     let cases = [
-        "OPENAI_API_KEY=",                       // no value
-        "api_key=short",                         // value too short (< 16)
+        "OPENAI_API_KEY=", // no value
+        "api_key=short",   // value too short (< 16)
     ];
     for s in cases {
         let r = classify_and_mask_default(s);
@@ -147,15 +151,19 @@ fn auth_bearer_should_match() {
             "Bearer token or embedded secret should match: {:?}",
             s
         );
-        assert_eq!(r.level, SensitivityLevel::High, "Bearer tokens must be classified HIGH");
+        assert_eq!(
+            r.level,
+            SensitivityLevel::High,
+            "Bearer tokens must be classified HIGH"
+        );
     }
 }
 
 #[test]
 fn auth_bearer_should_not_match() {
     let cases = [
-        "Authorization: Bearer short",   // token too short (< 20 chars)
-        "Bearer xxx",                    // no Authorization: prefix, short
+        "Authorization: Bearer short",       // token too short (< 20 chars)
+        "Bearer xxx",                        // no Authorization: prefix, short
         "Authorization: Basic dXNlcjpwYXNz", // Basic auth, not Bearer
     ];
     for s in cases {

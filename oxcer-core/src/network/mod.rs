@@ -9,7 +9,7 @@ mod tools;
 
 pub use error::HttpError;
 pub use tools::{
-    AgentTool, HttpClient, NetworkTool, ToolNetworkBinding, allowed_tools, tool_bindings,
+    allowed_tools, tool_bindings, AgentTool, HttpClient, NetworkTool, ToolNetworkBinding,
 };
 
 // LLM client wrappers (thin modules that use HttpClient)

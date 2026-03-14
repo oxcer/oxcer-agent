@@ -43,10 +43,7 @@ fn rotate_if_needed(app_config_dir: &Path) -> Result<(), String> {
 }
 
 /// Keep lines with completed_at >= cutoff, then keep newest up to MAX_BYTES.
-pub fn rotate_retention(
-    path: &Path,
-    cutoff: chrono::DateTime<chrono::Utc>,
-) -> Result<(), String> {
+pub fn rotate_retention(path: &Path, cutoff: chrono::DateTime<chrono::Utc>) -> Result<(), String> {
     let file = match std::fs::File::open(path) {
         Ok(f) => f,
         Err(_) => return Ok(()),
@@ -54,7 +51,7 @@ pub fn rotate_retention(
     let reader = BufReader::new(file);
     let lines: Vec<String> = reader
         .lines()
-        .filter_map(|r| r.ok())
+        .map_while(|r| r.ok())
         .filter(|s| !s.is_empty())
         .collect();
     if lines.is_empty() {

@@ -140,7 +140,9 @@ impl AgentSessionLog {
                 })
                 .unwrap_or("unknown")
                 .to_string();
-            let approval_outcome = trace.approved.map(|b| if b { "approved" } else { "denied" }.to_string());
+            let approval_outcome = trace
+                .approved
+                .map(|b| if b { "approved" } else { "denied" }.to_string());
 
             let result_summary = trace
                 .result_summary
@@ -183,7 +185,7 @@ impl AgentSessionLog {
                 step_index: 0,
                 kind: AgentStepKind::ModelCall,
                 model_call: Some(ModelCallLog {
-                    response_summary: final_answer.map(|s| scrub_for_log(s)),
+                    response_summary: final_answer.map(scrub_for_log),
                     ..Default::default()
                 }),
                 tool_call: None,

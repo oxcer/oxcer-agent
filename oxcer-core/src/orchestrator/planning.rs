@@ -10,8 +10,7 @@ use crate::semantic_router::{
 };
 
 use super::types::{
-    ExpansionKind, SessionKind, SessionState, TaskState, ToolCallIntent,
-    format_tool_call,
+    format_tool_call, ExpansionKind, SessionKind, SessionState, TaskState, ToolCallIntent,
 };
 
 // -----------------------------------------------------------------------------
@@ -44,7 +43,8 @@ fn build_plan_tools_only(
     if task_lower.contains("list files")
         || task_lower.contains("list dir")
         || task_lower.contains("list the files")
-        || (task_lower.contains("list") && (task_lower.contains("file") || task_lower.contains("dir")))
+        || (task_lower.contains("list")
+            && (task_lower.contains("file") || task_lower.contains("dir")))
         || task_lower.trim() == "ls"
     {
         intents.push(ToolCallIntent::FsListDir {
@@ -168,7 +168,11 @@ fn extract_fs_path(
             let home_ref = home.as_ref()?;
             let full_path = home_ref.join(dir_name);
             let ws_id = default_workspace_id.unwrap_or("").to_string();
-            return Some((ws_id, full_path.to_string_lossy().into_owned(), ".".to_string()));
+            return Some((
+                ws_id,
+                full_path.to_string_lossy().into_owned(),
+                ".".to_string(),
+            ));
         }
     }
 
@@ -246,16 +250,14 @@ fn extract_explicit_file_path(
     default_workspace_root: Option<&str>,
 ) -> Option<(String, String, String)> {
     const FILE_EXTS: &[&str] = &[
-        ".pdf", ".md", ".txt", ".docx", ".doc", ".csv",
-        ".json", ".yaml", ".yml", ".rst", ".tex", ".log",
-        ".py", ".rs", ".js", ".ts", ".swift",
+        ".pdf", ".md", ".txt", ".docx", ".doc", ".csv", ".json", ".yaml", ".yml", ".rst", ".tex",
+        ".log", ".py", ".rs", ".js", ".ts", ".swift",
     ];
     let ws_id = default_workspace_id.unwrap_or("").to_string();
 
     for token in task.split_whitespace() {
-        let cleaned = token.trim_matches(|c: char| {
-            matches!(c, '"' | '\'' | ',' | ';' | ')' | '(' | '[' | ']')
-        });
+        let cleaned = token
+            .trim_matches(|c: char| matches!(c, '"' | '\'' | ',' | ';' | ')' | '(' | '[' | ']'));
         let lower = cleaned.to_lowercase();
 
         // Token ends with a known file extension
@@ -341,9 +343,7 @@ fn has_most_recent_file_intent(task: &str) -> bool {
         || t.contains("newest file")
         || t.contains("recently saved")
         || t.contains("recently modified");
-    let has_location = t.contains("downloads")
-        || t.contains("desktop")
-        || t.contains("documents");
+    let has_location = t.contains("downloads") || t.contains("desktop") || t.contains("documents");
     has_recency && has_location
 }
 
@@ -400,7 +400,9 @@ fn build_plan_list_read_summarize(
 
 /// Returns `true` when `name` ends with a readable text extension and is not a hidden file.
 pub(crate) fn is_readable_file_type(name: &str) -> bool {
-    const READABLE: &[&str] = &[".md", ".txt", ".csv", ".json", ".yaml", ".yml", ".log", ".rst"];
+    const READABLE: &[&str] = &[
+        ".md", ".txt", ".csv", ".json", ".yaml", ".yml", ".log", ".rst",
+    ];
     let low = name.to_lowercase();
     READABLE.iter().any(|e| low.ends_with(e)) && !name.starts_with('.')
 }
@@ -408,9 +410,12 @@ pub(crate) fn is_readable_file_type(name: &str) -> bool {
 /// Finds a bare (non-absolute) filename token with a recognised extension in the task string.
 /// Returns `None` if no such token exists or if the only match is an absolute path.
 fn find_file_token(task: &str) -> Option<String> {
-    const EXTS: &[&str] = &[".md", ".pdf", ".txt", ".docx", ".csv", ".json", ".yaml", ".yml"];
+    const EXTS: &[&str] = &[
+        ".md", ".pdf", ".txt", ".docx", ".csv", ".json", ".yaml", ".yml",
+    ];
     for token in task.split_whitespace() {
-        let c = token.trim_matches(|ch: char| matches!(ch, '"' | '\'' | ',' | ';' | '.' | ')' | '('));
+        let c =
+            token.trim_matches(|ch: char| matches!(ch, '"' | '\'' | ',' | ';' | '.' | ')' | '('));
         let low = c.to_lowercase();
         if EXTS.iter().any(|e| low.ends_with(e)) && !c.starts_with('/') && c.len() > 2 {
             return Some(c.to_string());
@@ -518,7 +523,10 @@ fn extract_move_params(task: &str, default_ws_id: Option<&str>) -> Option<MovePa
         orig_after
             .split_whitespace()
             .next()
-            .map(|s| s.trim_matches(|c: char| matches!(c, '"' | '\'' | '.' | ',')).to_string())
+            .map(|s| {
+                s.trim_matches(|c: char| matches!(c, '"' | '\'' | '.' | ','))
+                    .to_string()
+            })
             .filter(|s| !s.is_empty())
     })?;
 
@@ -527,15 +535,25 @@ fn extract_move_params(task: &str, default_ws_id: Option<&str>) -> Option<MovePa
     let before = &t[..into_pos];
     let after = &t[into_pos..];
 
-    let src_root = if before.contains("downloads") { home.join("Downloads") }
-        else if before.contains("desktop") { home.join("Desktop") }
-        else if before.contains("documents") { home.join("Documents") }
-        else { return None };
+    let src_root = if before.contains("downloads") {
+        home.join("Downloads")
+    } else if before.contains("desktop") {
+        home.join("Desktop")
+    } else if before.contains("documents") {
+        home.join("Documents")
+    } else {
+        return None;
+    };
 
-    let dest_root = if after.contains("desktop") { home.join("Desktop") }
-        else if after.contains("documents") { home.join("Documents") }
-        else if after.contains("downloads") { home.join("Downloads") }
-        else { return None };
+    let dest_root = if after.contains("desktop") {
+        home.join("Desktop")
+    } else if after.contains("documents") {
+        home.join("Documents")
+    } else if after.contains("downloads") {
+        home.join("Downloads")
+    } else {
+        return None;
+    };
 
     let ws_id = default_ws_id.unwrap_or("").to_string();
     Some(MoveParams {
@@ -637,8 +655,10 @@ pub(crate) fn do_expand_plan(session: &mut SessionState, expansion: ExpansionKin
                 .last_dir_listing_sorted
                 .iter()
                 .filter(|f| {
-                    let matches_filter =
-                        file_filter.as_deref().map(|p| f.contains(p)).unwrap_or(true);
+                    let matches_filter = file_filter
+                        .as_deref()
+                        .map(|p| f.contains(p))
+                        .unwrap_or(true);
                     matches_filter && is_readable_file_type(f)
                 })
                 .map(|name| ToolCallIntent::FsReadFile {
@@ -660,16 +680,12 @@ pub(crate) fn do_expand_plan(session: &mut SessionState, expansion: ExpansionKin
                 workspace_root: dest_workspace_root.clone(),
                 rel_path: dest_rel_dir.clone(),
             }];
-            for name in session
-                .last_dir_listing_sorted
-                .iter()
-                .filter(|f| {
-                    file_filter
-                        .as_deref()
-                        .map(|p| f.contains(p))
-                        .unwrap_or(!f.starts_with('.'))
-                })
-            {
+            for name in session.last_dir_listing_sorted.iter().filter(|f| {
+                file_filter
+                    .as_deref()
+                    .map(|p| f.contains(p))
+                    .unwrap_or(!f.starts_with('.'))
+            }) {
                 new_steps.push(ToolCallIntent::FsMove {
                     workspace_id: ws_id.clone(),
                     workspace_root: ws_root.clone(),
@@ -819,7 +835,13 @@ pub fn start_session(
                     Some((ws_id, ws_root, rel_path)) => {
                         // Reuse the existing FsListDir → LlmGenerate plan.
                         // The prompt already forbids fabricating content not in the tool result.
-                        build_plan_fs_then_llm(&task, ws_id, ws_root, rel_path, Strategy::CheapModel)
+                        build_plan_fs_then_llm(
+                            &task,
+                            ws_id,
+                            ws_root,
+                            rel_path,
+                            Strategy::CheapModel,
+                        )
                     }
                     None => vec![ToolCallIntent::LlmGenerate {
                         strategy: Strategy::CheapModel,
@@ -882,7 +904,7 @@ pub fn start_session(
     }
     // ─────────────────────────────────────────────────────────────────────────
 
-    let first_intent = session.plan.get(0).cloned();
+    let first_intent = session.plan.first().cloned();
 
     (session, first_intent)
 }

@@ -45,8 +45,17 @@ const MAX_GREP_LINES: usize = 500;
 const MAX_GLOB_RESULTS: usize = 1000;
 /// Directories skipped during recursive walks.
 const SKIP_DIRS: &[&str] = &[
-    ".git", ".build", "target", "node_modules", ".cargo", ".npm", ".yarn",
-    "__pycache__", ".venv", "dist", "build",
+    ".git",
+    ".build",
+    "target",
+    "node_modules",
+    ".cargo",
+    ".npm",
+    ".yarn",
+    "__pycache__",
+    ".venv",
+    "dist",
+    "build",
 ];
 
 // ── Errors ────────────────────────────────────────────────────────────────────
@@ -307,9 +316,9 @@ impl McpExecutor {
 /// macOS where `/var/folders/…` and `/private/var/folders/…` refer to the same
 /// directory but `Path::canonicalize` always returns the `/private/…` form.
 pub fn guard_path(workspace_root: &Path, target: &Path) -> Result<PathBuf, McpError> {
-    let canonical_root = workspace_root.canonicalize().map_err(|e| {
-        McpError::PathTraversal(format!("workspace root not accessible: {}", e))
-    })?;
+    let canonical_root = workspace_root
+        .canonicalize()
+        .map_err(|e| McpError::PathTraversal(format!("workspace root not accessible: {}", e)))?;
 
     // Resolve relative paths against the canonical workspace root (not CWD).
     let abs_target = if target.is_absolute() {
@@ -592,7 +601,10 @@ mod tests {
         });
         assert!(out.contains("hello.txt"), "got: {out}");
         // src/lib.rs should not appear
-        assert!(!out.contains("lib.rs"), "should not include subdir files: {out}");
+        assert!(
+            !out.contains("lib.rs"),
+            "should not include subdir files: {out}"
+        );
     }
 
     #[test]

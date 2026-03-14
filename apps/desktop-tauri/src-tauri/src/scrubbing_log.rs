@@ -47,7 +47,7 @@ fn rotate_if_needed(app_config_dir: &Path) -> Result<(), String> {
     let reader = BufReader::new(file);
     let lines: Vec<String> = reader
         .lines()
-        .filter_map(|r| r.ok())
+        .map_while(|r| r.ok())
         .filter(|s| !s.is_empty())
         .collect();
     if lines.is_empty() {

@@ -88,4 +88,3 @@ pub struct PluginDescriptor {
     /// Best-effort: binary exists at load time.
     pub binary_exists: bool,
 }
-

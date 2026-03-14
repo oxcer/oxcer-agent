@@ -1,0 +1,164 @@
+name: Bug report
+description: >
+  Something isn't working as expected. If you suspect data may be
+  leaving your machine unexpectedly, see the security section below
+  before filing — or use the private advisory link in the template chooser.
+title: "[Bug] "
+labels: [bug, needs-triage]
+
+body:
+
+  # ── Intro ───────────────────────────────────────────────────────────────────
+
+  - type: markdown
+    attributes:
+      value: |
+        **Thank you for taking the time to report this.** Clear, specific bug reports are the
+        fastest path to a fix.
+
+        Oxcer is local-first. Nothing you type or summarize should leave your machine.
+        If you think that guarantee may be broken, scroll to the **Security / privacy**
+        section below, or use the private advisory link on the template chooser page.
+
+  # ── Pre-checks ──────────────────────────────────────────────────────────────
+
+  - type: checkboxes
+    id: pre-checks
+    attributes:
+      label: Before filing
+      options:
+        - label: >
+            I searched [open and closed issues](../../issues?q=is%3Aissue) and
+            [Discussions](../../discussions) — this hasn't already been reported.
+          required: true
+        - label: >
+            I am using the latest Oxcer release (or a build from the latest `main`).
+          required: true
+
+  # ── Summary ─────────────────────────────────────────────────────────────────
+
+  - type: input
+    id: summary
+    attributes:
+      label: Summary
+      description: One sentence — what broke?
+      placeholder: "e.g. App crashes when summarizing a PDF larger than 10 MB"
+    validations:
+      required: true
+
+  # ── Steps to reproduce ──────────────────────────────────────────────────────
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: >
+        A numbered list of the exact steps needed to reproduce the bug.
+        The more precise, the faster we can fix it.
+      placeholder: |
+        1. Open Oxcer.
+        2. In the chat, type: "Summarize report.pdf in Downloads"
+        3. Press Return.
+        4. Wait — app freezes for ~30 s, then quits unexpectedly.
+    validations:
+      required: true
+
+  # ── Expected behaviour ──────────────────────────────────────────────────────
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      description: What did you expect to happen?
+      placeholder: "A summary should appear in the chat window within a few seconds."
+    validations:
+      required: true
+
+  # ── Actual behaviour ────────────────────────────────────────────────────────
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+      description: What happened instead? Be specific — error messages, UI state, timing.
+      placeholder: "The app froze for ~30 s and then quit with no error message."
+    validations:
+      required: true
+
+  # ── Environment ─────────────────────────────────────────────────────────────
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: >
+        Fill in as many fields as you know. **macOS version**, **Oxcer version**, and
+        **Mac chip** are the most important for diagnosis.
+      value: |
+        - **macOS version:** <!-- e.g. macOS 15.3 Sequoia -->
+        - **Oxcer version:** <!-- e.g. v0.1.0  or paste the SHA: git rev-parse --short HEAD -->
+        - **How installed:** <!-- built from source / pre-built binary -->
+        - **Mac model and chip:** <!-- e.g. MacBook Pro M3 Max, 36 GB RAM -->
+        - **Model file in use:** <!-- e.g. Meta-Llama-3-8B-Instruct-Q4_K_M.gguf -->
+        - **Xcode version (if built from source):** <!-- e.g. Xcode 16.2 -->
+        - **Rust toolchain (if built from source):** <!-- paste output of: rustc --version -->
+    validations:
+      required: true
+
+  # ── Logs / screenshots ──────────────────────────────────────────────────────
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or crash output (optional)
+      description: |
+        Paste relevant log lines or attach a screenshot.
+
+        **Where to find logs:**
+        - **Console.app** → filter by process `OxcerLauncher`
+        - **Terminal** → set `OXCER_LOG=debug` and run Oxcer from the command line
+        - **Crash reports** → `~/Library/Logs/DiagnosticReports/OxcerLauncher_*.ips`
+        - **Xcode debug console** (if running from source)
+
+        ⚠️ **Do not paste file contents, API keys, passwords, or personal data.**
+        Oxcer's on-device DLP scanner redacts credentials before inference, but this
+        is a public issue tracker — please redact anything sensitive before pasting.
+      render: text
+    validations:
+      required: false
+
+  # ── Security / privacy impact ───────────────────────────────────────────────
+
+  - type: checkboxes
+    id: security-flag
+    attributes:
+      label: Security / privacy impact
+      description: >
+        Check the box below if this bug may affect Oxcer's **local-first guarantees** —
+        for example: unexpected network activity, data written outside your workspace,
+        or credentials exposed in logs.
+      options:
+        - label: >
+            This bug may affect what data is read, written, or transmitted,
+            or may break Oxcer's "nothing leaves your machine" guarantee.
+          required: false
+
+  - type: textarea
+    id: security-details
+    attributes:
+      label: Security / privacy details
+      description: |
+        **Fill this in only if you checked the box above.**
+
+        Describe what you observed at a high level — network destination, file path,
+        log content — without including actual secrets or personal data.
+
+        > For serious vulnerabilities (data exfiltration, credential exposure),
+        > please use **GitHub's private security advisory flow** (linked on the
+        > template chooser page) or email **security@oxcer.app** instead of
+        > filing a public issue.
+      placeholder: |
+        e.g. "While summarizing a file, I noticed an outbound HTTPS request to
+        an unexpected host in Little Snitch. No credentials were involved."
+    validations:
+      required: false
