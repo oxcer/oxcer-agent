@@ -1,21 +1,169 @@
 # Contributing to Oxcer
 
-> **Read this if** you want to open an issue or pull request. Covers code style, the FFI workflow, and what makes a clean contribution.
-
-Thank you for your interest in contributing. This guide covers everything you need to open a useful issue or a clean pull request.
+> **Read this before opening a PR.** Covers project structure, the FFI workflow, disabled code paths, experimental features, testing, and code style.
 
 ---
 
 ## Table of Contents
 
-1. [Filing Issues](#filing-issues)
-2. [Contributing Code](#contributing-code)
-3. [Local Development Setup](#local-development-setup)
-4. [Code Style](#code-style)
-5. [Network Access Policy](#network-access-policy)
-6. [Testing](#testing)
-7. [Commit Conventions](#commit-conventions)
-8. [License](#license)
+1. [Project Structure](#project-structure)
+2. [FFI Workflow](#ffi-workflow)
+3. [Disabled Workflows](#disabled-workflows)
+4. [Experimental Features](#experimental-features)
+5. [Filing Issues](#filing-issues)
+6. [Contributing Code](#contributing-code)
+7. [Testing](#testing)
+8. [Code Style](#code-style)
+9. [Network Access Policy](#network-access-policy)
+10. [Commit Conventions](#commit-conventions)
+11. [License](#license)
+
+---
+
+## Project Structure
+
+Three layers. Each has a distinct responsibility boundary.
+
+```
+oxcer-core/          # Pure Rust library — agent orchestrator, LLM engine, security, tools
+oxcer_ffi/           # Rust → Swift FFI bridge (UniFFI 0.28, attribute macros, no .udl)
+apps/
+  OxcerLauncher/     # macOS SwiftUI app — the only production UI target
+  desktop-tauri/     # Cross-platform Tauri shell — backend-only stub, no production UI
+  windows-launcher/  # Planned WinUI 3 launcher — stub only
+plugins/             # YAML plugin definitions
+config/              # Policies and defaults
+docs/                # Architecture, development, security docs, whitepaper.pdf
+scripts/             # regen-ffi.sh, check-ffi-freshness.sh, dev helpers
+demo/                # Test files for Workflow 1 (Test1_doc.md) and Workflow 2 (Test2_doc*.md)
+```
+
+### oxcer-core
+
+The agent loop (`orchestrator/`), semantic router, LLM engine abstraction (`llm/`), file tools (`tools/`), data sensitivity scanner (`data_sensitivity/`), and memory/logging modules. No Swift dependencies. No platform APIs. Fully testable with `cargo test`.
+
+Key subdirectories:
+
+| Path | Contents |
+|------|----------|
+| `oxcer-core/src/orchestrator/` | `planning.rs` (plan builder), `execution.rs` (step loop), `types.rs` (intent/state types) |
+| `oxcer-core/src/llm/` | `LlmEngine` trait, `LocalPhi3Engine`, `CloudLlmEngine`, `HttpLlmEngine`, `HybridEngine` |
+| `oxcer-core/src/llm/local_phi3/` | `LlamaCppPhiRuntime` (llama.cpp + Metal), `PhiRuntime` trait |
+| `oxcer-core/src/semantic_router.rs` | Keyword-based router — no LLM, no network |
+| `oxcer-core/src/data_sensitivity/` | DLP scanner — redacts credentials before any LLM call |
+| `oxcer-core/src/memory.rs` | Markdown-backed fact store — implemented, not yet wired to production loop |
+| `oxcer-core/src/db.rs` | SQLite episodic store — implemented, not yet wired to production loop |
+| `oxcer-core/src/agent_session_log.rs` | Per-session structured log — implemented, no callers yet |
+
+### oxcer_ffi
+
+UniFFI 0.28 bridge. The Rust side is `oxcer_ffi/src/lib.rs`. The generated Swift side is `apps/OxcerLauncher/OxcerLauncher/oxcer_ffi.swift` and `apps/OxcerLauncher/OxcerLauncher/oxcer_ffiFFI.h`.
+
+`ffi_agent_step` is the main per-step entry point. Session state is an opaque JSON blob. Changes to any `#[uniffi::export]` item require regenerating the Swift bindings (see [FFI Workflow](#ffi-workflow)).
+
+### OxcerLauncher
+
+SwiftUI app. Key files:
+
+| File | Responsibility |
+|------|----------------|
+| `ContentView.swift` | Root view, `AppViewModel`, `ApprovalBubble`, `DetailView` |
+| `AgentRunner.swift` | `AgentRunner` struct — drives the `ffi_agent_step` while-loop; `AgentEnvironment` |
+| `SwiftAgentExecutor.swift` | Executes each `FfiToolIntent` (FS ops, LLM generate, shell) |
+| `OxcerBackend.swift` | `OxcerBackend` protocol + `DefaultOxcerBackend` implementation |
+| `oxcer_ffi.swift` | Generated — do not edit manually |
+| `oxcer_ffiFFI.h` | Generated — do not edit manually |
+
+---
+
+## FFI Workflow
+
+Every time you add, remove, or change a `#[uniffi::export]` item in `oxcer_ffi/src/lib.rs`, you must regenerate both generated files and commit them together with the Rust change.
+
+### Regenerating bindings
+
+Always regenerate from the **release** dylib:
+
+```bash
+./scripts/regen-ffi.sh
+```
+
+This script rebuilds `liboxcer_ffi.dylib` in release mode and copies both generated files to their committed locations:
+
+- `apps/OxcerLauncher/OxcerLauncher/oxcer_ffi.swift`
+- `apps/OxcerLauncher/OxcerLauncher/oxcer_ffiFFI.h`
+
+After regenerating, do a **Clean Build Folder** in Xcode (⇧⌘K) before building to avoid stale object files.
+
+### Committing an FFI change
+
+```bash
+git add oxcer_ffi/src/lib.rs \
+        apps/OxcerLauncher/OxcerLauncher/oxcer_ffi.swift \
+        apps/OxcerLauncher/OxcerLauncher/oxcer_ffiFFI.h
+git commit -m 'ffi: <describe the contract change>'
+```
+
+Never regenerate from the debug dylib. Debug and release builds produce different ABI checksums. A debug/release mismatch causes `apiChecksumMismatch` at runtime (crash on launch).
+
+### Pre-push hook
+
+Wire the freshness check as a pre-push hook so CI never catches what your local build already knows:
+
+```bash
+cp scripts/check-ffi-freshness.sh .git/hooks/pre-push
+chmod +x .git/hooks/pre-push
+```
+
+The hook builds the release dylib, runs `uniffi-bindgen`, and diffs the output against the committed files. It exits non-zero (blocking the push) if any diff is found.
+
+### CI enforcement
+
+The `uniffi-binding-freshness` CI job performs the same check on every PR and push to `main`. PRs with stale bindings fail automatically. The job checks both `.swift` and `.h` — both must be up to date.
+
+---
+
+## Disabled Workflows
+
+**Do not re-enable Workflow 2 or Workflow 3 without end-to-end validation.**
+
+Two plan expansion paths exist in `oxcer-core/src/orchestrator/planning.rs` and are intentionally disabled in v0.1:
+
+### Workflow 2 — Multi-file summarization (`ReadAndSummarize`)
+
+`start_session` sets `pending_expansion = None` unconditionally. The expansion function `do_expand_plan` in `execution.rs` contains the `ReadAndSummarize` arm, and the plan builder `build_plan_list_then_multi_summarize` is marked `#[allow(dead_code)]`.
+
+The blocker is context-budget safety: `content_accumulator` collects `FsReadFile` results until `{{FILE_CONTENTS}}` is substituted into the `LlmGenerate` task. There is no enforcement that the accumulated content fits within `FS_RESULT_MAX_CHARS` across N files without overflowing the 8 192-token context window.
+
+Before re-enabling: add an `accumulator_byte_limit` guard in `do_expand_plan` that truncates or rejects the expansion if the total accumulated size would exceed safe limits, and add integration tests covering the overflow case.
+
+### Workflow 3 — Folder-level move operations (`MoveToDir`)
+
+Same pattern: `pending_expansion = None`, `build_plan_list_then_move` marked `#[allow(dead_code)]`.
+
+The blocker is fan-out validation: `do_expand_plan` inserts `[FsCreateDir(dest), FsMove×N]`. On large directories (hundreds of files), this produces a plan with hundreds of write intents, each requiring human approval. The approval UI is not designed for that volume, and there is no plan size limit.
+
+Before re-enabling: add a `max_move_fan_out` cap, define the UX for bulk approval, and test against directories of realistic size.
+
+---
+
+## Experimental Features
+
+Features behind `#[cfg(feature = "experimental")]` are not compiled into release builds and are not connected to the production UI. Do not depend on them in code that ships.
+
+### `fsm.rs` — Stateful agent FSM
+
+`oxcer-core/src/fsm.rs` implements `AgentFsm`, a step-driven state machine with `StateDb` (SQLite episodic store) injected as context. It is connected to the `orchestrate_query` FFI export in `oxcer_ffi/src/lib.rs` but not to `ffi_agent_step`.
+
+### Subagent orchestration (`ffi_orchestrate`)
+
+`ffi_orchestrate` in `oxcer_ffi/src/lib.rs` calls `subagent::orchestrate`, which uses `memory.rs` (the Markdown fact store). This path is experimental, not called from the UI, and not covered by the production test suite in its current form.
+
+### `memory.rs`, `db.rs`, `agent_session_log.rs`
+
+All three are fully implemented with real logic and passing unit tests. None are connected to `ffi_agent_step`. They are documented in [ROADMAP.md](ROADMAP.md) as v1.0 wiring work.
+
+Do not add callers to these modules in production code paths without a corresponding tracking issue and end-to-end test coverage.
 
 ---
 
@@ -23,37 +171,31 @@ Thank you for your interest in contributing. This guide covers everything you ne
 
 ### Bug Reports
 
-Use the **Bug Report** issue template and include:
+Use the **Bug Report** issue template. Required fields:
 
-- **Oxcer version** (git SHA or release tag).
-- **macOS version** and **Xcode version**.
-- **Rust toolchain version** (`rustc --version`).
-- **Model file name and size** (e.g. `Meta-Llama-3-8B-Instruct-Q4_K_M.gguf`, ~4.7 GB).
-- **Steps to reproduce** — the exact sequence that triggers the bug.
-- **Expected behavior** and **actual behavior**.
-- **Console output or crash log** — run from Xcode and copy the relevant lines from the debug console. For Rust panics, include the full backtrace (`RUST_BACKTRACE=1`).
+- **Oxcer version** (git SHA or release tag — `git rev-parse --short HEAD`)
+- **macOS version** and **Mac chip** (e.g. M3 Max)
+- **Xcode version** and **Rust toolchain** (`rustc --version`) if built from source
+- **Model file name** (e.g. `Meta-Llama-3-8B-Instruct-Q4_K_M.gguf`)
+- **Steps to reproduce** — exact sequence that triggers the bug
+- **Expected behaviour** and **actual behaviour** as separate fields
+- **Console output or crash log** — set `OXCER_LOG=debug` for verbose Rust output; crash reports are at `~/Library/Logs/DiagnosticReports/OxcerLauncher_*.ips`
 
-**Do not include credentials, API keys, or personal file paths in bug reports.**
+**Do not include credentials, API keys, personal file paths, or file contents in bug reports.** Oxcer's DLP scanner redacts credentials before inference, but the issue tracker is public.
 
 ### Feature Requests
 
-Use the **Feature Request** template and describe:
-
-- The use case you are trying to solve (not just the feature itself).
-- Any constraints you are aware of (on-device only, security model, etc.).
-- Whether you are willing to implement it.
+Use the **Feature Request** template. Lead with the use case (the task you are trying to accomplish), not the implementation. Check [ROADMAP.md](ROADMAP.md) first — your feature may already be planned.
 
 ### Security Vulnerabilities
 
-Do **not** open a public issue for security vulnerabilities. Instead, email `security@oxcer.dev` (or use the private security advisory feature on GitHub) with a description and reproduction steps. We aim to respond within 72 hours.
+Do **not** open a public issue for security vulnerabilities. Use GitHub's private security advisory flow (linked on the template chooser page) or email `security@oxcer.app`. We aim to respond within 72 hours. See [docs/security.md](docs/security.md) for the full security model and reporting guidelines.
 
 ---
 
 ## Contributing Code
 
 ### Prerequisites
-
-Make sure you can build the project locally before opening a PR:
 
 ```bash
 brew install cmake          # required by llama-cpp-sys
@@ -74,12 +216,12 @@ See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for the full build guide.
    git remote add upstream https://github.com/your-org/oxcer.git
    ```
 
-3. Create a branch from `main` using the convention below:
+3. Create a branch from `main`:
 
    | Change type | Branch prefix | Example |
    |---|---|---|
    | Bug fix | `fix/` | `fix/approval-overlay-dismiss` |
-   | New feature | `feat/` | `feat/session-export` |
+   | New feature | `feat/` | `feat/streaming-output` |
    | Documentation | `docs/` | `docs/update-security-guide` |
    | Refactoring | `refactor/` | `refactor/agent-runner-cleanup` |
    | CI / tooling | `ci/` | `ci/add-clippy-job` |
@@ -87,30 +229,20 @@ See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for the full build guide.
 ### Pull Request Workflow
 
 1. **Keep PRs focused.** One logical change per PR. Separate refactors from features.
-2. **Write a clear description.** Explain what changed and why, not just what the diff shows.
-3. **Reference the issue.** Use `Closes #123` or `Related to #123` in the PR body.
+2. **Write a clear description.** Explain what changed and why.
+3. **Reference the issue.** `Closes #123` or `Related to #123` in the PR body.
 4. **Pass all CI checks** before requesting review.
-5. **Respond to review comments** within a reasonable time. Stale PRs may be closed after 30 days of inactivity.
-
-**FFI changes require extra steps.** If you add, remove, or change any `#[uniffi::export]` item in `oxcer_ffi/src/lib.rs`, you must regenerate the Swift bindings before opening the PR:
-
-```bash
-./scripts/regen-ffi.sh
-git add oxcer_ffi/src/lib.rs \
-        apps/OxcerLauncher/OxcerLauncher/oxcer_ffi.swift \
-        apps/OxcerLauncher/OxcerLauncher/oxcer_ffiFFI.h
-```
-
-CI enforces binding freshness; PRs with stale bindings will fail automatically.
+5. **FFI changes:** regenerate bindings before opening the PR (see [FFI Workflow](#ffi-workflow)).
+6. **Stale PRs** may be closed after 30 days of inactivity.
 
 ---
 
-## Local Development Setup
+## Testing
 
-### Running tests
+Run the full test suite before opening a PR:
 
 ```bash
-# Rust core — unit + integration tests (~3–5 s on a warm build)
+# Rust core — unit + integration tests
 cargo test -p oxcer-core
 
 # FFI contract tests — catches stale bindings and wrong return types
@@ -120,78 +252,51 @@ cargo test -p oxcer_ffi
 cargo check --workspace
 ```
 
-All three must pass before opening a PR. CI runs them with `--locked` (pinned `Cargo.lock`), so your local results should match.
+All three must pass. CI runs them with `--locked` (pinned `Cargo.lock`).
 
-### Pre-commit hooks
+For Swift: run the **OxcerLauncherTests** target in Xcode (⌘U). Add `XCTest` cases in `apps/OxcerLauncher/OxcerLauncherTests/` for any change that affects view model logic or FFI wiring.
 
-Hooks mirror the CI lint job so you catch formatting issues before pushing.
+### Adding tests
 
-**Install once:**
+- New functionality in `oxcer-core` must include unit tests in the same file or in `oxcer-core/tests/`.
+- New FFI exports must include a round-trip test in `oxcer_ffi/src/lib.rs` `#[cfg(test)]`.
+- New Swift view model logic must include an `XCTest` case.
 
-```bash
-pip install pre-commit        # or: brew install pre-commit
-pre-commit install            # wires the hooks into .git/hooks/pre-commit
-brew install swiftformat      # required by the swiftformat hook (macOS only)
-```
+### macOS app build check
 
-**What runs on every `git commit`:**
-
-| Hook | What it checks | Speed |
-|------|---------------|-------|
-| `cargo-fmt` | Rust formatting (`cargo fmt --check`) | Fast (~1 s) |
-| `swiftformat` | Swift formatting (`--lint`, macOS only) | Fast (~1 s) |
-| `detect-private-key` | PEM keys / credentials in staged files | Instant |
-| `check-yaml` / `check-json` | Syntax of `.yaml` / `.json` files | Instant |
-| `check-merge-conflict` | Unresolved conflict markers | Instant |
-| `end-of-file-fixer` | Trailing newlines | Instant |
-| `trailing-whitespace` | Trailing spaces | Instant |
-
-**What does NOT run on every commit (too slow):**
-
-`cargo-clippy` is in the `manual` stage — it triggers a full incremental compile which can take 10–60 seconds. Run it explicitly when you want the full lint check:
+After Swift or Xcode project changes:
 
 ```bash
-pre-commit run --hook-stage manual cargo-clippy --all-files
-```
-
-CI always runs `cargo clippy --all-targets -D warnings` on every PR regardless.
-
-**Run all hooks against the whole tree (useful before a first PR):**
-
-```bash
-pre-commit run --all-files
+cargo build --release -p oxcer_ffi
+xcodebuild \
+  -project apps/OxcerLauncher/OxcerLauncher.xcodeproj \
+  -scheme OxcerLauncher \
+  -destination 'platform=macOS' \
+  build
 ```
 
 ### CI overview
 
-Three jobs run on every PR and push to `main`:
+| Job | Runs on | What it checks |
+|-----|---------|----------------|
+| **Lint** | Linux | `cargo fmt --check`, `cargo clippy --all-targets -D warnings` |
+| **Rust tests** | Linux | `cargo check --workspace`, `cargo test` for `oxcer-core` + `oxcer_ffi` |
+| **macOS build + FFI freshness** | macOS | Dylib build, Xcode build, UniFFI binding freshness (`.swift` + `.h`) |
 
-| Job | Runs on | Approx. time | What it checks |
-|-----|---------|-------------|----------------|
-| **Lint (fmt + clippy)** | Linux | ~2–3 min | `cargo fmt --check`, `cargo clippy --all-targets -D warnings` |
-| **Rust tests** | Linux | ~3–5 min | `cargo check --workspace`, `cargo test` for `oxcer-core` + `oxcer_ffi` |
-| **macOS build & FFI bindings** | macOS | ~10–15 min | Dylib build, Xcode build, UniFFI binding freshness (both `.swift` and `.h`) |
+The macOS job only starts after both Linux jobs pass.
 
-The macOS job only starts after both Linux jobs pass, so you get fast failure feedback without burning macOS runner minutes.
+### Pre-commit hooks
 
-### Fixing common CI failures
-
-**`cargo fmt --check` fails:**
 ```bash
-cargo fmt   # auto-formats in place
-git add -u && git commit --amend --no-edit
+pip install pre-commit
+pre-commit install
+brew install swiftformat
 ```
 
-**`cargo clippy` fails:**
-Fix the reported warnings. If a lint is a genuine false positive, suppress with `#[allow(reason)]` and a comment explaining why.
+Hooks: `cargo-fmt`, `swiftformat`, `detect-private-key`, `check-yaml`, `check-json`, `check-merge-conflict`, `end-of-file-fixer`, `trailing-whitespace`. Clippy is `manual` stage (run explicitly when needed):
 
-**`macOS build & FFI bindings` fails on binding freshness:**
 ```bash
-./scripts/regen-ffi.sh
-git add oxcer_ffi/src/lib.rs \
-        apps/OxcerLauncher/OxcerLauncher/oxcer_ffi.swift \
-        apps/OxcerLauncher/OxcerLauncher/oxcer_ffiFFI.h
-git commit -m 'ffi: regenerate bindings'
+pre-commit run --hook-stage manual cargo-clippy --all-files
 ```
 
 ---
@@ -200,127 +305,68 @@ git commit -m 'ffi: regenerate bindings'
 
 ### Rust
 
-**Formatting:** All Rust code must be formatted with `rustfmt`. The CI `lint` job runs:
-
-```bash
-cargo fmt --check
-```
-
-To auto-format before committing:
+Format with `rustfmt` before committing:
 
 ```bash
 cargo fmt
 ```
 
-**Linting:** The CI `lint` job also runs Clippy with warnings promoted to errors:
+Linting:
 
 ```bash
 cargo clippy -- -D warnings
 ```
 
-Fix all Clippy warnings before opening a PR. If a lint is a false positive, suppress it with `#[allow(...)]` and a comment explaining why.
-
-**Style notes:**
-- Prefer `thiserror` for error types in library crates; avoid `Box<dyn Error>` at API boundaries.
+Style notes:
+- Prefer `thiserror` for error types in library crates. Avoid `Box<dyn Error>` at API boundaries.
 - Keep `pub` surface minimal — expose only what callers need.
-- Use `tracing::` macros (not `println!` or `eprintln!`) for diagnostics. The structured JSON subscriber is initialised by `ensure_logging_init()` in `oxcer_ffi`. Control verbosity with `OXCER_LOG=debug`.
-- All paths handed to the LLM must pass through `scrub_for_llm_call`. Do not bypass the data sensitivity pipeline.
+- Use `tracing::` macros (`tracing::info!`, `tracing::debug!`, etc.) for diagnostics. Never `println!` or `eprintln!`. Control verbosity with `OXCER_LOG=debug`.
+- All text handed to the LLM must pass through `scrub_for_llm_call`. Do not bypass the data sensitivity pipeline.
 
 ### Swift / SwiftUI
 
-**Formatting:** Install [SwiftFormat](https://github.com/nicklockwood/SwiftFormat) and run it before committing:
+Format before committing:
 
 ```bash
-brew install swiftformat
 swiftformat apps/OxcerLauncher/OxcerLauncher/
 ```
 
-A `.swiftformat` config file at the repo root sets project-wide rules.
-
-**Style notes:**
-- All view state that must survive re-renders belongs in a `@StateObject` or `@ObservedObject`, not in local `@State` on a parent view.
+Style notes:
+- View state that must survive re-renders belongs in `@StateObject` or `@ObservedObject`, not local `@State` on a parent.
 - Views that observe `ObservableObject` properties must use `@ObservedObject`, not `let`. Plain `let` on a struct view does not subscribe to `objectWillChange`.
-- Prefer `os.Logger` over `print()` for all diagnostics. Use `.debug()` for verbose output (compiled out in Release at Info level), `.info()` for lifecycle events, `.error()` for failures.
-- Avoid `.id()` as a "refresh key" on views that own `@StateObject`; it destroys the subtree and recreates state.
+- Use `os.Logger` over `print()`. `.debug()` for verbose output, `.info()` for lifecycle events, `.error()` for failures.
+- Avoid `.id()` as a "refresh key" on views that own `@StateObject` — it destroys the subtree and recreates state.
 
 ---
 
 ## Network Access Policy
 
-**Oxcer does not make arbitrary HTTP requests and is not a web-browsing agent.**
+**Oxcer does not make arbitrary HTTP requests and is not a web-browsing agent.** This is a deliberate design constraint.
 
-This is a deliberate design constraint, not an oversight. Understanding it will save you from opening a PR that cannot be accepted.
+No tool in the agent loop (`fs_list_dir`, `fs_read_file`, `shell_run`, etc.) makes outbound network calls. The local inference path (`LlamaCppPhiRuntime` via llama.cpp + Metal) is fully offline. No token, prompt, or file content leaves the machine during inference.
 
-### What Oxcer does not do
+### Permitted network calls
 
-- Oxcer has no general-purpose HTTP client or fetch capability.
-- It cannot browse URLs, scrape HTML, or retrieve arbitrary web content.
-- No tool in the agent loop (`fs_list_dir`, `fs_read_file`, `shell_run`, etc.) makes outbound network calls.
-- The local inference path (`LlamaCppPhiRuntime` via llama.cpp + Metal) is fully offline. No token or prompt data leaves the machine during inference.
+1. **Model download.** `ensure_local_model()` fetches the GGUF file from a fixed, pinned URL over HTTPS on first run, with user awareness. This is the only current outbound call; it is not triggered by the agent loop.
+2. **Cloud model APIs.** The `CLOUD_ENGINE_SLOT` backend supports OpenAI, Anthropic, Gemini, and Grok as optional, explicitly opt-in backends. When enabled, prompts pass through the same DLP scanner as local inference before being sent.
 
-### Why
+### Do not add
 
-- **Security.** An open HTTP fetch capability creates a vector for data exfiltration and SSRF. Keeping Oxcer offline-by-default ensures that no file content, credential fragment, or user query can be sent to an attacker-controlled endpoint by a manipulated prompt.
-- **Scope.** Oxcer is a file-task agent, not a research assistant. Adding web access would require a new category of permission, trust boundary, and policy review that is out of scope for this project at this stage.
-
-### What is permitted (future)
-
-Network access may be added in two narrowly scoped forms:
-
-1. **Model download.** `ensure_local_model()` fetches the GGUF file from a fixed, pinned URL over HTTPS on first run, with user awareness. This is the only current outbound call and it is not triggered by the agent loop.
-2. **Cloud model APIs.** A future optional cloud backend (see [ROADMAP.md](ROADMAP.md)) may allow the agent to call a specific model API (Gemini, Anthropic, OpenAI, Grok) if the user explicitly enables it. Any such integration must pass through the same scrubbing and guardrails as local inference. It will be documented and opt-in, not on by default.
-
-### Contributor guidance
-
-Do not add:
-- HTTP client code (`reqwest`, `URLSession`, `curl` subprocess) outside of the model-download path without opening an issue and getting explicit agreement first.
+- HTTP client code (`reqwest`, `URLSession`, `curl` subprocess) outside the model-download path without opening an issue first.
 - Any tool intent that fetches URLs or executes web requests.
 - Shell commands in tests or examples that make outbound connections.
 
-If you are proposing a feature that requires network access, describe the exact scope, endpoint set, and security controls in your issue before writing code.
-
----
-
-## Testing
-
-**Before opening a PR, run the full Rust test suite:**
-
-```bash
-cargo test -p oxcer-core    # unit + integration tests for the core
-cargo test -p oxcer_ffi     # FFI contract tests
-```
-
-All tests must pass. Do not open a PR with failing tests unless the failure is in existing code and you are explicitly fixing it (explain this in the PR description).
-
-**Adding tests:**
-
-- New Rust functionality in `oxcer-core` must include unit tests in the same file or in `oxcer-core/tests/`.
-- New FFI exports must include a round-trip test in `oxcer_ffi/src/lib.rs` `#[cfg(test)]`.
-- For Swift: add `XCTest` cases in `apps/OxcerLauncher/OxcerLauncherTests/` if the change affects view model logic or FFI wiring.
-
-**macOS app build check:**
-
-After making Swift or Xcode project changes, verify the app builds cleanly:
-
-```bash
-cargo build --release -p oxcer_ffi   # must succeed first
-xcodebuild -project apps/OxcerLauncher/OxcerLauncher.xcodeproj \
-           -scheme OxcerLauncher \
-           -destination 'platform=macOS' \
-           build
-```
+If your feature requires network access, describe the exact scope, endpoint set, and security controls in your issue before writing code.
 
 ---
 
 ## Commit Conventions
 
-We use a lightweight prefix scheme inspired by [Conventional Commits](https://www.conventionalcommits.org/):
+Lightweight prefix scheme:
 
 ```
 <type>(<scope>): <short summary>
 ```
-
-**Types:**
 
 | Type | When to use |
 |---|---|
@@ -331,29 +377,26 @@ We use a lightweight prefix scheme inspired by [Conventional Commits](https://ww
 | `docs` | Documentation only |
 | `ci` | CI/CD changes |
 | `chore` | Maintenance (dependency bumps, cleanup) |
-| `ffi` | FFI contract change (always regenerate bindings) |
+| `ffi` | FFI contract change — always regenerate bindings |
 
-**Scope** is optional but helpful: `ffi`, `agent`, `security`, `swift`, `llm`, `ci`.
+Scope is optional but helpful: `ffi`, `agent`, `security`, `swift`, `llm`, `ci`.
 
-**Examples:**
+Examples:
 
 ```
 feat(agent): add session pin and rename to sidebar
 fix(ffi): correct list_workspaces return type to prevent 88 GB VM spike
-refactor(security): extract scrub_for_llm_call into standalone module
 ffi(orchestrator): expose ffi_agent_step with session JSON opaque blob
-docs: replace internal sprint notes with public architecture guide
+docs: rewrite ROADMAP to align with v1.0 milestone structure
 ci: add cargo clippy and Swift build jobs
 ```
 
 - **Summary line:** ≤ 72 characters, present tense, no trailing period.
 - **Body:** Optional. Use it to explain *why*, not *what*.
-- **Breaking changes:** Add `BREAKING CHANGE:` in the commit body (or `!` after the type) and describe the migration path.
+- **Breaking changes:** Add `BREAKING CHANGE:` in the commit body and describe the migration path.
 
 ---
 
 ## License
 
 By submitting a pull request you agree that your contribution will be licensed under the same license as this project (see [LICENSE](LICENSE)).
-
-If your organisation requires a Contributor License Agreement (CLA), one will be linked here when available.
