@@ -19,8 +19,6 @@ name: CodeQL
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
   schedule:
     # Run once a week (Monday 06:15 UTC) so new CVEs are caught even when
     # the codebase hasn't changed.
