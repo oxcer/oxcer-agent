@@ -82,7 +82,7 @@ The current planner recognizes `Downloads`, `Desktop`, and `Documents` by exact 
 
 ### Windows and Linux native launchers
 
-The Rust core (`oxcer-core`) is fully platform-agnostic. The `desktop-tauri` Tauri shell exists as a backend-only stub and is not the intended Windows distribution target. The target is a native WinUI 3 launcher on Windows. Linux: a CLI or minimal GTK/Qt wrapper for headless and server use cases.
+The Rust core (`oxcer-core`) is fully platform-agnostic. Native launchers planned — WinUI 3 on Windows, CLI or minimal GTK/Qt wrapper for Linux headless and server use cases.
 
 ### GGUF → ONNX Runtime migration
 
